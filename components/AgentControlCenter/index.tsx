@@ -11,6 +11,8 @@ import { OnboardingFlow, OnboardingResult } from '../AgentStudio/OnboardingFlow'
 import { EmailPreviewModal } from './EmailPreviewModal';
 import { WorkspaceDataPanel, WorkspaceData } from './WorkspaceDataPanel';
 import { AgentAnalysisActions } from './AgentAnalysisActions';
+import { useAgenticMode } from '../../context/AgenticModeContext';
+import { useWebSocket } from '../../context/WebSocketContext';
 import './styles.css';
 
 // Type for pending email data
@@ -60,6 +62,11 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [useAIEnhancement, setUseAIEnhancement] = useState(true);
   const [lastRouting, setLastRouting] = useState<RoutingDecision | null>(null);
   const [deployingTo, setDeployingTo] = useState<AgentId | null>(null);
+
+  // Agentic mode integration (shared context)
+  const { isEnabled: agenticModeEnabled, executeGoal, resumeExecution } = useAgenticMode();
+  const { connected: wsConnected } = useWebSocket();
+  const [agenticStateId, setAgenticStateId] = useState<string | null>(null);
   // Persist sessionId per customer in localStorage
   const [sessionId] = useState(() => {
     const customerId = customer?.id || customer?.name || 'default';
@@ -376,7 +383,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   };
 
-  // Send message to LangChain-powered AI backend
+  // Send message to LangChain-powered AI backend (or agentic system)
   const sendToAgent = async (message: string) => {
     // Save user message to database
     saveChatMessage('user', message);
@@ -385,10 +392,78 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     // Add thinking state
     setMessages(prev => [...prev, {
       agent: activeAgent,
-      message: 'Processing your request...',
+      message: agenticModeEnabled ? 'Executing autonomously...' : 'Processing your request...',
       isThinking: true
     }]);
 
+    // If agentic mode is enabled, route through the agentic system
+    if (agenticModeEnabled) {
+      try {
+        const result = await executeGoal(message, customer?.id);
+
+        // Remove thinking message
+        setMessages(prev => prev.filter(m => !m.isThinking));
+
+        if (result.status === 'paused_for_approval') {
+          // Store state ID for approval handling
+          setAgenticStateId(result.stateId || null);
+
+          // Show approval request in chat
+          const approvalMsg = `**Approval Required** (${result.pendingApproval?.riskLevel} risk)\n\n` +
+            `Action: **${result.pendingApproval?.toolName}**\n` +
+            `Reason: ${result.pendingApproval?.reason}\n\n` +
+            `${result.message}`;
+
+          setMessages(prev => [...prev, {
+            agent: activeAgent,
+            message: approvalMsg,
+            isApproval: true,
+          }]);
+          setPendingApproval(result.stateId || 'agentic');
+        } else if (result.status === 'completed') {
+          // Show completion message with actions taken
+          let actionsText = '';
+          if (result.actions && result.actions.length > 0) {
+            actionsText = '\n\n**Actions executed:**\n' +
+              result.actions.map(a => `- ${a.toolName}`).join('\n');
+          }
+
+          setMessages(prev => [...prev, {
+            agent: activeAgent,
+            message: `${result.message}${actionsText}`,
+          }]);
+        } else {
+          // Show result message
+          setMessages(prev => [...prev, {
+            agent: activeAgent,
+            message: result.message,
+          }]);
+        }
+
+        saveChatMessage('assistant', result.message, activeAgent);
+      } catch (error) {
+        console.error('Agentic execution error:', error);
+        setMessages(prev => {
+          const filtered = prev.filter(m => !m.isThinking);
+          return [...filtered, {
+            agent: activeAgent,
+            message: `Agentic execution failed: ${error instanceof Error ? error.message : 'Unknown error'}. Falling back to chat mode.`
+          }];
+        });
+        // Fall back to regular chat on agentic error
+        await sendToAgentRegular(message);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // Regular chat flow
+    await sendToAgentRegular(message);
+  };
+
+  // Regular (non-agentic) chat flow
+  const sendToAgentRegular = async (message: string) => {
     try {
       const response = await fetch(`${API_URL}/api/ai/chat`, {
         method: 'POST',
@@ -486,7 +561,63 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   };
 
+  // Handle approval for both agentic and regular modes
   const handleApproval = async (approved: boolean) => {
+    // Check if this is an agentic approval
+    if (agenticStateId) {
+      setMessages(prev => [...prev, {
+        isUser: true,
+        message: approved ? '✓ Approved - proceeding with autonomous execution' : '✗ Rejected - stopping execution'
+      }]);
+
+      try {
+        const result = await resumeExecution(agenticStateId, approved);
+
+        if (result.status === 'paused_for_approval') {
+          // Another approval needed
+          setAgenticStateId(result.stateId || null);
+
+          const approvalMsg = `**Another Approval Required** (${result.pendingApproval?.riskLevel} risk)\n\n` +
+            `Action: **${result.pendingApproval?.toolName}**\n` +
+            `Reason: ${result.pendingApproval?.reason}`;
+
+          setMessages(prev => [...prev, {
+            agent: activeAgent,
+            message: approvalMsg,
+            isApproval: true,
+          }]);
+          setPendingApproval(result.stateId || 'agentic');
+        } else {
+          // Execution complete
+          setAgenticStateId(null);
+          setPendingApproval(null);
+
+          let actionsText = '';
+          if (result.actions && result.actions.length > 0) {
+            actionsText = '\n\n**Actions executed:**\n' +
+              result.actions.map(a => `- ${a.toolName}`).join('\n');
+          }
+
+          setMessages(prev => [...prev, {
+            agent: activeAgent,
+            message: approved
+              ? `✅ ${result.message}${actionsText}`
+              : `⛔ Execution stopped: ${result.message}`,
+          }]);
+        }
+      } catch (error) {
+        console.error('Resume error:', error);
+        setMessages(prev => [...prev, {
+          agent: activeAgent,
+          message: `❌ Error resuming execution: ${error instanceof Error ? error.message : 'Unknown error'}`
+        }]);
+        setAgenticStateId(null);
+        setPendingApproval(null);
+      }
+      return;
+    }
+
+    // Regular (non-agentic) approval flow
     setMessages(prev => [...prev, {
       isUser: true,
       message: approved ? '✓ Approved - proceed' : '✗ Rejected - stop'
@@ -1316,6 +1447,14 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           <p className="customer-details" style={{ color: '#22c55e' }}>
             ● Connected to AI Backend
           </p>
+          <p className="customer-details" style={{ color: agenticModeEnabled ? '#e63946' : '#6b7280', marginTop: '2px' }}>
+            {agenticModeEnabled ? '⚡ Agentic Mode ACTIVE' : '○ Agentic Mode OFF'}
+          </p>
+          {wsConnected && (
+            <p className="customer-details" style={{ color: '#22c55e', marginTop: '2px' }}>
+              ● WebSocket connected
+            </p>
+          )}
           {contractData && (
             <p className="customer-details" style={{ color: '#3b82f6', marginTop: '2px' }}>
               ● Contract data loaded
@@ -1343,9 +1482,29 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             <h1>{CS_AGENTS[activeAgent]?.name || 'AI Agent'}</h1>
             <p>LangChain RAG-powered • {customer?.name || 'Ready'}</p>
           </div>
-          <div className="agent-status">
-            <span className={`status-dot ${activeAgent ? 'active' : ''}`} />
-            <span>{activeAgent ? `${CS_AGENTS[activeAgent]?.name} active` : 'Idle'}</span>
+          <div className="agent-status" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Agentic Mode Indicator */}
+            {agenticModeEnabled && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px',
+                background: 'linear-gradient(135deg, #e63946 0%, #c41d3a 100%)',
+                borderRadius: '12px',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'white',
+                animation: 'pulse 2s infinite',
+              }}>
+                <span style={{ fontSize: '10px' }}>⚡</span>
+                AGENTIC MODE
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span className={`status-dot ${activeAgent ? 'active' : ''}`} />
+              <span>{activeAgent ? `${CS_AGENTS[activeAgent]?.name} active` : 'Idle'}</span>
+            </div>
           </div>
         </header>
 
@@ -1541,7 +1700,9 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               {isProcessing ? '...' : 'Send'}
             </button>
           </div>
-          <p className="input-hint">LangChain RAG · {selectedAgent === 'auto' ? 'Auto-routing' : `${CS_AGENTS[selectedAgent]?.name}`} · HITL approval</p>
+          <p className="input-hint">
+            {agenticModeEnabled ? '⚡ Agentic Mode' : 'LangChain RAG'} · {selectedAgent === 'auto' ? 'Auto-routing' : `${CS_AGENTS[selectedAgent]?.name}`} · {agenticModeEnabled ? 'Autonomous execution' : 'HITL approval'}
+          </p>
         </div>
       </div>
 

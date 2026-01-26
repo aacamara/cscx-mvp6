@@ -21,7 +21,11 @@ import { KnowledgeBase } from './components/KnowledgeBase';
 import { AgentStudio } from './components/AgentStudio';
 import { Observability } from './components/Observability';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { WebSocketProvider } from './context/WebSocketContext';
+import { AgenticModeProvider } from './context/AgenticModeContext';
 import { isSupabaseConfigured } from './lib/supabase';
+import { AgenticModeToggle } from './components/AgenticModeToggle';
+import { AgentNotifications } from './components/AgentNotifications';
 
 // ============================================
 // CSCX.AI 10X - Simplified View Model
@@ -141,6 +145,12 @@ const AppContent: React.FC = () => {
                   ← Back to Dashboard
                 </button>
               )}
+
+              {/* Agent Notifications - show when authenticated, in demo mode, or when Supabase not configured */}
+              {(isAuthenticated || demoMode || !isSupabaseConfigured()) && <AgentNotifications />}
+
+              {/* Agentic Mode Toggle - show when authenticated, in demo mode, or when Supabase not configured */}
+              {(isAuthenticated || demoMode || !isSupabaseConfigured()) && <AgenticModeToggle />}
 
               {/* User Profile */}
               {isAuthenticated && <UserProfile />}
@@ -273,7 +283,11 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <AppContent />
+      <WebSocketProvider>
+        <AgenticModeProvider>
+          <AppContent />
+        </AgenticModeProvider>
+      </WebSocketProvider>
     </AuthProvider>
   );
 };

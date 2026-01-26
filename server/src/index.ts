@@ -31,6 +31,8 @@ import integrationsRoutes from './routes/integrations.js';
 import chatRoutes from './routes/chat.js';
 import workspaceAgentRoutes from './routes/workspace-agent.js';
 import aiAnalysisRoutes from './routes/ai-analysis.js';
+import agenticModeRoutes from './routes/agentic-mode.js';
+import agenticAgentsRoutes, { setWebSocketHandler } from './routes/agentic-agents.js';
 import { config } from './config/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { metricsMiddleware, getMetrics, getPrometheusMetrics } from './middleware/metrics.js';
@@ -48,6 +50,9 @@ const server = createServer(app);
 // WebSocket server for real-time agent updates
 const wss = new WebSocketServer({ server, path: '/ws' });
 const wsHandler = new WebSocketHandler(wss);
+
+// Wire up WebSocket to agentic routes for real-time notifications
+setWebSocketHandler(wsHandler);
 
 // Wire up agent tracer events to WebSocket for real-time observability
 agentTracer.on('run:start', (event) => {
@@ -210,6 +215,8 @@ app.use('/api/integrations', integrationsRoutes); // CRM integrations (Salesforc
 app.use('/api/chat', chatRoutes); // Chat message persistence
 app.use('/api/workspace-agent', workspaceAgentRoutes); // Workspace agent quick actions
 app.use('/api/ai-analysis', aiAnalysisRoutes); // Claude-powered sheet analysis (AppScript alternative)
+app.use('/api/agentic-mode', agenticModeRoutes); // Agentic mode toggle and configuration
+app.use('/api/agentic', agenticAgentsRoutes); // Agentic agent execution endpoints
 
 // Error handler
 app.use(errorHandler);

@@ -107,6 +107,9 @@ export interface Interaction {
 }
 
 export interface AgentContext {
+  // User ID for service calls
+  userId: string;
+
   // Immutable context (set once)
   customer: CustomerProfile;
   contract?: ContractData;

@@ -17,6 +17,8 @@ import { docsService } from './google/docs.js';
 import { sheetsService } from './google/sheets.js';
 import { slidesService } from './google/slides.js';
 import { driveService } from './google/drive.js';
+import { agenticModeService } from './agentic-mode.js';
+import { AgenticModeConfig } from '../agents/engine/agentic-loop.js';
 
 // Type definitions
 export type ActionType =
@@ -84,6 +86,142 @@ export class ApprovalService {
     if (config.supabaseUrl && config.supabaseServiceKey) {
       this.supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
     }
+  }
+
+  /**
+   * Check if an action should be auto-approved based on agentic mode settings
+   * Returns true if the action should be executed immediately without waiting for approval
+   */
+  async shouldAutoApprove(
+    userId: string,
+    actionType: ActionType
+  ): Promise<{ autoApprove: boolean; reason: string }> {
+    // Get user's agentic mode settings
+    const config = await agenticModeService.getEffectiveConfig(userId);
+
+    // If agentic mode is disabled, never auto-approve
+    if (!config.enabled) {
+      return { autoApprove: false, reason: 'Agentic mode is disabled' };
+    }
+
+    // Determine risk level of the action
+    const riskLevel = this.determineRiskLevel(actionType);
+
+    // Critical actions are never auto-approved
+    if (riskLevel === 'critical') {
+      return { autoApprove: false, reason: 'Critical actions always require approval' };
+    }
+
+    // High-risk actions respect pauseOnHighRisk setting
+    if (riskLevel === 'high' && config.pauseOnHighRisk) {
+      return { autoApprove: false, reason: 'High-risk action requires approval' };
+    }
+
+    // Check auto-approve level
+    switch (config.autoApproveLevel) {
+      case 'all':
+        return { autoApprove: true, reason: 'Auto-approved (all mode)' };
+      case 'low_risk':
+        if (riskLevel === 'low') {
+          return { autoApprove: true, reason: 'Auto-approved (low-risk action)' };
+        }
+        return { autoApprove: false, reason: 'Only low-risk actions are auto-approved' };
+      case 'none':
+      default:
+        return { autoApprove: false, reason: 'Auto-approve is disabled' };
+    }
+  }
+
+  /**
+   * Determine the risk level of an action type
+   */
+  private determineRiskLevel(actionType: ActionType): 'low' | 'medium' | 'high' | 'critical' {
+    const highRiskActions: ActionType[] = [
+      'send_email',
+      'schedule_meeting',
+      'share_document',
+      'risk_escalation',
+    ];
+
+    const mediumRiskActions: ActionType[] = [
+      'create_document',
+      'create_spreadsheet',
+      'onboarding_kickoff',
+      'onboarding_welcome_sequence',
+      'renewal_value_summary',
+      'strategic_qbr_prep',
+      'strategic_exec_briefing',
+      'strategic_account_plan',
+    ];
+
+    const criticalActions: ActionType[] = [
+      'risk_save_play', // Save plays need careful review
+    ];
+
+    if (criticalActions.includes(actionType)) return 'critical';
+    if (highRiskActions.includes(actionType)) return 'high';
+    if (mediumRiskActions.includes(actionType)) return 'medium';
+    return 'low'; // create_task, other
+  }
+
+  /**
+   * Create an approval request or auto-execute if agentic mode allows
+   */
+  async createApprovalOrExecute(
+    request: CreateApprovalRequest
+  ): Promise<{ executed: boolean; approval?: ApprovalItem; result?: any }> {
+    // Check if should auto-approve
+    const { autoApprove, reason } = await this.shouldAutoApprove(
+      request.userId,
+      request.actionType
+    );
+
+    if (autoApprove) {
+      console.log(`[Approval] Auto-executing ${request.actionType}: ${reason}`);
+
+      // Execute the action directly
+      try {
+        await this.executeAction(
+          request.userId,
+          request.actionType,
+          request.actionData
+        );
+
+        // Log the auto-approval for audit
+        if (this.supabase) {
+          await (this.supabase as any)
+            .from('approval_queue')
+            .insert({
+              user_id: request.userId,
+              execution_id: request.executionId,
+              action_type: request.actionType,
+              action_data: request.actionData,
+              original_content: request.originalContent,
+              status: 'approved',
+              reviewer_notes: `Auto-approved: ${reason}`,
+              reviewed_at: new Date().toISOString(),
+              expires_at: new Date().toISOString()
+            });
+        }
+
+        return {
+          executed: true,
+          result: { message: `Action executed: ${request.actionType}`, autoApproved: true }
+        };
+      } catch (error) {
+        console.error(`[Approval] Auto-execution failed:`, error);
+        // Fall back to creating an approval request
+      }
+    }
+
+    // Create normal approval request
+    console.log(`[Approval] Creating approval for ${request.actionType}: ${reason}`);
+    const approval = await this.createApproval(request);
+
+    return {
+      executed: false,
+      approval
+    };
   }
 
   /**

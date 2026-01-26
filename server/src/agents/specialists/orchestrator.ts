@@ -79,7 +79,7 @@ const delegateToAgent: Tool = {
 
 const requestHumanApproval: Tool = {
   name: 'request_human_approval',
-  description: 'Escalate decision to human CSM for approval',
+  description: 'Escalate decision to human CSM for approval. Use this when you need human confirmation before proceeding.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -108,7 +108,9 @@ const requestHumanApproval: Tool = {
     },
     required: ['action', 'reason']
   },
-  requiresApproval: false,
+  // This tool ALWAYS requires approval - it's the explicit approval request
+  requiresApproval: true,
+  riskLevel: 'critical',
   execute: async (input: {
     action: string;
     reason: string;

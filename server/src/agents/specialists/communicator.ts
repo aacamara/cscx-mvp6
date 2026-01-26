@@ -10,6 +10,7 @@ import {
   Tool,
   ToolResult
 } from '../types';
+import { gmailService } from '../../services/google/gmail.js';
 
 // ============================================
 // Communicator Tools
@@ -183,17 +184,42 @@ const sendEmail: Tool = {
   }, context: AgentContext): Promise<ToolResult> => {
     console.log(`[Communicator] Sending email (draft: ${input.draftId || 'none'})`);
 
-    // TODO: Integrate with Gmail API
-    return {
-      success: true,
-      data: {
-        messageId: `msg_${Date.now()}`,
-        to: input.to,
-        subject: input.subject,
-        status: 'pending_approval',
-        sentAt: null
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for Gmail access');
       }
-    };
+
+      if (!input.to || !input.subject || !input.body) {
+        throw new Error('Email requires to, subject, and body');
+      }
+
+      // Send the email using Gmail API (returns message ID string)
+      const messageId = await gmailService.sendEmail(userId, {
+        to: [input.to],
+        cc: input.cc,
+        bcc: input.bcc,
+        subject: input.subject,
+        bodyHtml: input.body,
+      });
+
+      return {
+        success: true,
+        data: {
+          messageId,
+          to: input.to,
+          subject: input.subject,
+          status: 'sent',
+          sentAt: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error('[Communicator] Error sending email:', error);
+      return {
+        success: false,
+        error: `Failed to send email: ${(error as Error).message}`
+      };
+    }
   }
 };
 
@@ -284,15 +310,44 @@ const getEmailHistory: Tool = {
   }, context: AgentContext): Promise<ToolResult> => {
     console.log(`[Communicator] Getting email history`);
 
-    // TODO: Integrate with Gmail API
-    return {
-      success: true,
-      data: {
-        threads: [],
-        count: 0,
-        customerEmail: input.customerEmail || context.customer?.primaryContact?.email
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for Gmail access');
       }
-    };
+
+      const email = input.customerEmail || context.customer?.primaryContact?.email;
+      const query = email ? `from:${email} OR to:${email}` : undefined;
+
+      // Get email threads from Gmail API
+      const result = await gmailService.listThreads(userId, {
+        maxResults: input.limit || 10,
+        query,
+      });
+
+      return {
+        success: true,
+        data: {
+          threads: result.threads.map(t => ({
+            id: t.id,
+            subject: t.subject,
+            snippet: t.snippet,
+            participants: t.participants,
+            messageCount: t.messageCount,
+            lastMessageAt: t.lastMessageAt,
+            isUnread: t.isUnread,
+          })),
+          count: result.threads.length,
+          customerEmail: email
+        }
+      };
+    } catch (error) {
+      console.error('[Communicator] Error getting email history:', error);
+      return {
+        success: false,
+        error: `Failed to get email history: ${(error as Error).message}`
+      };
+    }
   }
 };
 
@@ -344,15 +399,51 @@ const searchEmails: Tool = {
   }, context: AgentContext): Promise<ToolResult> => {
     console.log(`[Communicator] Searching emails: ${input.query}`);
 
-    // TODO: Integrate with Gmail API
-    return {
-      success: true,
-      data: {
-        results: [],
-        count: 0,
-        query: input.query
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for Gmail access');
       }
-    };
+
+      // Build Gmail search query
+      const queryParts: string[] = [input.query];
+      if (input.from) queryParts.push(`from:${input.from}`);
+      if (input.to) queryParts.push(`to:${input.to}`);
+      if (input.hasAttachment) queryParts.push('has:attachment');
+      if (input.dateRange?.start) queryParts.push(`after:${input.dateRange.start}`);
+      if (input.dateRange?.end) queryParts.push(`before:${input.dateRange.end}`);
+
+      const fullQuery = queryParts.join(' ');
+
+      // Search emails using Gmail API
+      const result = await gmailService.listThreads(userId, {
+        maxResults: input.limit || 20,
+        query: fullQuery,
+      });
+
+      return {
+        success: true,
+        data: {
+          results: result.threads.map(t => ({
+            id: t.id,
+            subject: t.subject,
+            snippet: t.snippet,
+            participants: t.participants,
+            messageCount: t.messageCount,
+            lastMessageAt: t.lastMessageAt,
+            isUnread: t.isUnread,
+          })),
+          count: result.threads.length,
+          query: fullQuery
+        }
+      };
+    } catch (error) {
+      console.error('[Communicator] Error searching emails:', error);
+      return {
+        success: false,
+        error: `Failed to search emails: ${(error as Error).message}`
+      };
+    }
   }
 };
 

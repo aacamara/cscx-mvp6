@@ -10,6 +10,7 @@ import {
   Tool,
   ToolResult
 } from '../types';
+import { calendarService } from '../../services/google/calendar.js';
 
 // ============================================
 // Scheduler Tools
@@ -55,22 +56,72 @@ const checkAvailability: Tool = {
   }, context: AgentContext): Promise<ToolResult> => {
     console.log(`[Scheduler] Checking availability for ${input.participants.length} participants`);
 
-    // TODO: Integrate with Google Calendar API
-    // For now, return mock availability
-    const mockSlots = [
-      { start: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), end: new Date(Date.now() + 24 * 60 * 60 * 1000 + input.durationMinutes * 60 * 1000).toISOString() },
-      { start: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), end: new Date(Date.now() + 48 * 60 * 60 * 1000 + input.durationMinutes * 60 * 1000).toISOString() },
-      { start: new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString(), end: new Date(Date.now() + 72 * 60 * 60 * 1000 + input.durationMinutes * 60 * 1000).toISOString() }
-    ];
-
-    return {
-      success: true,
-      data: {
-        availableSlots: mockSlots,
-        participantsChecked: input.participants,
-        durationMinutes: input.durationMinutes
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for calendar access');
       }
-    };
+
+      const startDate = new Date(input.dateRange.start);
+      const endDate = new Date(input.dateRange.end);
+
+      // Get free/busy info from Google Calendar
+      const freeBusyMap = await calendarService.getFreeBusy(
+        userId,
+        startDate,
+        endDate,
+        ['primary']
+      );
+
+      // Get busy slots from the primary calendar
+      const busySlots = freeBusyMap.get('primary') || [];
+
+      // Find available slots by inverting busy times
+      const availableSlots: Array<{ start: string; end: string }> = [];
+      const durationMs = input.durationMinutes * 60 * 1000;
+
+      // Simple slot generation: check each day at common meeting times
+      const meetingHours = [9, 10, 11, 14, 15, 16]; // 9am-11am, 2pm-4pm
+
+      for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+        for (const hour of meetingHours) {
+          const slotStart = new Date(d);
+          slotStart.setHours(hour, 0, 0, 0);
+          const slotEnd = new Date(slotStart.getTime() + durationMs);
+
+          // Check if this slot conflicts with any busy times
+          const isAvailable = !busySlots.some(busy => {
+            return slotStart < busy.end && slotEnd > busy.start;
+          });
+
+          if (isAvailable && slotStart > new Date()) {
+            availableSlots.push({
+              start: slotStart.toISOString(),
+              end: slotEnd.toISOString()
+            });
+          }
+
+          if (availableSlots.length >= 5) break; // Limit to 5 suggestions
+        }
+        if (availableSlots.length >= 5) break;
+      }
+
+      return {
+        success: true,
+        data: {
+          availableSlots,
+          participantsChecked: input.participants,
+          durationMinutes: input.durationMinutes,
+          busySlots: busySlots.map(s => ({ start: s.start.toISOString(), end: s.end.toISOString() }))
+        }
+      };
+    } catch (error) {
+      console.error('[Scheduler] Error checking availability:', error);
+      return {
+        success: false,
+        error: `Failed to check availability: ${(error as Error).message}`
+      };
+    }
   }
 };
 
@@ -190,19 +241,42 @@ const bookMeeting: Tool = {
   }, context: AgentContext): Promise<ToolResult> => {
     console.log(`[Scheduler] Booking meeting: ${input.title}`);
 
-    // TODO: Integrate with Google Calendar API
-    return {
-      success: true,
-      data: {
-        eventId: `event_${Date.now()}`,
-        title: input.title,
-        participants: input.participants,
-        start: input.slot.start,
-        end: input.slot.end,
-        meetLink: input.includeGoogleMeet ? `https://meet.google.com/${Date.now()}` : undefined,
-        status: 'pending_approval'
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for calendar access');
       }
-    };
+
+      // Create the event using Google Calendar API
+      const event = await calendarService.createEvent(userId, {
+        title: input.title,
+        description: input.description,
+        startTime: new Date(input.slot.start),
+        endTime: new Date(input.slot.end),
+        attendees: input.participants,
+        createMeetLink: input.includeGoogleMeet !== false, // Default to true
+        sendNotifications: input.sendInvites !== false, // Default to true
+      });
+
+      return {
+        success: true,
+        data: {
+          eventId: event.googleEventId,
+          title: event.title,
+          participants: input.participants,
+          start: event.startTime.toISOString(),
+          end: event.endTime.toISOString(),
+          meetLink: event.meetLink,
+          status: 'confirmed'
+        }
+      };
+    } catch (error) {
+      console.error('[Scheduler] Error booking meeting:', error);
+      return {
+        success: false,
+        error: `Failed to book meeting: ${(error as Error).message}`
+      };
+    }
   }
 };
 
@@ -266,15 +340,56 @@ const getTodaysMeetings: Tool = {
   }, context: AgentContext): Promise<ToolResult> => {
     console.log(`[Scheduler] Getting today's meetings`);
 
-    // TODO: Integrate with Google Calendar API
-    return {
-      success: true,
-      data: {
-        meetings: [],
-        count: 0,
-        date: new Date().toISOString().split('T')[0]
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for calendar access');
       }
-    };
+
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Get today's events from Google Calendar
+      const events = await calendarService.listEvents(userId, {
+        timeMin: today,
+        timeMax: tomorrow,
+        singleEvents: true,
+        orderBy: 'startTime',
+      });
+
+      // Filter customer-only if requested
+      let filteredEvents = events;
+      if (input.includeCustomerOnly && context.customer?.primaryContact?.email) {
+        const customerEmail = context.customer.primaryContact.email;
+        filteredEvents = events.filter(event =>
+          event.attendees.some(a => a.email === customerEmail)
+        );
+      }
+
+      return {
+        success: true,
+        data: {
+          meetings: filteredEvents.map(e => ({
+            id: e.googleEventId,
+            title: e.title,
+            start: e.startTime.toISOString(),
+            end: e.endTime.toISOString(),
+            meetLink: e.meetLink,
+            attendees: e.attendees.map(a => a.email),
+          })),
+          count: filteredEvents.length,
+          date: today.toISOString().split('T')[0]
+        }
+      };
+    } catch (error) {
+      console.error('[Scheduler] Error getting meetings:', error);
+      return {
+        success: false,
+        error: `Failed to get meetings: ${(error as Error).message}`
+      };
+    }
   }
 };
 
