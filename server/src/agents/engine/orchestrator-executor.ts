@@ -461,6 +461,295 @@ export async function quickCheckIn(
   };
 }
 
+// ============================================
+// Parallel Specialist Execution
+// ============================================
+
+export interface ParallelTask {
+  agentId: string;
+  task: string;
+  priority?: number;  // Lower = higher priority for result merging
+}
+
+export interface ParallelExecutionResult {
+  success: boolean;
+  totalTasks: number;
+  completedTasks: number;
+  failedTasks: number;
+  results: Array<{
+    agentId: string;
+    task: string;
+    result: ExecutionResult;
+    durationMs: number;
+  }>;
+  mergedActions: ExecutedAction[];
+  errors: string[];
+}
+
+export interface ParallelExecutionConfig {
+  continueOnError?: boolean;    // Continue other tasks if one fails (default: true)
+  timeoutMs?: number;           // Per-task timeout (default: 60000)
+  maxConcurrency?: number;      // Max parallel tasks (default: all)
+}
+
+/**
+ * Execute multiple specialist tasks in parallel
+ * Use this when tasks are independent and can run concurrently
+ */
+export async function executeParallelSpecialists(
+  tasks: ParallelTask[],
+  context: AgentContext,
+  config?: ParallelExecutionConfig,
+  agenticConfig?: AgenticModeConfig
+): Promise<ParallelExecutionResult> {
+  const {
+    continueOnError = true,
+    timeoutMs = 60000,
+    maxConcurrency = tasks.length,
+  } = config || {};
+
+  console.log(`[Orchestrator] Executing ${tasks.length} parallel specialist tasks`);
+
+  const startTime = Date.now();
+  const results: ParallelExecutionResult['results'] = [];
+  const errors: string[] = [];
+  let stopped = false;
+
+  // Process in batches for concurrency control
+  const batches = chunkArray(tasks, maxConcurrency);
+
+  for (const batch of batches) {
+    if (stopped) break;
+
+    const batchPromises = batch.map(async (task) => {
+      if (stopped) {
+        return {
+          agentId: task.agentId,
+          task: task.task,
+          result: createSkippedResult(task.task, 'Execution stopped due to error'),
+          durationMs: 0,
+        };
+      }
+
+      const taskStart = Date.now();
+
+      try {
+        const result = await executeWithTimeout(
+          executeWithSpecialist(task.agentId, task.task, context, agenticConfig),
+          timeoutMs
+        );
+
+        return {
+          agentId: task.agentId,
+          task: task.task,
+          result,
+          durationMs: Date.now() - taskStart,
+        };
+
+      } catch (error) {
+        const errorMessage = (error as Error).message;
+        errors.push(`[${task.agentId}] ${errorMessage}`);
+
+        if (!continueOnError) {
+          stopped = true;
+        }
+
+        return {
+          agentId: task.agentId,
+          task: task.task,
+          result: createFailedResult(task.task, errorMessage),
+          durationMs: Date.now() - taskStart,
+        };
+      }
+    });
+
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+  }
+
+  // Sort by priority if specified
+  const sortedResults = [...results].sort((a, b) => {
+    const taskA = tasks.find(t => t.agentId === a.agentId && t.task === a.task);
+    const taskB = tasks.find(t => t.agentId === b.agentId && t.task === b.task);
+    return (taskA?.priority || 0) - (taskB?.priority || 0);
+  });
+
+  // Merge all actions in priority order
+  const mergedActions: ExecutedAction[] = [];
+  for (const r of sortedResults) {
+    mergedActions.push(...r.result.actions);
+  }
+
+  const completedTasks = results.filter(r => r.result.success).length;
+  const failedTasks = results.filter(r => !r.result.success).length;
+
+  const parallelResult: ParallelExecutionResult = {
+    success: failedTasks === 0,
+    totalTasks: tasks.length,
+    completedTasks,
+    failedTasks,
+    results: sortedResults,
+    mergedActions,
+    errors,
+  };
+
+  console.log(`[Orchestrator] Parallel execution completed: ${completedTasks}/${tasks.length} successful in ${Date.now() - startTime}ms`);
+
+  return parallelResult;
+}
+
+/**
+ * Execute specialists for a complex multi-faceted goal
+ * Automatically determines which specialists to engage
+ */
+export async function executeCollaborativeGoal(
+  goal: string,
+  context: AgentContext,
+  agenticConfig?: AgenticModeConfig
+): Promise<{
+  plan: TaskLedger;
+  parallelResults?: ParallelExecutionResult;
+  sequentialResults?: ExecutionResult[];
+  success: boolean;
+  message: string;
+}> {
+  console.log(`[Orchestrator] Executing collaborative goal: "${goal.substring(0, 50)}..."`);
+
+  // First, generate a plan
+  const plan = await planGoal(goal, context);
+
+  // Analyze plan for parallelizable steps
+  const { parallelSteps, sequentialSteps } = analyzeStepsForParallelization(plan.plan);
+
+  const results: {
+    parallelResults?: ParallelExecutionResult;
+    sequentialResults: ExecutionResult[];
+  } = {
+    sequentialResults: [],
+  };
+
+  // Execute parallel steps first (if any)
+  if (parallelSteps.length > 0) {
+    const parallelTasks: ParallelTask[] = parallelSteps.map((step, index) => ({
+      agentId: step.agentId || 'orchestrator',
+      task: step.description,
+      priority: index,
+    }));
+
+    results.parallelResults = await executeParallelSpecialists(
+      parallelTasks,
+      context,
+      { continueOnError: true },
+      agenticConfig
+    );
+  }
+
+  // Execute sequential steps
+  for (const step of sequentialSteps) {
+    const stepGoal = `Execute: ${step.description}`;
+    const stepResult = await executeGoal(stepGoal, context, agenticConfig);
+    results.sequentialResults.push(stepResult);
+
+    // Stop on failure for sequential steps
+    if (!stepResult.success && stepResult.state.status !== 'paused_for_approval') {
+      break;
+    }
+  }
+
+  // Determine overall success
+  const parallelSuccess = !results.parallelResults || results.parallelResults.success;
+  const sequentialSuccess = results.sequentialResults.every(r => r.success);
+
+  return {
+    plan,
+    parallelResults: results.parallelResults,
+    sequentialResults: results.sequentialResults,
+    success: parallelSuccess && sequentialSuccess,
+    message: parallelSuccess && sequentialSuccess
+      ? 'Collaborative goal completed successfully'
+      : 'Collaborative goal partially completed with some failures',
+  };
+}
+
+// Helper: Analyze steps for parallelization opportunities
+function analyzeStepsForParallelization(steps: TaskStep[]): {
+  parallelSteps: TaskStep[];
+  sequentialSteps: TaskStep[];
+} {
+  const parallelSteps: TaskStep[] = [];
+  const sequentialSteps: TaskStep[] = [];
+
+  for (const step of steps) {
+    // Steps with no dependencies and certain agent types can run in parallel
+    const noDependencies = !step.dependsOn || step.dependsOn.length === 0;
+    const isParallelizable = ['researcher', 'scheduler'].includes(step.agentId);
+
+    if (noDependencies && isParallelizable) {
+      parallelSteps.push(step);
+    } else {
+      sequentialSteps.push(step);
+    }
+  }
+
+  return { parallelSteps, sequentialSteps };
+}
+
+// Helper: Execute with timeout
+async function executeWithTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number
+): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Execution timeout')), timeoutMs)
+    ),
+  ]);
+}
+
+// Helper: Chunk array for batch processing
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size));
+  }
+  return chunks;
+}
+
+// Helper: Create skipped result
+function createSkippedResult(task: string, reason: string): ExecutionResult {
+  return {
+    success: false,
+    state: {
+      goalDescription: task,
+      currentStep: 0,
+      maxSteps: 0,
+      steps: [],
+      status: 'failed',
+      error: reason,
+    },
+    message: reason,
+    actions: [],
+  };
+}
+
+// Helper: Create failed result
+function createFailedResult(task: string, error: string): ExecutionResult {
+  return {
+    success: false,
+    state: {
+      goalDescription: task,
+      currentStep: 0,
+      maxSteps: 0,
+      steps: [],
+      status: 'failed',
+      error,
+    },
+    message: `Execution failed: ${error}`,
+    actions: [],
+  };
+}
+
 // Helper: Generate quick recommendations based on context
 function generateQuickRecommendations(context: AgentContext): string[] {
   const recommendations: string[] = [];
@@ -523,4 +812,6 @@ export default {
   resumePlanAfterApproval,
   executeWithSpecialist,
   quickCheckIn,
+  executeParallelSpecialists,
+  executeCollaborativeGoal,
 };

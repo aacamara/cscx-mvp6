@@ -33,9 +33,15 @@ import workspaceAgentRoutes from './routes/workspace-agent.js';
 import aiAnalysisRoutes from './routes/ai-analysis.js';
 import agenticModeRoutes from './routes/agentic-mode.js';
 import agenticAgentsRoutes, { setWebSocketHandler } from './routes/agentic-agents.js';
+import schedulesRoutes from './routes/schedules.js';
+import skillsRoutes from './routes/skills.js';
+import { tracesRoutes } from './routes/traces.js';
+import { agentMetricsRoutes } from './routes/agent-metrics.js';
 import { config } from './config/index.js';
+import { schedulerService } from './services/scheduler.js';
+import { agentMemoryService } from './services/agentMemory.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { metricsMiddleware, getMetrics, getPrometheusMetrics } from './middleware/metrics.js';
+import { metricsMiddleware, getMetrics, getPrometheusMetrics, getAgenticMetrics } from './middleware/metrics.js';
 import { WebSocketHandler } from './services/websocket.js';
 import { healthService } from './services/health.js';
 import { getAllCircuitBreakerStats } from './services/circuitBreaker.js';
@@ -186,6 +192,14 @@ app.get('/metrics', (req, res) => {
   }
 });
 
+// Agentic-specific metrics endpoint
+app.get('/metrics/agentic', (req, res) => {
+  res.json({
+    success: true,
+    data: getAgenticMetrics(),
+  });
+});
+
 // Circuit breaker status
 app.get('/health/circuits', (req, res) => {
   res.json(getAllCircuitBreakerStats());
@@ -217,6 +231,10 @@ app.use('/api/workspace-agent', workspaceAgentRoutes); // Workspace agent quick 
 app.use('/api/ai-analysis', aiAnalysisRoutes); // Claude-powered sheet analysis (AppScript alternative)
 app.use('/api/agentic-mode', agenticModeRoutes); // Agentic mode toggle and configuration
 app.use('/api/agentic', agenticAgentsRoutes); // Agentic agent execution endpoints
+app.use('/api/schedules', schedulesRoutes); // Scheduled agent runs (cron-based)
+app.use('/api/skills', skillsRoutes); // Skills layer - reusable multi-step workflows
+app.use('/api/traces', tracesRoutes); // Agent trace visualization and replay
+app.use('/api/agent-metrics', agentMetricsRoutes); // Agent performance metrics dashboard
 
 // Error handler
 app.use(errorHandler);
@@ -257,6 +275,35 @@ server.listen(PORT, () => {
   // Seed knowledge base with CS playbooks
   seedKnowledgeBase().catch(err => {
     console.error('Failed to seed knowledge base:', err);
+  });
+
+  // Initialize scheduler service (loads and starts scheduled agent runs)
+  schedulerService.initialize().catch(err => {
+    console.error('Failed to initialize scheduler:', err);
+  });
+
+  // Initialize agent memory service (starts cleanup job)
+  agentMemoryService.initialize();
+});
+
+// Graceful shutdown handler
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  schedulerService.shutdown();
+  agentMemoryService.shutdown();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  schedulerService.shutdown();
+  agentMemoryService.shutdown();
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
   });
 });
 

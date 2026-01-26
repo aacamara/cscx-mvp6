@@ -1,13 +1,27 @@
 /**
  * Agentic Mode API Routes
  * Endpoints for managing user agentic mode settings
+ * Enhanced with validation and audit logging
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { agenticModeService, AGENTIC_PRESETS } from '../services/agentic-mode.js';
 import { AgenticModeConfig } from '../agents/engine/agentic-loop.js';
 
+// Production readiness imports
+import { agenticRateLimit } from '../middleware/agenticRateLimit.js';
+import {
+  validateToggleRequest,
+  validatePresetRequest,
+  validateConfigUpdate,
+  validateScheduleRequest,
+} from '../middleware/validation.js';
+import { auditLog } from '../services/auditLog.js';
+
 const router = Router();
+
+// Apply rate limiting (use readonly limits for most endpoints)
+router.use(agenticRateLimit);
 
 // Helper to get user ID from request
 function getUserId(req: Request): string {
@@ -44,19 +58,15 @@ router.get('/settings', async (req: Request, res: Response, next: NextFunction) 
  * POST /api/agentic-mode/toggle
  * Toggle agentic mode on/off
  */
-router.post('/toggle', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/toggle', validateToggleRequest, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = getUserId(req);
     const { enabled } = req.body;
 
-    if (typeof enabled !== 'boolean') {
-      return res.status(400).json({
-        success: false,
-        error: 'enabled must be a boolean',
-      });
-    }
-
     const settings = await agenticModeService.toggleMode(userId, enabled);
+
+    // Log mode toggle
+    await auditLog.logModeToggle(userId, enabled);
 
     res.json({
       success: true,
@@ -76,20 +86,22 @@ router.post('/toggle', async (req: Request, res: Response, next: NextFunction) =
  * POST /api/agentic-mode/preset
  * Apply a preset configuration
  */
-router.post('/preset', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/preset', validatePresetRequest, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = getUserId(req);
     const { preset } = req.body;
 
-    const validPresets = ['manual', 'vacation', 'supervised', 'autonomous'];
-    if (!validPresets.includes(preset)) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid preset. Must be one of: ${validPresets.join(', ')}`,
-      });
-    }
+    // Get previous config for audit
+    const previousSettings = await agenticModeService.getSettings(userId);
 
     const settings = await agenticModeService.applyPreset(userId, preset);
+
+    // Log config change
+    await auditLog.logConfigChange(
+      userId,
+      { preset, config: settings.config },
+      { preset: previousSettings.preset, config: previousSettings.config }
+    );
 
     res.json({
       success: true,
@@ -109,47 +121,25 @@ router.post('/preset', async (req: Request, res: Response, next: NextFunction) =
  * PUT /api/agentic-mode/config
  * Update agentic mode configuration
  */
-router.put('/config', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/config', validateConfigUpdate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = getUserId(req);
     const configUpdates: Partial<AgenticModeConfig> = req.body;
 
-    // Validate config updates
-    const validKeys = ['enabled', 'maxSteps', 'autoApproveLevel', 'pauseOnHighRisk', 'notifyOnCompletion'];
-    const invalidKeys = Object.keys(configUpdates).filter(k => !validKeys.includes(k));
-
-    if (invalidKeys.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: `Invalid config keys: ${invalidKeys.join(', ')}`,
-      });
-    }
-
-    // Validate autoApproveLevel
-    if (configUpdates.autoApproveLevel &&
-        !['none', 'low_risk', 'all'].includes(configUpdates.autoApproveLevel)) {
-      return res.status(400).json({
-        success: false,
-        error: 'autoApproveLevel must be one of: none, low_risk, all',
-      });
-    }
-
-    // Validate maxSteps
-    if (configUpdates.maxSteps !== undefined) {
-      if (typeof configUpdates.maxSteps !== 'number' ||
-          configUpdates.maxSteps < 1 ||
-          configUpdates.maxSteps > 100) {
-        return res.status(400).json({
-          success: false,
-          error: 'maxSteps must be a number between 1 and 100',
-        });
-      }
-    }
+    // Get previous config for audit
+    const previousSettings = await agenticModeService.getSettings(userId);
 
     const settings = await agenticModeService.updateSettings(userId, {
       config: configUpdates as AgenticModeConfig,
       preset: 'custom',
     });
+
+    // Log config change
+    await auditLog.logConfigChange(
+      userId,
+      configUpdates,
+      previousSettings.config
+    );
 
     res.json({
       success: true,
@@ -169,29 +159,24 @@ router.put('/config', async (req: Request, res: Response, next: NextFunction) =>
  * PUT /api/agentic-mode/schedule
  * Set up an automatic schedule for agentic mode
  */
-router.put('/schedule', async (req: Request, res: Response, next: NextFunction) => {
+router.put('/schedule', validateScheduleRequest, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = getUserId(req);
     const { schedule } = req.body;
 
-    // Validate schedule structure
-    if (schedule && schedule.enabled) {
-      if (!schedule.timezone || typeof schedule.timezone !== 'string') {
-        return res.status(400).json({
-          success: false,
-          error: 'schedule.timezone is required when schedule is enabled',
-        });
-      }
-
-      if (!Array.isArray(schedule.rules)) {
-        return res.status(400).json({
-          success: false,
-          error: 'schedule.rules must be an array',
-        });
-      }
-    }
+    // Get previous schedule for audit
+    const previousSettings = await agenticModeService.getSettings(userId);
 
     const settings = await agenticModeService.setSchedule(userId, schedule);
+
+    // Log schedule update
+    await auditLog.log({
+      userId,
+      action: 'schedule_update',
+      status: 'success',
+      input: { schedule },
+      metadata: { previousSchedule: previousSettings.schedule },
+    });
 
     res.json({
       success: true,

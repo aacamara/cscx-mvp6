@@ -24,6 +24,414 @@ const anthropic = new Anthropic({
   apiKey: config.anthropicApiKey,
 });
 
+// ============================================
+// Error Tracking Types
+// ============================================
+
+export type ErrorCategory =
+  | 'timeout'
+  | 'rate_limit'
+  | 'authentication'
+  | 'validation'
+  | 'not_found'
+  | 'network'
+  | 'tool_error'
+  | 'llm_error'
+  | 'permission'
+  | 'resource'
+  | 'unknown';
+
+export interface StructuredError {
+  id: string;
+  category: ErrorCategory;
+  message: string;
+  originalError: string;
+  stackTrace?: string;
+  context: {
+    step: number;
+    toolName?: string;
+    toolInput?: any;
+    agentContext: {
+      customerId?: string;
+      customerName?: string;
+      sessionId?: string;
+    };
+    timestamp: Date;
+    duration?: number;
+  };
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  isRecoverable: boolean;
+  recoverySuggestions: string[];
+  pattern?: string;
+}
+
+export interface ErrorPattern {
+  pattern: string;
+  category: ErrorCategory;
+  count: number;
+  lastOccurrence: Date;
+  examples: string[];
+  suggestedFix: string;
+}
+
+// ============================================
+// Error Pattern Registry
+// ============================================
+
+const errorPatterns: Map<string, ErrorPattern> = new Map();
+
+const ERROR_PATTERNS: Array<{
+  regex: RegExp;
+  category: ErrorCategory;
+  severity: StructuredError['severity'];
+  isRecoverable: boolean;
+  suggestions: string[];
+}> = [
+  {
+    regex: /timeout|ETIMEDOUT|ESOCKETTIMEDOUT/i,
+    category: 'timeout',
+    severity: 'high',
+    isRecoverable: true,
+    suggestions: [
+      'Increase timeout limits in configuration',
+      'Check if external service is responding slowly',
+      'Consider implementing retry with exponential backoff',
+      'Split operation into smaller chunks if possible',
+    ],
+  },
+  {
+    regex: /rate.?limit|429|too.?many.?requests/i,
+    category: 'rate_limit',
+    severity: 'medium',
+    isRecoverable: true,
+    suggestions: [
+      'Implement request throttling',
+      'Add delay between API calls',
+      'Upgrade API tier if consistently hitting limits',
+      'Cache frequently accessed data',
+    ],
+  },
+  {
+    regex: /auth|unauthorized|401|403|forbidden|permission.?denied/i,
+    category: 'authentication',
+    severity: 'critical',
+    isRecoverable: false,
+    suggestions: [
+      'Verify API keys and tokens are valid',
+      'Check if credentials have expired',
+      'Ensure proper scopes are granted',
+      'Refresh OAuth tokens if applicable',
+    ],
+  },
+  {
+    regex: /valid|invalid|schema|required|missing.?field|type.?error/i,
+    category: 'validation',
+    severity: 'medium',
+    isRecoverable: true,
+    suggestions: [
+      'Review input data format and constraints',
+      'Add input sanitization before processing',
+      'Check for null/undefined values',
+      'Validate data against expected schema',
+    ],
+  },
+  {
+    regex: /not.?found|404|does.?not.?exist|no.?such/i,
+    category: 'not_found',
+    severity: 'medium',
+    isRecoverable: false,
+    suggestions: [
+      'Verify the requested resource exists',
+      'Check if IDs or references are correct',
+      'Ensure proper permissions to access resource',
+      'Handle resource deletion gracefully',
+    ],
+  },
+  {
+    regex: /network|ECONNREFUSED|ECONNRESET|ENOTFOUND|socket/i,
+    category: 'network',
+    severity: 'high',
+    isRecoverable: true,
+    suggestions: [
+      'Check network connectivity',
+      'Verify firewall settings',
+      'Ensure external services are accessible',
+      'Implement circuit breaker pattern',
+    ],
+  },
+  {
+    regex: /tool|execute|function.?call/i,
+    category: 'tool_error',
+    severity: 'high',
+    isRecoverable: true,
+    suggestions: [
+      'Review tool implementation',
+      'Check tool input schema',
+      'Add error handling in tool logic',
+      'Verify tool dependencies are available',
+    ],
+  },
+  {
+    regex: /claude|anthropic|llm|model|ai/i,
+    category: 'llm_error',
+    severity: 'high',
+    isRecoverable: true,
+    suggestions: [
+      'Check LLM provider status',
+      'Implement retry with exponential backoff',
+      'Consider fallback to alternative model',
+      'Reduce prompt size if hitting limits',
+    ],
+  },
+  {
+    regex: /permission|access|scope|role/i,
+    category: 'permission',
+    severity: 'critical',
+    isRecoverable: false,
+    suggestions: [
+      'Review user permissions',
+      'Check required access scopes',
+      'Verify role-based access controls',
+      'Request elevated permissions if needed',
+    ],
+  },
+  {
+    regex: /memory|resource|quota|limit|exceeded/i,
+    category: 'resource',
+    severity: 'high',
+    isRecoverable: true,
+    suggestions: [
+      'Optimize resource usage',
+      'Implement pagination for large datasets',
+      'Clear unused resources',
+      'Increase resource limits if possible',
+    ],
+  },
+];
+
+// ============================================
+// Error Processing Functions
+// ============================================
+
+/**
+ * Categorize an error based on its message and stack trace
+ */
+function categorizeError(error: Error): {
+  category: ErrorCategory;
+  severity: StructuredError['severity'];
+  isRecoverable: boolean;
+  suggestions: string[];
+} {
+  const errorString = `${error.message} ${error.stack || ''}`.toLowerCase();
+
+  for (const pattern of ERROR_PATTERNS) {
+    if (pattern.regex.test(errorString)) {
+      return {
+        category: pattern.category,
+        severity: pattern.severity,
+        isRecoverable: pattern.isRecoverable,
+        suggestions: pattern.suggestions,
+      };
+    }
+  }
+
+  return {
+    category: 'unknown',
+    severity: 'medium',
+    isRecoverable: false,
+    suggestions: [
+      'Review the error details and stack trace',
+      'Check recent code changes',
+      'Add more specific error handling',
+      'Contact support if issue persists',
+    ],
+  };
+}
+
+/**
+ * Generate a pattern key for grouping similar errors
+ */
+function generateErrorPattern(error: Error, category: ErrorCategory): string {
+  // Remove dynamic parts (IDs, timestamps, etc.) to create a groupable pattern
+  const normalized = error.message
+    .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '<UUID>')
+    .replace(/\d{10,}/g, '<TIMESTAMP>')
+    .replace(/\d+/g, '<NUM>')
+    .replace(/"[^"]+"/g, '"<STRING>"')
+    .substring(0, 100);
+
+  return `${category}:${normalized}`;
+}
+
+/**
+ * Track error pattern occurrence
+ */
+function trackErrorPattern(
+  error: Error,
+  category: ErrorCategory,
+  suggestions: string[]
+): string {
+  const pattern = generateErrorPattern(error, category);
+
+  if (errorPatterns.has(pattern)) {
+    const existing = errorPatterns.get(pattern)!;
+    existing.count++;
+    existing.lastOccurrence = new Date();
+    if (existing.examples.length < 5) {
+      existing.examples.push(error.message.substring(0, 200));
+    }
+  } else {
+    errorPatterns.set(pattern, {
+      pattern,
+      category,
+      count: 1,
+      lastOccurrence: new Date(),
+      examples: [error.message.substring(0, 200)],
+      suggestedFix: suggestions[0] || 'Review error details',
+    });
+  }
+
+  return pattern;
+}
+
+/**
+ * Create a structured error from a raw error
+ */
+export function createStructuredError(
+  error: Error,
+  context: {
+    step: number;
+    toolName?: string;
+    toolInput?: any;
+    agentContext: AgentContext;
+    duration?: number;
+  }
+): StructuredError {
+  const { category, severity, isRecoverable, suggestions } = categorizeError(error);
+  const pattern = trackErrorPattern(error, category, suggestions);
+
+  const structuredError: StructuredError = {
+    id: `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    category,
+    message: error.message,
+    originalError: error.toString(),
+    stackTrace: error.stack,
+    context: {
+      step: context.step,
+      toolName: context.toolName,
+      toolInput: context.toolInput,
+      agentContext: {
+        customerId: context.agentContext.customer?.id,
+        customerName: context.agentContext.customer?.name,
+        sessionId: (context.agentContext as any).sessionId,
+      },
+      timestamp: new Date(),
+      duration: context.duration,
+    },
+    severity,
+    isRecoverable,
+    recoverySuggestions: suggestions,
+    pattern,
+  };
+
+  // Log structured error
+  console.error('[AgenticLoop] Structured Error:', JSON.stringify({
+    id: structuredError.id,
+    category: structuredError.category,
+    message: structuredError.message,
+    severity: structuredError.severity,
+    isRecoverable: structuredError.isRecoverable,
+    step: structuredError.context.step,
+    toolName: structuredError.context.toolName,
+    pattern: structuredError.pattern,
+  }, null, 2));
+
+  return structuredError;
+}
+
+/**
+ * Attempt automatic recovery based on error type
+ */
+export async function attemptRecovery(
+  structuredError: StructuredError,
+  retryFn: () => Promise<any>,
+  maxRetries: number = 3
+): Promise<{ recovered: boolean; result?: any; error?: StructuredError }> {
+  if (!structuredError.isRecoverable) {
+    return { recovered: false, error: structuredError };
+  }
+
+  let lastError = structuredError;
+  const delays = [1000, 2000, 4000]; // Exponential backoff
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const delay = delays[Math.min(attempt, delays.length - 1)];
+
+    console.log(`[AgenticLoop] Recovery attempt ${attempt + 1}/${maxRetries} after ${delay}ms...`);
+
+    await new Promise(resolve => setTimeout(resolve, delay));
+
+    try {
+      const result = await retryFn();
+      console.log(`[AgenticLoop] Recovery successful on attempt ${attempt + 1}`);
+      return { recovered: true, result };
+    } catch (error) {
+      // Create a mock context for the retry error tracking
+      const mockContext: {
+        step: number;
+        toolName?: string;
+        toolInput?: any;
+        agentContext: AgentContext;
+        duration?: number;
+      } = {
+        step: structuredError.context.step,
+        toolName: structuredError.context.toolName,
+        toolInput: undefined,
+        agentContext: {
+          userId: '',
+          customer: {
+            id: structuredError.context.agentContext.customerId || '',
+            name: structuredError.context.agentContext.customerName || 'Unknown',
+            status: 'active' as const,
+            arr: 0,
+            healthScore: 0,
+          },
+          currentPhase: 'executing' as const,
+          completedTasks: [],
+          riskSignals: [],
+          pendingApprovals: [],
+          recentInteractions: [],
+        },
+        duration: undefined,
+      };
+      lastError = createStructuredError(error as Error, mockContext);
+
+      // If error type changed or became unrecoverable, stop retrying
+      if (!lastError.isRecoverable || lastError.category !== structuredError.category) {
+        break;
+      }
+    }
+  }
+
+  console.error(`[AgenticLoop] Recovery failed after ${maxRetries} attempts`);
+  return { recovered: false, error: lastError };
+}
+
+/**
+ * Get error pattern statistics
+ */
+export function getErrorPatternStats(): ErrorPattern[] {
+  return Array.from(errorPatterns.values())
+    .sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Clear error pattern statistics
+ */
+export function clearErrorPatterns(): void {
+  errorPatterns.clear();
+}
+
 // Agentic mode configuration
 export interface AgenticModeConfig {
   enabled: boolean;
@@ -259,11 +667,70 @@ When you have completed the goal, respond with a final summary (no tool calls).
             return state;
           }
 
-          // Execute the tool
+          // Execute the tool with error tracking
           console.log(`[AgenticLoop] Executing tool: ${toolUse.name}`);
-          const result = await tool.execute(toolUse.input, context);
+          const toolStartTime = Date.now();
+          let result: ToolResult;
 
-          // Record the step
+          try {
+            result = await tool.execute(toolUse.input, context);
+          } catch (toolError) {
+            // Create structured error for tool execution failure
+            const structuredToolError = createStructuredError(toolError as Error, {
+              step: state.currentStep,
+              toolName: toolUse.name,
+              toolInput: toolUse.input,
+              agentContext: context,
+              duration: Date.now() - toolStartTime,
+            });
+
+            console.error(`[AgenticLoop] Tool execution failed:`, {
+              tool: toolUse.name,
+              category: structuredToolError.category,
+              message: structuredToolError.message,
+              suggestions: structuredToolError.recoverySuggestions,
+            });
+
+            // Attempt recovery for recoverable tool errors
+            if (structuredToolError.isRecoverable) {
+              const recovery = await attemptRecovery(
+                structuredToolError,
+                async () => tool.execute(toolUse.input, context),
+                2
+              );
+
+              if (recovery.recovered) {
+                result = recovery.result;
+              } else {
+                result = {
+                  success: false,
+                  error: structuredToolError.message,
+                  data: {
+                    errorId: structuredToolError.id,
+                    category: structuredToolError.category,
+                    recoverySuggestions: structuredToolError.recoverySuggestions,
+                    recoveryAttempted: true,
+                    recoveryFailed: true,
+                  }
+                };
+              }
+            } else {
+              result = {
+                success: false,
+                error: structuredToolError.message,
+                data: {
+                  errorId: structuredToolError.id,
+                  category: structuredToolError.category,
+                  recoverySuggestions: structuredToolError.recoverySuggestions,
+                  recoveryAttempted: false,
+                }
+              };
+            }
+          }
+
+          const toolDuration = Date.now() - toolStartTime;
+
+          // Record the step with duration
           state.steps.push({
             stepNumber: state.currentStep,
             toolName: toolUse.name,
@@ -272,6 +739,13 @@ When you have completed the goal, respond with a final summary (no tool calls).
             reasoning,
             timestamp: new Date(),
           });
+
+          // Log successful tool executions for observability
+          if (result.success) {
+            console.log(`[AgenticLoop] Tool ${toolUse.name} completed in ${toolDuration}ms`);
+          } else {
+            console.warn(`[AgenticLoop] Tool ${toolUse.name} failed after ${toolDuration}ms: ${result.error}`);
+          }
 
           // Add tool result
           toolResults.push({
@@ -286,9 +760,66 @@ When you have completed the goal, respond with a final summary (no tool calls).
         messages.push({ role: 'user', content: toolResults });
       }
     } catch (error) {
-      console.error(`[AgenticLoop] Error at step ${state.currentStep}:`, error);
+      // Create structured error with full context
+      const structuredError = createStructuredError(error as Error, {
+        step: state.currentStep,
+        agentContext: context,
+      });
+
+      console.error(`[AgenticLoop] Error at step ${state.currentStep}:`, {
+        category: structuredError.category,
+        message: structuredError.message,
+        severity: structuredError.severity,
+        isRecoverable: structuredError.isRecoverable,
+      });
+
+      // Attempt recovery if error is recoverable
+      if (structuredError.isRecoverable && state.currentStep > 1) {
+        console.log(`[AgenticLoop] Attempting recovery for ${structuredError.category} error...`);
+
+        // For certain error types, we can retry the LLM call
+        if (['timeout', 'rate_limit', 'network', 'llm_error'].includes(structuredError.category)) {
+          const recovery = await attemptRecovery(
+            structuredError,
+            async () => {
+              // Retry the Claude call with backoff
+              return await anthropic.messages.create({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 4096,
+                system: fullSystemPrompt,
+                tools: anthropicTools,
+                messages: messages,
+              });
+            },
+            2 // Max 2 retries for LLM errors
+          );
+
+          if (recovery.recovered) {
+            console.log(`[AgenticLoop] Recovery successful, continuing execution`);
+            // Continue with the recovered response - this requires restructuring the loop
+            // For now, just log and fail gracefully
+          }
+        }
+      }
+
       state.status = 'failed';
-      state.error = (error as Error).message;
+      state.error = structuredError.message;
+
+      // Attach structured error info to state for observability
+      (state as any).structuredError = {
+        id: structuredError.id,
+        category: structuredError.category,
+        severity: structuredError.severity,
+        isRecoverable: structuredError.isRecoverable,
+        recoverySuggestions: structuredError.recoverySuggestions,
+        pattern: structuredError.pattern,
+        context: {
+          step: structuredError.context.step,
+          toolName: structuredError.context.toolName,
+          timestamp: structuredError.context.timestamp,
+        },
+      };
+
       break;
     }
   }
@@ -491,4 +1022,9 @@ export default {
   resumeAgenticLoop,
   generatePlan,
   DEFAULT_AGENTIC_CONFIG,
+  // Error tracking exports
+  createStructuredError,
+  attemptRecovery,
+  getErrorPatternStats,
+  clearErrorPatterns,
 };

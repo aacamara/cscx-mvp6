@@ -6,36 +6,50 @@
  * - Bundle related actions together
  * - Batch approval requests for efficiency
  * - Maintain consistent execution patterns
+ *
+ * This file provides backward compatibility with the original API
+ * while adding the new Skills Framework features.
  */
 
+// Re-export new types
+export * from './types.js';
+
+// Re-export registry
+export { skillRegistry } from './registry.js';
+
+// Re-export executor
+export { skillExecutor as newSkillExecutor } from './executor.js';
+
+// Re-export built-in skills
+export { BUILTIN_SKILLS, getBuiltinSkill, getBuiltinSkillIds } from './builtins/index.js';
+
+// ============================================
+// Legacy Types (for backward compatibility)
+// ============================================
+
 import { calendarService } from '../../services/google/calendar.js';
-import { gmailService } from '../../services/google/gmail.js';
-import { workspaceService } from '../../services/google/workspace.js';
+import { customerWorkspaceService } from '../../services/google/workspace.js';
 import { approvalService } from '../../services/approval.js';
 
-// ============================================
-// Types
-// ============================================
-
-export interface SkillStep {
+export interface LegacySkillStep {
   id: string;
   name: string;
   tool: string;
   description: string;
-  inputMapper: (context: SkillContext) => Record<string, any>;
+  inputMapper: (context: LegacySkillContext) => Record<string, any>;
   requiresApproval: boolean;
 }
 
-export interface Skill {
+export interface LegacySkill {
   id: string;
   name: string;
   description: string;
-  keywords: string[];  // For matching user requests
+  keywords: string[];
   requiredContext: string[];
-  steps: SkillStep[];
+  steps: LegacySkillStep[];
 }
 
-export interface SkillContext {
+export interface LegacySkillContext {
   userId: string;
   customer?: {
     id?: string;
@@ -53,7 +67,7 @@ export interface SkillContext {
   customData?: Record<string, any>;
 }
 
-export interface SkillExecutionResult {
+export interface LegacySkillExecutionResult {
   skillId: string;
   success: boolean;
   steps: Array<{
@@ -68,10 +82,10 @@ export interface SkillExecutionResult {
 }
 
 // ============================================
-// Skill Definitions
+// Legacy Skill Definitions
 // ============================================
 
-export const SKILLS: Record<string, Skill> = {
+export const SKILLS: Record<string, LegacySkill> = {
   'kickoff-meeting': {
     id: 'kickoff-meeting',
     name: 'Schedule Kickoff Meeting',
@@ -203,14 +217,14 @@ export const SKILLS: Record<string, Skill> = {
 };
 
 // ============================================
-// Skill Executor
+// Legacy Skill Executor (for backward compatibility)
 // ============================================
 
 export class SkillExecutor {
   /**
    * Find a matching skill based on user input
    */
-  findMatchingSkill(userInput: string): Skill | null {
+  findMatchingSkill(userInput: string): LegacySkill | null {
     const input = userInput.toLowerCase();
 
     for (const skill of Object.values(SKILLS)) {
@@ -227,7 +241,7 @@ export class SkillExecutor {
   /**
    * Check if context has required fields for a skill
    */
-  validateContext(skill: Skill, context: SkillContext): { valid: boolean; missing: string[] } {
+  validateContext(skill: LegacySkill, context: LegacySkillContext): { valid: boolean; missing: string[] } {
     const missing: string[] = [];
 
     for (const required of skill.requiredContext) {
@@ -248,8 +262,8 @@ export class SkillExecutor {
   /**
    * Execute a skill with the given context
    */
-  async execute(skill: Skill, context: SkillContext): Promise<SkillExecutionResult> {
-    const result: SkillExecutionResult = {
+  async execute(skill: LegacySkill, context: LegacySkillContext): Promise<LegacySkillExecutionResult> {
+    const result: LegacySkillExecutionResult = {
       skillId: skill.id,
       success: true,
       steps: [],
@@ -257,10 +271,10 @@ export class SkillExecutor {
       message: ''
     };
 
-    console.log(`🎯 Executing skill: ${skill.name}`);
+    console.log(`[SkillExecutor] Executing skill: ${skill.name}`);
 
     for (const step of skill.steps) {
-      console.log(`  📌 Step: ${step.name}`);
+      console.log(`[SkillExecutor] Step: ${step.name}`);
 
       try {
         const input = step.inputMapper(context);
@@ -280,7 +294,7 @@ export class SkillExecutor {
             approvalId: approval.id
           });
           result.pendingApprovals.push(approval.id);
-          console.log(`    ⏳ Pending approval: ${approval.id}`);
+          console.log(`[SkillExecutor] Pending approval: ${approval.id}`);
         } else {
           // Execute immediately
           const stepResult = await this.executeStep(step.tool, input, context.userId);
@@ -292,9 +306,9 @@ export class SkillExecutor {
           });
 
           if (!stepResult.success) {
-            console.log(`    ❌ Failed: ${stepResult.error}`);
+            console.log(`[SkillExecutor] Failed: ${stepResult.error}`);
           } else {
-            console.log(`    ✅ Completed`);
+            console.log(`[SkillExecutor] Completed`);
           }
         }
       } catch (error) {
@@ -304,7 +318,7 @@ export class SkillExecutor {
           error: (error as Error).message
         });
         result.success = false;
-        console.log(`    ❌ Error: ${(error as Error).message}`);
+        console.log(`[SkillExecutor] Error: ${(error as Error).message}`);
       }
     }
 
@@ -322,7 +336,7 @@ export class SkillExecutor {
       result.message = `Skill "${skill.name}" completed successfully.`;
     }
 
-    console.log(`🏁 Skill result: ${result.message}`);
+    console.log(`[SkillExecutor] Result: ${result.message}`);
     return result;
   }
 
@@ -337,17 +351,19 @@ export class SkillExecutor {
     try {
       switch (tool) {
         case 'check_availability': {
+          const startDate = new Date(input.dateRange?.start || Date.now());
+          const endDate = new Date(input.dateRange?.end || Date.now() + 7 * 24 * 60 * 60 * 1000);
           const slots = await calendarService.findAvailableSlots(userId, {
-            durationMinutes: input.durationMinutes || 30,
-            startDate: new Date(input.dateRange?.start || Date.now()),
-            endDate: new Date(input.dateRange?.end || Date.now() + 7 * 24 * 60 * 60 * 1000),
-            maxSlots: 5
+            timeMin: startDate,
+            timeMax: endDate,
+            duration: input.durationMinutes || 30,
+            attendeeEmails: input.participants,
           });
           return { success: true, data: { availableSlots: slots } };
         }
 
         case 'create_workspace': {
-          const workspace = await workspaceService.getOrCreateWorkspace(
+          const workspace = await customerWorkspaceService.getOrCreateWorkspace(
             input.customerId || `customer_${Date.now()}`,
             input.customerName,
             userId
