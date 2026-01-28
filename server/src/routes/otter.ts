@@ -12,6 +12,29 @@ import crypto from 'crypto';
 
 const router = Router();
 
+// Demo user ID - ONLY used in development mode
+const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+
+/**
+ * Get user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ * Production mode requires authenticated user (set by authMiddleware).
+ */
+function getUserId(req: Request): string | null {
+  // Prefer userId from auth middleware (set by JWT verification)
+  if ((req as any).userId) {
+    return (req as any).userId;
+  }
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+}
+
 // Supabase client
 const supabase = config.supabaseUrl && config.supabaseServiceKey
   ? createClient(config.supabaseUrl, config.supabaseServiceKey)
@@ -39,8 +62,11 @@ router.post('/webhook', async (req: Request, res: Response) => {
       }
     }
 
-    // Get user ID from headers or use default
-    const userId = req.headers['x-user-id'] as string || 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+    // Get user ID with security check
+    const userId = getUserId(req);
+    if (!userId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
 
     // Optional: Get customer ID if provided
     const customerId = req.headers['x-customer-id'] as string | undefined;

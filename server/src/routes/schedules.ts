@@ -9,14 +9,47 @@ import {
   CreateScheduleInput,
   ScheduleFrequency,
 } from '../services/scheduler.js';
+import { config } from '../config/index.js';
 
 const router = Router();
 
-// Helper to get user ID from request
-function getUserId(req: Request): string {
-  return (req.headers['x-user-id'] as string) ||
-         (req.query.userId as string) ||
-         'demo-user';
+// Demo user ID - ONLY used in development mode
+const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+
+/**
+ * Get user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ * Production mode requires authenticated user (set by authMiddleware).
+ */
+function getUserId(req: Request): string | null {
+  // Prefer userId from auth middleware (set by JWT verification)
+  if ((req as any).userId) {
+    return (req as any).userId;
+  }
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+}
+
+/**
+ * Helper to require authentication.
+ * Returns 401 if not authenticated in production.
+ */
+function requireAuth(req: Request, res: Response): string | null {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+    return null;
+  }
+  return userId;
 }
 
 /**
@@ -25,7 +58,9 @@ function getUserId(req: Request): string {
  */
 router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const {
       name,
       description,
@@ -103,7 +138,9 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
  */
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const schedules = await schedulerService.getUserSchedules(userId);
 
     res.json({

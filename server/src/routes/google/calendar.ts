@@ -5,15 +5,47 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { calendarService } from '../../services/google/calendar.js';
+import { config } from '../../config/index.js';
 
 const router = Router();
 
-// Middleware to extract userId (in production, this comes from auth)
-// Demo user ID with connected Google account
+// Demo user ID - ONLY used in development mode
 const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
 
-const getUserId = (req: Request): string => {
-  return req.headers['x-user-id'] as string || req.query.userId as string || DEMO_USER_ID;
+/**
+ * Get user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ * Production mode requires authenticated user (set by authMiddleware).
+ */
+const getUserId = (req: Request): string | null => {
+  // Prefer userId from auth middleware (set by JWT verification)
+  if ((req as any).userId) {
+    return (req as any).userId;
+  }
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+};
+
+/**
+ * Helper to require authentication.
+ * Returns 401 if not authenticated in production.
+ */
+const requireAuth = (req: Request, res: Response): string | null => {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Authentication required'
+    });
+    return null;
+  }
+  return userId;
 };
 
 /**
@@ -22,7 +54,9 @@ const getUserId = (req: Request): string => {
  */
 router.get('/events', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { calendarId, timeMin, timeMax, maxResults, query } = req.query;
 
     const events = await calendarService.listEvents(userId, {
@@ -45,7 +79,9 @@ router.get('/events', async (req: Request, res: Response, next: NextFunction) =>
  */
 router.get('/events/today', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const events = await calendarService.getTodayEvents(userId);
     res.json({ events });
   } catch (error) {
@@ -59,7 +95,9 @@ router.get('/events/today', async (req: Request, res: Response, next: NextFuncti
  */
 router.get('/events/upcoming', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { days, maxResults } = req.query;
 
     const events = await calendarService.getUpcomingEvents(
@@ -80,7 +118,9 @@ router.get('/events/upcoming', async (req: Request, res: Response, next: NextFun
  */
 router.get('/events/:eventId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { eventId } = req.params;
     const { calendarId } = req.query;
 
@@ -102,7 +142,9 @@ router.get('/events/:eventId', async (req: Request, res: Response, next: NextFun
  */
 router.post('/events', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const {
       title,
       description,
@@ -149,7 +191,9 @@ router.post('/events', async (req: Request, res: Response, next: NextFunction) =
  */
 router.post('/meetings', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const {
       title,
       description,
@@ -190,7 +234,9 @@ router.post('/meetings', async (req: Request, res: Response, next: NextFunction)
  */
 router.put('/events/:eventId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { eventId } = req.params;
     const {
       title,
@@ -230,7 +276,9 @@ router.put('/events/:eventId', async (req: Request, res: Response, next: NextFun
  */
 router.delete('/events/:eventId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { eventId } = req.params;
     const { calendarId, sendNotifications } = req.query;
 
@@ -253,7 +301,9 @@ router.delete('/events/:eventId', async (req: Request, res: Response, next: Next
  */
 router.post('/events/:eventId/respond', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { eventId } = req.params;
     const { response, calendarId } = req.body;
 
@@ -282,7 +332,9 @@ router.post('/events/:eventId/respond', async (req: Request, res: Response, next
  */
 router.post('/freebusy', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { timeMin, timeMax, calendarIds } = req.body;
 
     if (!timeMin || !timeMax) {
@@ -319,7 +371,9 @@ router.post('/freebusy', async (req: Request, res: Response, next: NextFunction)
  */
 router.post('/available-slots', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { timeMin, timeMax, duration, attendeeEmails } = req.body;
 
     if (!timeMin || !timeMax || !duration) {
@@ -352,7 +406,9 @@ router.post('/available-slots', async (req: Request, res: Response, next: NextFu
  */
 router.post('/quick-add', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { text, calendarId } = req.body;
 
     if (!text) {
@@ -372,7 +428,9 @@ router.post('/quick-add', async (req: Request, res: Response, next: NextFunction
  */
 router.get('/calendars', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const calendars = await calendarService.getCalendarList(userId);
     res.json({ calendars });
   } catch (error) {
@@ -386,7 +444,9 @@ router.get('/calendars', async (req: Request, res: Response, next: NextFunction)
  */
 router.post('/sync', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { customerId, days } = req.body;
 
     const synced = await calendarService.syncEventsToDb(userId, customerId, { days });

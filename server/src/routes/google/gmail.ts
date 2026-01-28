@@ -5,15 +5,48 @@
 
 import { Router, Request, Response, NextFunction } from 'express';
 import { gmailService } from '../../services/google/gmail.js';
+import { config } from '../../config/index.js';
 
 const router = Router();
 
-// Middleware to extract userId (in production, this comes from auth)
-// Demo user ID with connected Google account
+// Demo user ID - ONLY used in development mode
 const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
 
-const getUserId = (req: Request): string => {
-  return req.headers['x-user-id'] as string || req.query.userId as string || DEMO_USER_ID;
+/**
+ * Get user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ * Production mode requires authenticated user (set by authMiddleware).
+ */
+const getUserId = (req: Request): string | null => {
+  // Prefer userId from auth middleware (set by JWT verification)
+  if ((req as any).userId) {
+    return (req as any).userId;
+  }
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+};
+
+/**
+ * Helper to require authentication.
+ * Returns 401 if not authenticated in production.
+ */
+const requireAuth = (req: Request, res: Response): string | null => {
+  const userId = requireAuth(req, res);
+    if (!userId) return;
+  if (!userId) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Authentication required'
+    });
+    return null;
+  }
+  return userId;
 };
 
 /**
@@ -22,7 +55,8 @@ const getUserId = (req: Request): string => {
  */
 router.get('/threads', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { maxResults, pageToken, labelIds, query } = req.query;
 
     const result = await gmailService.listThreads(userId, {
@@ -44,7 +78,8 @@ router.get('/threads', async (req: Request, res: Response, next: NextFunction) =
  */
 router.get('/threads/:threadId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     const result = await gmailService.getThread(userId, threadId);
@@ -60,7 +95,8 @@ router.get('/threads/:threadId', async (req: Request, res: Response, next: NextF
  */
 router.post('/threads/:threadId/read', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     await gmailService.markAsRead(userId, threadId);
@@ -76,7 +112,8 @@ router.post('/threads/:threadId/read', async (req: Request, res: Response, next:
  */
 router.post('/threads/:threadId/unread', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     await gmailService.markAsUnread(userId, threadId);
@@ -92,7 +129,8 @@ router.post('/threads/:threadId/unread', async (req: Request, res: Response, nex
  */
 router.post('/threads/:threadId/archive', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     await gmailService.archiveThread(userId, threadId);
@@ -108,7 +146,8 @@ router.post('/threads/:threadId/archive', async (req: Request, res: Response, ne
  */
 router.post('/threads/:threadId/trash', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     await gmailService.trashThread(userId, threadId);
@@ -124,7 +163,8 @@ router.post('/threads/:threadId/trash', async (req: Request, res: Response, next
  */
 router.post('/threads/:threadId/star', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     await gmailService.starThread(userId, threadId);
@@ -140,7 +180,8 @@ router.post('/threads/:threadId/star', async (req: Request, res: Response, next:
  */
 router.post('/threads/:threadId/unstar', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { threadId } = req.params;
 
     await gmailService.unstarThread(userId, threadId);
@@ -156,7 +197,8 @@ router.post('/threads/:threadId/unstar', async (req: Request, res: Response, nex
  */
 router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { q, maxResults } = req.query;
 
     if (!q) {
@@ -181,7 +223,8 @@ router.get('/search', async (req: Request, res: Response, next: NextFunction) =>
  */
 router.post('/drafts', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { to, cc, bcc, subject, bodyHtml, bodyText, threadId, inReplyTo } = req.body;
 
     if (!to || !to.length) {
@@ -211,7 +254,8 @@ router.post('/drafts', async (req: Request, res: Response, next: NextFunction) =
  */
 router.put('/drafts/:draftId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { draftId } = req.params;
     const { to, cc, bcc, subject, bodyHtml, bodyText, threadId, inReplyTo } = req.body;
 
@@ -238,7 +282,8 @@ router.put('/drafts/:draftId', async (req: Request, res: Response, next: NextFun
  */
 router.delete('/drafts/:draftId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { draftId } = req.params;
 
     await gmailService.deleteDraft(userId, draftId);
@@ -254,7 +299,8 @@ router.delete('/drafts/:draftId', async (req: Request, res: Response, next: Next
  */
 router.post('/drafts/:draftId/send', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { draftId } = req.params;
 
     const messageId = await gmailService.sendDraft(userId, draftId);
@@ -270,7 +316,8 @@ router.post('/drafts/:draftId/send', async (req: Request, res: Response, next: N
  */
 router.post('/send', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { to, cc, bcc, subject, bodyHtml, bodyText, threadId, inReplyTo, saveToDb, customerId } = req.body;
 
     if (!to || !to.length) {
@@ -302,7 +349,8 @@ router.post('/send', async (req: Request, res: Response, next: NextFunction) => 
  */
 router.get('/labels', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const labels = await gmailService.getLabels(userId);
     res.json({ labels });
   } catch (error) {
@@ -316,7 +364,8 @@ router.get('/labels', async (req: Request, res: Response, next: NextFunction) =>
  */
 router.post('/sync', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { customerId, maxResults, query } = req.body;
 
     const synced = await gmailService.syncThreadsToDb(userId, customerId, {

@@ -10,8 +10,31 @@ import { calendarService } from '../services/google/calendar.js';
 import { gmailService } from '../services/google/gmail.js';
 import { approvalService } from '../services/approval.js';
 import { skillExecutor, getAvailableSkills, SKILLS, SkillContext } from '../agents/skills/index.js';
+import { config } from '../config/index.js';
 
 const router = Router();
+
+// Demo user ID - ONLY used in development mode
+const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+
+/**
+ * Get effective user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ */
+function getEffectiveUserId(req: Request, bodyUserId?: string): string | null {
+  // Prefer userId from request body or auth middleware
+  if (bodyUserId) return bodyUserId;
+  if ((req as any).user?.id) return (req as any).user.id;
+  if ((req as any).userId) return (req as any).userId;
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+}
 const onboardingAgent = new OnboardingAgent();
 const db = new SupabaseService();
 
@@ -441,9 +464,14 @@ router.post('/approve/:approvalId', async (req: Request, res: Response) => {
   try {
     const { approvalId } = req.params;
     const { approved, comment, sessionId, userId, updatedData } = req.body;
-    // Use userId from body, auth header, or default for demo mode
-    const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
-    const effectiveUserId = userId || (req as any).user?.id || DEMO_USER_ID;
+
+    // Get effective user ID with security check
+    const effectiveUserId = getEffectiveUserId(req, userId);
+    if (!effectiveUserId) {
+      return res.status(401).json({
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' }
+      });
+    }
 
     console.log(`Processing approval ${approvalId}: ${approved ? 'APPROVED' : 'REJECTED'}${updatedData ? ' (with edited data)' : ''}`);
 
@@ -1291,10 +1319,15 @@ router.post('/skills/:skillId/execute', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Skill not found: ${skillId}` });
     }
 
+    // Get effective user ID with security check
+    const effectiveUserId = getEffectiveUserId(req, userId);
+    if (!effectiveUserId) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+
     // Build context
-    const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
     const context: SkillContext = {
-      userId: userId || (req as any).user?.id || DEMO_USER_ID,
+      userId: effectiveUserId,
       customer,
       stakeholders,
       contract,

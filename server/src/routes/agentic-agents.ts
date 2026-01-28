@@ -43,6 +43,7 @@ import {
   recordApprovalDecision,
   recordToolExecution,
 } from '../middleware/metrics.js';
+import { config } from '../config/index.js';
 
 const router = Router();
 const db = new SupabaseService();
@@ -74,11 +75,44 @@ function broadcastAgenticEvent(userId: string, eventType: string, data: any): vo
 // Store pending states for resumption
 const pendingStates = new Map<string, any>();
 
-// Helper to get user ID from request
-function getUserId(req: Request): string {
-  return (req.headers['x-user-id'] as string) ||
-         (req.query.userId as string) ||
-         'demo-user';
+// Demo user ID - ONLY used in development mode
+const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+
+/**
+ * Get user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ * Production mode requires authenticated user (set by authMiddleware).
+ */
+function getUserId(req: Request): string | null {
+  // Prefer userId from auth middleware (set by JWT verification)
+  if ((req as any).userId) {
+    return (req as any).userId;
+  }
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+}
+
+/**
+ * Helper to require authentication.
+ * Returns 401 if not authenticated in production.
+ */
+function requireAuth(req: Request, res: Response): string | null {
+  const userId = requireAuth(req, res);
+    if (!userId) return;
+  if (!userId) {
+    res.status(401).json({
+      success: false,
+      error: 'Authentication required'
+    });
+    return null;
+  }
+  return userId;
 }
 
 // Helper to build context from customer data
@@ -133,7 +167,8 @@ async function buildContext(
  */
 router.post('/execute', validateExecuteRequest, async (req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
-  const userId = getUserId(req);
+  const userId = requireAuth(req, res);
+    if (!userId) return;
   const { goal, customerId } = req.body;
 
   // Record metrics
@@ -271,7 +306,8 @@ router.post('/execute', validateExecuteRequest, async (req: Request, res: Respon
  */
 router.post('/plan', validatePlanRequest, async (req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
-  const userId = getUserId(req);
+  const userId = requireAuth(req, res);
+    if (!userId) return;
   const { goal, customerId } = req.body;
 
   // Record metrics
@@ -352,7 +388,8 @@ router.post('/plan', validatePlanRequest, async (req: Request, res: Response, ne
  */
 router.post('/execute-plan', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { planId, customerId } = req.body;
 
     // For now, generate a fresh plan and execute
@@ -372,7 +409,8 @@ router.post('/execute-plan', async (req: Request, res: Response, next: NextFunct
  */
 router.post('/resume', validateResumeRequest, async (req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
-  const userId = getUserId(req);
+  const userId = requireAuth(req, res);
+    if (!userId) return;
   const { stateId, approved, reason } = req.body;
 
   // Record approval decision metrics
@@ -510,7 +548,8 @@ router.post('/resume', validateResumeRequest, async (req: Request, res: Response
  */
 router.post('/specialist/:agentId', validateAgentIdParam, validateSpecialistRequest, async (req: Request, res: Response, next: NextFunction) => {
   const startTime = Date.now();
-  const userId = getUserId(req);
+  const userId = requireAuth(req, res);
+    if (!userId) return;
   const { agentId } = req.params;
   const { task, customerId } = req.body;
 
@@ -625,7 +664,8 @@ router.post('/specialist/:agentId', validateAgentIdParam, validateSpecialistRequ
  */
 router.get('/check-in/:customerId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { customerId } = req.params;
 
     const context = await buildContext(userId, customerId);
@@ -688,7 +728,8 @@ router.delete('/pending-states/:stateId', async (req: Request, res: Response) =>
  */
 router.post('/batch-execute', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const {
       goal,
       customerIds,
@@ -760,7 +801,8 @@ router.post('/batch-execute', async (req: Request, res: Response, next: NextFunc
  */
 router.post('/batch-execute-filter', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const {
       goal,
       filter,
@@ -835,7 +877,8 @@ router.get('/batch/:batchId/progress', async (req: Request, res: Response) => {
  */
 router.post('/parallel-execute', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const {
       tasks,
       customerId,
@@ -909,7 +952,8 @@ router.post('/parallel-execute', async (req: Request, res: Response, next: NextF
  */
 router.post('/collaborative-execute', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { goal, customerId } = req.body;
 
     if (!goal) {
@@ -955,7 +999,8 @@ router.post('/collaborative-execute', async (req: Request, res: Response, next: 
  */
 router.get('/memory/:customerId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { customerId } = req.params;
     const { types, limit, minImportance } = req.query;
 
@@ -989,7 +1034,8 @@ router.get('/memory/:customerId', async (req: Request, res: Response, next: Next
  */
 router.get('/memory/:customerId/context', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { customerId } = req.params;
     const maxTokens = req.query.maxTokens ? parseInt(req.query.maxTokens as string) : undefined;
 
@@ -1020,7 +1066,8 @@ router.get('/memory/:customerId/context', async (req: Request, res: Response, ne
  */
 router.post('/memory/:customerId', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { customerId } = req.params;
     const { type, content, metadata, importance, ttlDays } = req.body;
 
@@ -1124,7 +1171,8 @@ router.delete('/memory/:customerId', async (req: Request, res: Response, next: N
  */
 router.post('/memory/:customerId/summarize', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
     const { customerId } = req.params;
 
     const summary = await agentMemoryService.summarizeMemories(customerId, userId);

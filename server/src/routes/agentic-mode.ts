@@ -7,6 +7,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { agenticModeService, AGENTIC_PRESETS } from '../services/agentic-mode.js';
 import { AgenticModeConfig } from '../agents/engine/agentic-loop.js';
+import { config } from '../config/index.js';
 
 // Production readiness imports
 import { agenticRateLimit } from '../middleware/agenticRateLimit.js';
@@ -23,11 +24,43 @@ const router = Router();
 // Apply rate limiting (use readonly limits for most endpoints)
 router.use(agenticRateLimit);
 
-// Helper to get user ID from request
-function getUserId(req: Request): string {
-  return (req.headers['x-user-id'] as string) ||
-         (req.query.userId as string) ||
-         'demo-user';
+// Demo user ID - ONLY used in development mode
+const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+
+/**
+ * Get user ID from request.
+ * SECURITY: Demo user fallback ONLY allowed in development mode.
+ * Production mode requires authenticated user (set by authMiddleware).
+ */
+function getUserId(req: Request): string | null {
+  // Prefer userId from auth middleware (set by JWT verification)
+  if ((req as any).userId) {
+    return (req as any).userId;
+  }
+
+  // Development only: allow demo user for local testing
+  if (config.nodeEnv === 'development') {
+    return DEMO_USER_ID;
+  }
+
+  // Production: no fallback - must be authenticated
+  return null;
+}
+
+/**
+ * Helper to require authentication.
+ * Returns 401 if not authenticated in production.
+ */
+function requireAuth(req: Request, res: Response): string | null {
+  const userId = getUserId(req);
+  if (!userId) {
+    res.status(401).json({
+      error: 'Unauthorized',
+      message: 'Authentication required'
+    });
+    return null;
+  }
+  return userId;
 }
 
 /**
@@ -36,7 +69,9 @@ function getUserId(req: Request): string {
  */
 router.get('/settings', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const settings = await agenticModeService.getSettings(userId);
 
     res.json({
@@ -60,7 +95,9 @@ router.get('/settings', async (req: Request, res: Response, next: NextFunction) 
  */
 router.post('/toggle', validateToggleRequest, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { enabled } = req.body;
 
     const settings = await agenticModeService.toggleMode(userId, enabled);
@@ -88,7 +125,9 @@ router.post('/toggle', validateToggleRequest, async (req: Request, res: Response
  */
 router.post('/preset', validatePresetRequest, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { preset } = req.body;
 
     // Get previous config for audit
@@ -123,7 +162,9 @@ router.post('/preset', validatePresetRequest, async (req: Request, res: Response
  */
 router.put('/config', validateConfigUpdate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const configUpdates: Partial<AgenticModeConfig> = req.body;
 
     // Get previous config for audit
@@ -161,7 +202,9 @@ router.put('/config', validateConfigUpdate, async (req: Request, res: Response, 
  */
 router.put('/schedule', validateScheduleRequest, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const { schedule } = req.body;
 
     // Get previous schedule for audit
@@ -196,7 +239,9 @@ router.put('/schedule', validateScheduleRequest, async (req: Request, res: Respo
  */
 router.get('/effective', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const userId = getUserId(req);
+    const userId = requireAuth(req, res);
+    if (!userId) return;
+
     const effectiveConfig = await agenticModeService.getEffectiveConfig(userId);
 
     res.json({
