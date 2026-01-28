@@ -311,6 +311,9 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       totalTokens: 0
     };
 
+    // Track tool calls for metadata
+    const toolCallsData: Array<{ type: string; name: string; params?: Record<string, unknown>; result?: Record<string, unknown>; duration?: number }> = [];
+
     // Execute agent with real streaming - tokens streamed as they arrive from LLM
     const result = await onboardingAgent.executeStream(
       {
@@ -328,7 +331,26 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
           });
         }
       },
-      abortController.signal
+      abortController.signal,
+      // Callback for tool events - forward to SSE
+      (toolEvent) => {
+        if (!clientDisconnected) {
+          sendSSEEvent(res, {
+            type: toolEvent.type,
+            name: toolEvent.name,
+            params: toolEvent.params,
+            result: toolEvent.result,
+            duration: toolEvent.duration
+          });
+          toolCallsData.push({
+            type: toolEvent.type,
+            name: toolEvent.name,
+            params: toolEvent.params,
+            result: toolEvent.result,
+            duration: toolEvent.duration
+          });
+        }
+      }
     );
 
     // Capture token usage from streaming result
@@ -387,7 +409,7 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       }
     }
 
-    // Send done event with metadata including token usage
+    // Send done event with metadata including token usage and tool calls
     sendSSEEvent(res, {
       type: 'done',
       content: JSON.stringify({
@@ -396,7 +418,8 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
         agentId: 'onboarding',
         requiresApproval: result.requiresApproval || false,
         deployedAgent: result.deployAgent || null,
-        tokenUsage
+        tokenUsage,
+        toolCalls: toolCallsData.length > 0 ? toolCallsData : undefined
       })
     });
 

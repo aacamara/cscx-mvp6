@@ -5,6 +5,22 @@ import { SupabaseService } from '../services/supabase.js';
 export type { StreamCallback, StreamResult };
 export type ThinkingCallback = () => void;
 
+/**
+ * Callback for tool execution events during streaming
+ */
+export type ToolEventCallback = (event: ToolEvent) => void;
+
+/**
+ * Tool execution event for streaming
+ */
+export interface ToolEvent {
+  type: 'tool_start' | 'tool_end';
+  name: string;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  duration?: number; // milliseconds
+}
+
 export type AgentId = 'onboarding' | 'meeting' | 'training' | 'intelligence';
 
 export interface Tool {
