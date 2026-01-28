@@ -290,41 +290,61 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       return;
     }
 
-    // Execute agent (currently non-streaming, will be enhanced in US-002/US-003)
-    const result = await onboardingAgent.execute({
-      sessionId,
-      message,
-      context: session.context,
-      history: session.messages
-    });
-
-    // Check for client disconnect after processing
-    if (clientDisconnected) {
-      console.log('[Stream] Client disconnected after processing');
-      return;
-    }
-
     // Generate unique message ID
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Stream the response token by token (simulated for now, will be real in US-002/US-003)
-    const responseText = result.message;
-    const words = responseText.split(' ');
+    // Create abort controller for stream cancellation
+    const abortController = new AbortController();
 
-    for (let i = 0; i < words.length; i++) {
-      if (clientDisconnected) {
-        console.log('[Stream] Client disconnected during streaming');
-        return;
-      }
+    // Link client disconnect to abort signal
+    const handleDisconnect = () => {
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    req.once('close', handleDisconnect);
+    req.once('aborted', handleDisconnect);
 
-      const token = i === 0 ? words[i] : ' ' + words[i];
-      sendSSEEvent(res, {
-        type: 'token',
-        content: token
-      });
+    // Track token usage for analytics
+    let tokenUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0
+    };
 
-      // Small delay for visual effect (will be removed when using real streaming)
-      await new Promise(resolve => setTimeout(resolve, 10));
+    // Execute agent with real streaming - tokens streamed as they arrive from LLM
+    const result = await onboardingAgent.executeStream(
+      {
+        sessionId,
+        message,
+        context: session.context,
+        history: session.messages
+      },
+      // Callback for each chunk - forward to SSE
+      (chunk: string) => {
+        if (!clientDisconnected) {
+          sendSSEEvent(res, {
+            type: 'token',
+            content: chunk
+          });
+        }
+      },
+      abortController.signal
+    );
+
+    // Capture token usage from streaming result
+    if (result.tokenUsage) {
+      tokenUsage = {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        totalTokens: result.tokenUsage.totalTokens
+      };
+      console.log(`[Stream] Token usage - input: ${tokenUsage.inputTokens}, output: ${tokenUsage.outputTokens}, total: ${tokenUsage.totalTokens}`);
+    }
+
+    // Check for client disconnect after processing
+    if (clientDisconnected) {
+      console.log('[Stream] Client disconnected during streaming');
+      return;
     }
 
     // Add agent response to history
@@ -367,7 +387,7 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       }
     }
 
-    // Send done event with metadata
+    // Send done event with metadata including token usage
     sendSSEEvent(res, {
       type: 'done',
       content: JSON.stringify({
@@ -375,7 +395,8 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
         sessionId,
         agentId: 'onboarding',
         requiresApproval: result.requiresApproval || false,
-        deployedAgent: result.deployAgent || null
+        deployedAgent: result.deployAgent || null,
+        tokenUsage
       })
     });
 

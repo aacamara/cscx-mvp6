@@ -1,6 +1,8 @@
-import { GeminiService } from '../services/gemini.js';
+import { GeminiService, StreamCallback, StreamResult } from '../services/gemini.js';
 import { ClaudeService } from '../services/claude.js';
 import { SupabaseService } from '../services/supabase.js';
+
+export type { StreamCallback, StreamResult };
 
 export type AgentId = 'onboarding' | 'meeting' | 'training' | 'intelligence';
 
@@ -84,6 +86,49 @@ export abstract class BaseAgent {
       return this.claude.generate(prompt, this.config.systemPrompt);
     }
     return this.gemini.generate(prompt, this.config.systemPrompt);
+  }
+
+  /**
+   * Generate a streaming response (Gemini only for now)
+   * @param prompt The prompt to send
+   * @param onChunk Callback for each text chunk
+   * @param signal Optional AbortSignal for cancellation
+   * @returns StreamResult with complete text and token counts
+   */
+  protected async thinkStream(
+    prompt: string,
+    onChunk?: StreamCallback,
+    signal?: AbortSignal
+  ): Promise<StreamResult> {
+    // For now, only Gemini supports streaming via this method
+    // Claude streaming will be added in US-003
+    if (this.config.model === 'claude') {
+      // Fall back to non-streaming for Claude
+      const response = await this.claude.generate(prompt, this.config.systemPrompt);
+      // Simulate streaming by sending the whole response at once
+      onChunk?.(response);
+      return {
+        text: response,
+        inputTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0
+      };
+    }
+    return this.gemini.generateStream(prompt, this.config.systemPrompt, onChunk, signal);
+  }
+
+  /**
+   * Check if this agent supports streaming
+   */
+  public supportsStreaming(): boolean {
+    return this.config.model === 'gemini';
+  }
+
+  /**
+   * Get the model type for this agent
+   */
+  public getModel(): 'gemini' | 'claude' {
+    return this.config.model;
   }
 
   protected async saveMessage(message: AgentMessage): Promise<void> {

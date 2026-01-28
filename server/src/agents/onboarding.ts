@@ -1,4 +1,4 @@
-import { BaseAgent, AgentInput, AgentOutput, AgentConfig, ToolCall, AgentId } from './base.js';
+import { BaseAgent, AgentInput, AgentOutput, AgentConfig, ToolCall, AgentId, StreamCallback, StreamResult } from './base.js';
 import { MeetingAgent } from './meeting.js';
 import { TrainingAgent } from './training.js';
 import { IntelligenceAgent } from './intelligence.js';
@@ -112,6 +112,48 @@ export class OnboardingAgent extends BaseAgent {
       message: response,
       requiresApproval,
       deployAgent: deployedAgent
+    };
+  }
+
+  /**
+   * Execute with streaming - sends tokens as they're generated
+   * @param input Agent input with session, message, context, and history
+   * @param onChunk Callback for each text chunk
+   * @param signal Optional AbortSignal for cancellation
+   * @returns AgentOutput with complete response and metadata
+   */
+  async executeStream(
+    input: AgentInput,
+    onChunk?: StreamCallback,
+    signal?: AbortSignal
+  ): Promise<AgentOutput & { tokenUsage: StreamResult }> {
+    const prompt = this.buildPrompt(input);
+
+    // Execute with streaming
+    const streamResult = await this.thinkStream(prompt, onChunk, signal);
+    const response = streamResult.text;
+
+    // Check for subagent deployment keywords
+    const deployedAgent = this.detectAgentDeployment(input.message, response);
+
+    // Check if response requires approval
+    const requiresApproval = this.detectApprovalNeeded(response);
+
+    // Save to database (only save complete messages, not during streaming)
+    await this.saveMessage({
+      sessionId: input.sessionId,
+      agentId: this.config.id,
+      role: 'agent',
+      content: response,
+      requiresApproval,
+      deployedAgent
+    });
+
+    return {
+      message: response,
+      requiresApproval,
+      deployAgent: deployedAgent,
+      tokenUsage: streamResult
     };
   }
 
