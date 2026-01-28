@@ -90,7 +90,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Use AbortController for fetch cancellation"
     },
     {
