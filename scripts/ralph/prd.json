@@ -60,7 +60,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Tool calls happen in the agent execution flow"
     },
     {

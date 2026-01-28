@@ -14,6 +14,9 @@
 - Pre-existing TypeScript errors in codebase (not related to streaming implementation)
 - ClaudeService in server/src/services/claude.ts, GeminiService in server/src/services/gemini.ts
 - BaseAgent.thinkStream() in server/src/agents/base.ts handles model-specific streaming
+- ToolEvent and ToolEventCallback types in base.ts for tool call streaming
+- OnboardingAgent.executeStream accepts onToolEvent callback for tool event streaming
+- Use streamToolEvents (not toolCalls) to avoid type conflicts with AgentOutput.toolCalls
 
 ---
 
@@ -49,4 +52,19 @@ Initialized: Ready to start Loop 2
   - Output tokens available in message_delta.usage.output_tokens
   - ThinkingCallback type exported from base.ts for thinking block notifications
   - ClaudeService falls back to Gemini streaming if Claude streaming fails
+---
+
+## 2026-01-28 - US-004
+- Implemented tool call event streaming
+- Files changed:
+  - server/src/agents/base.ts (+16 lines) - added ToolEvent and ToolEventCallback types
+  - server/src/agents/onboarding.ts (+98 lines) - added tool event emission in executeStream
+  - server/src/routes/agents.ts (+29 lines) - forward tool events to SSE stream
+- **Learnings for future iterations:**
+  - ToolEvent has type: 'tool_start' | 'tool_end', name, params, result, duration fields
+  - Duration is tracked in milliseconds from start to end of tool execution
+  - Use streamToolEvents property name (not toolCalls) to avoid type conflict with AgentOutput.toolCalls
+  - Tool events are emitted when subagent deployment is detected (meeting, training, intelligence agents)
+  - getToolNameForAgent() maps AgentId to tool names (e.g., 'meeting' -> 'deployMeetingAgent')
+  - getToolParamsFromContext() extracts relevant params from AgentInput for each tool type
 ---
