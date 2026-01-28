@@ -188,6 +188,323 @@ async function executeApprovedAction(
   }
 }
 
+// ============================================
+// SSE Streaming Types
+// ============================================
+
+/**
+ * Types for SSE streaming events
+ */
+export interface StreamEvent {
+  type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'done' | 'error';
+  content?: string;
+  name?: string;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  duration?: number;
+  error?: string;
+}
+
+/**
+ * Helper to send SSE event
+ */
+function sendSSEEvent(res: Response, event: StreamEvent): void {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+// POST /api/agents/chat/stream - Stream chat response via SSE
+router.post('/chat/stream', async (req: Request, res: Response) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+  res.flushHeaders();
+
+  // Track if client disconnected
+  let clientDisconnected = false;
+
+  // Handle client disconnect
+  req.on('close', () => {
+    clientDisconnected = true;
+    console.log('SSE client disconnected');
+  });
+
+  req.on('aborted', () => {
+    clientDisconnected = true;
+    console.log('SSE client aborted');
+  });
+
+  try {
+    const { sessionId, message, customerId, context } = req.body;
+
+    // Handle session initialization
+    if (message === '[SESSION_INIT]') {
+      let session = legacySessions.get(sessionId);
+      if (!session) {
+        const customerContext: CustomerContext = context || {
+          name: 'Customer',
+          arr: 0,
+          stage: 'onboarding'
+        };
+
+        session = {
+          customerId: customerId || 'unknown',
+          context: customerContext,
+          messages: [],
+          pendingActions: new Map()
+        };
+        legacySessions.set(sessionId, session);
+      } else if (context) {
+        session.context = { ...session.context, ...context };
+      }
+
+      sendSSEEvent(res, {
+        type: 'done',
+        content: 'Session initialized'
+      });
+      res.end();
+      return;
+    }
+
+    if (!message) {
+      sendSSEEvent(res, {
+        type: 'error',
+        error: 'Message is required'
+      });
+      res.end();
+      return;
+    }
+
+    // Get or create session
+    let session = legacySessions.get(sessionId);
+    if (!session) {
+      const customerContext: CustomerContext = context || {
+        name: 'Customer',
+        arr: 0,
+        stage: 'onboarding'
+      };
+
+      session = {
+        customerId: customerId || 'unknown',
+        context: customerContext,
+        messages: [],
+        pendingActions: new Map()
+      };
+      legacySessions.set(sessionId, session);
+    } else if (context) {
+      session.context = { ...session.context, ...context };
+    }
+
+    // Add user message to history
+    const userMessage: AgentMessage = {
+      sessionId,
+      role: 'user',
+      content: message,
+      timestamp: new Date()
+    };
+    session.messages.push(userMessage);
+
+    console.log(`[Stream] Processing message for ${session.context.name}: "${message.substring(0, 50)}..."`);
+
+    // Check for client disconnect before processing
+    if (clientDisconnected) {
+      console.log('[Stream] Client disconnected before processing');
+      return;
+    }
+
+    // Generate unique message ID
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Create abort controller for stream cancellation
+    const abortController = new AbortController();
+
+    // Link client disconnect to abort signal
+    const handleDisconnect = () => {
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    req.once('close', handleDisconnect);
+    req.once('aborted', handleDisconnect);
+
+    // Track token usage for analytics
+    let tokenUsage = {
+      inputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0
+    };
+
+    // Track tool calls for metadata
+    const toolCallsData: Array<{ type: string; name: string; params?: Record<string, unknown>; result?: Record<string, unknown>; duration?: number }> = [];
+
+    // Execute agent with real streaming - tokens streamed as they arrive from LLM
+    const result = await onboardingAgent.executeStream(
+      {
+        sessionId,
+        message,
+        context: session.context,
+        history: session.messages
+      },
+      // Callback for each chunk - forward to SSE
+      (chunk: string) => {
+        if (!clientDisconnected) {
+          sendSSEEvent(res, {
+            type: 'token',
+            content: chunk
+          });
+        }
+      },
+      abortController.signal,
+      // Callback for tool events - forward to SSE
+      (toolEvent) => {
+        if (!clientDisconnected) {
+          sendSSEEvent(res, {
+            type: toolEvent.type,
+            name: toolEvent.name,
+            params: toolEvent.params,
+            result: toolEvent.result,
+            duration: toolEvent.duration
+          });
+          toolCallsData.push({
+            type: toolEvent.type,
+            name: toolEvent.name,
+            params: toolEvent.params,
+            result: toolEvent.result,
+            duration: toolEvent.duration
+          });
+        }
+      }
+    );
+
+    // Capture token usage from streaming result
+    if (result.tokenUsage) {
+      tokenUsage = {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+        totalTokens: result.tokenUsage.totalTokens
+      };
+      console.log(`[Stream] Token usage - input: ${tokenUsage.inputTokens}, output: ${tokenUsage.outputTokens}, total: ${tokenUsage.totalTokens}`);
+    }
+
+    // Check for client disconnect after processing
+    if (clientDisconnected) {
+      console.log('[Stream] Client disconnected during streaming');
+      return;
+    }
+
+    // Add agent response to history
+    const agentMessage: AgentMessage = {
+      id: messageId,
+      sessionId,
+      agentId: 'onboarding',
+      role: 'agent',
+      content: result.message,
+      requiresApproval: result.requiresApproval,
+      deployedAgent: result.deployAgent,
+      timestamp: new Date()
+    };
+    session.messages.push(agentMessage);
+
+    // Handle pending actions if approval needed
+    if (result.requiresApproval) {
+      const actionId = `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const pendingAction: PendingAction = {
+        id: actionId,
+        sessionId,
+        agentId: 'onboarding',
+        actionType: result.deployAgent ? `deploy_${result.deployAgent}` : 'general_action',
+        description: extractActionDescription(result.message),
+        actionData: result.data || {},
+        createdAt: new Date(),
+        status: 'pending'
+      };
+      session.pendingActions.set(actionId, pendingAction);
+
+      try {
+        await db.createApproval({
+          session_id: sessionId,
+          action_type: pendingAction.actionType,
+          action_data: pendingAction.actionData,
+          status: 'pending'
+        });
+      } catch (e) {
+        console.log('Approval saved to memory (no DB configured)');
+      }
+    }
+
+    // Send done event with metadata including token usage and tool calls
+    sendSSEEvent(res, {
+      type: 'done',
+      content: JSON.stringify({
+        id: messageId,
+        sessionId,
+        agentId: 'onboarding',
+        requiresApproval: result.requiresApproval || false,
+        deployedAgent: result.deployAgent || null,
+        tokenUsage,
+        toolCalls: toolCallsData.length > 0 ? toolCallsData : undefined
+      })
+    });
+
+    // Persist completed messages to database after stream ends
+    // This ensures the full conversation history is stored for later retrieval
+    try {
+      // Get or create a persistent session (maps to agent_sessions table)
+      const persistentSession = await sessionService.getOrCreateSession({
+        sessionId,
+        customerId: session.customerId,
+        context: { customerContext: session.context }
+      });
+
+      // Save user message to database
+      await sessionService.addMessage({
+        sessionId: persistentSession.id,
+        role: 'user',
+        content: message,
+        metadata: {
+          originalSessionId: sessionId
+        }
+      });
+
+      // Save agent response with tool calls and token usage
+      await sessionService.addMessage({
+        sessionId: persistentSession.id,
+        agentId: 'onboarding',
+        role: 'assistant',
+        content: result.message,
+        requiresApproval: result.requiresApproval,
+        deployedAgent: result.deployAgent,
+        toolCalls: toolCallsData.length > 0 ? toolCallsData : undefined,
+        metadata: {
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          totalTokens: tokenUsage.totalTokens,
+          messageId,
+          originalSessionId: sessionId
+        }
+      });
+
+      console.log(`[Stream] Messages persisted to database for session ${persistentSession.id}`);
+    } catch (persistError) {
+      // Log but don't fail the response - persistence is secondary to streaming response
+      console.error('[Stream] Failed to persist messages to database:', persistError);
+    }
+
+    res.end();
+
+  } catch (error) {
+    console.error('Agent stream error:', error);
+
+    if (!clientDisconnected) {
+      sendSSEEvent(res, {
+        type: 'error',
+        error: error instanceof Error ? error.message : 'Failed to process message'
+      });
+      res.end();
+    }
+  }
+});
+
 // POST /api/agents/chat - Send message to agent
 router.post('/chat', async (req: Request, res: Response) => {
   try {

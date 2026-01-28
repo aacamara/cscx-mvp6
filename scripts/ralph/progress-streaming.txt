@@ -1,0 +1,33 @@
+## Codebase Patterns
+- Express SSE requires res.flushHeaders() before streaming
+- Use res.write() not res.send() for streaming
+- Set Cache-Control: no-cache header
+- AbortController handles client disconnects
+- Gemini uses generateContentStream() for streaming
+- Anthropic uses stream: true option
+- BaseAgent has thinkStream() for streaming inference (Gemini only currently)
+- OnboardingAgent.executeStream() returns tokenUsage with input/output/total counts
+- Codebase has pre-existing type errors in other files - focus on not introducing new ones
+
+---
+
+# Streaming Chat Progress Log
+
+Initialized: Ready to start Loop 2
+
+---
+
+## 2026-01-28 - US-002
+- Implemented real-time Gemini streaming via generateContentStream()
+- Files changed:
+  - server/src/services/gemini.ts - Added generateStream(), generateStreamWithHistory(), StreamResult type, StreamCallback type
+  - server/src/agents/base.ts - Added thinkStream() method, supportsStreaming(), getModel(), re-exported stream types
+  - server/src/agents/onboarding.ts - Added executeStream() method returning response + tokenUsage
+  - server/src/routes/agents.ts - Updated /chat/stream to use executeStream(), forward chunks via callback, track token usage
+- **Learnings for future iterations:**
+  - Gemini's usageMetadata contains promptTokenCount and candidatesTokenCount (not inputTokenCount/outputTokenCount)
+  - Final response.usageMetadata may have more accurate counts than individual chunk metadata
+  - AbortController can be passed through to streaming methods for clean cancellation
+  - The codebase has ~80 pre-existing type errors in other modules - they existed before this work
+  - OnboardingAgent uses model: 'claude' by default, so thinkStream() falls back to non-streaming for it
+---

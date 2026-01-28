@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config/index.js';
+import { StreamResult, StreamCallback } from './gemini.js';
 
 /**
  * Robust JSON extraction and parsing from LLM responses
@@ -249,6 +250,130 @@ export class ClaudeService {
       } catch (geminiError) {
         console.error('Gemini fallback also failed:', geminiError);
         throw new Error('Failed to generate chat response');
+      }
+    }
+  }
+
+  /**
+   * Generate a streaming response from Claude
+   * @param prompt The user prompt
+   * @param systemPrompt Optional system prompt
+   * @param onChunk Callback for each text chunk
+   * @param onThinking Optional callback when thinking block is detected
+   * @param signal Optional AbortSignal for cancellation
+   * @returns StreamResult with complete text and token counts
+   */
+  async generateStream(
+    prompt: string,
+    systemPrompt?: string,
+    onChunk?: StreamCallback,
+    onThinking?: () => void,
+    signal?: AbortSignal
+  ): Promise<StreamResult> {
+    try {
+      const stream = await this.client.messages.create({
+        model: this.defaultModel,
+        max_tokens: 8192,
+        system: systemPrompt || 'You are a helpful AI assistant.',
+        messages: [{ role: 'user', content: prompt }],
+        stream: true
+      });
+
+      let fullText = '';
+      let inputTokens = 0;
+      let outputTokens = 0;
+      let isThinkingBlock = false;
+
+      // Stream each event
+      for await (const event of stream) {
+        // Check for cancellation
+        if (signal?.aborted) {
+          console.log('[ClaudeStream] Aborted by signal');
+          break;
+        }
+
+        switch (event.type) {
+          case 'message_start':
+            // Extract input token count from the message start event
+            if (event.message?.usage) {
+              inputTokens = event.message.usage.input_tokens || 0;
+            }
+            break;
+
+          case 'content_block_start':
+            // Check if this is a thinking block (extended thinking)
+            // Thinking blocks have type 'thinking' instead of 'text'
+            if (event.content_block && 'type' in event.content_block) {
+              if ((event.content_block as { type: string }).type === 'thinking') {
+                isThinkingBlock = true;
+                // Notify that thinking is happening
+                onThinking?.();
+              } else {
+                isThinkingBlock = false;
+              }
+            }
+            break;
+
+          case 'content_block_delta':
+            // Only stream text deltas, not thinking deltas
+            if (!isThinkingBlock && event.delta && 'type' in event.delta) {
+              if (event.delta.type === 'text_delta' && 'text' in event.delta) {
+                const text = (event.delta as { text: string }).text;
+                if (text) {
+                  fullText += text;
+                  onChunk?.(text);
+                }
+              }
+            }
+            break;
+
+          case 'content_block_stop':
+            // Reset thinking block flag when the block ends
+            isThinkingBlock = false;
+            break;
+
+          case 'message_delta':
+            // Extract output token count from the message delta event
+            if (event.usage) {
+              outputTokens = event.usage.output_tokens || 0;
+            }
+            break;
+
+          case 'message_stop':
+            // Stream complete
+            break;
+        }
+      }
+
+      return {
+        text: fullText,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens
+      };
+    } catch (error) {
+      // Handle aborted streams gracefully
+      if (signal?.aborted) {
+        console.log('[ClaudeStream] Stream cancelled');
+        return {
+          text: '',
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0
+        };
+      }
+
+      console.error('Claude Stream Error:', error);
+
+      // Fallback to Gemini streaming if Claude fails
+      console.log('⚠️  Claude streaming failed, falling back to Gemini streaming...');
+      try {
+        const { GeminiService } = await import('./gemini.js');
+        const gemini = new GeminiService();
+        return await gemini.generateStream(prompt, systemPrompt, onChunk, signal);
+      } catch (geminiError) {
+        console.error('Gemini streaming fallback also failed:', geminiError);
+        throw new Error(`Failed to stream response: ${(error as Error).message}`);
       }
     }
   }

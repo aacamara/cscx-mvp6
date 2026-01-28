@@ -1,4 +1,4 @@
-import { BaseAgent, AgentInput, AgentOutput, AgentConfig, ToolCall, AgentId } from './base.js';
+import { BaseAgent, AgentInput, AgentOutput, AgentConfig, ToolCall, AgentId, StreamCallback, StreamResult, ToolEventCallback, ToolEvent } from './base.js';
 import { MeetingAgent } from './meeting.js';
 import { TrainingAgent } from './training.js';
 import { IntelligenceAgent } from './intelligence.js';
@@ -113,6 +113,138 @@ export class OnboardingAgent extends BaseAgent {
       requiresApproval,
       deployAgent: deployedAgent
     };
+  }
+
+  /**
+   * Execute with streaming - sends tokens as they're generated
+   * @param input Agent input with session, message, context, and history
+   * @param onChunk Callback for each text chunk
+   * @param signal Optional AbortSignal for cancellation
+   * @param onToolEvent Optional callback for tool execution events
+   * @returns AgentOutput with complete response and metadata
+   */
+  async executeStream(
+    input: AgentInput,
+    onChunk?: StreamCallback,
+    signal?: AbortSignal,
+    onToolEvent?: ToolEventCallback
+  ): Promise<AgentOutput & { tokenUsage: StreamResult; streamToolEvents?: ToolEvent[] }> {
+    const prompt = this.buildPrompt(input);
+    const streamToolEvents: ToolEvent[] = [];
+
+    // Execute with streaming
+    const streamResult = await this.thinkStream(prompt, onChunk, signal);
+    const response = streamResult.text;
+
+    // Check for subagent deployment keywords
+    const deployedAgent = this.detectAgentDeployment(input.message, response);
+
+    // Check if response requires approval
+    const requiresApproval = this.detectApprovalNeeded(response);
+
+    // If a subagent would be deployed, emit tool events
+    if (deployedAgent && onToolEvent) {
+      const toolName = this.getToolNameForAgent(deployedAgent);
+      const toolParams = this.getToolParamsFromContext(deployedAgent, input);
+
+      // Emit tool_start event
+      const startTime = Date.now();
+      const startEvent: ToolEvent = {
+        type: 'tool_start',
+        name: toolName,
+        params: toolParams
+      };
+      onToolEvent(startEvent);
+      streamToolEvents.push(startEvent);
+
+      // Simulate subagent execution (in real implementation, this would be actual execution)
+      // For now, we mark the tool as ready for deployment after approval
+      const endTime = Date.now();
+      const duration = endTime - startTime;
+
+      // Emit tool_end event
+      const endEvent: ToolEvent = {
+        type: 'tool_end',
+        name: toolName,
+        result: {
+          status: requiresApproval ? 'pending_approval' : 'ready',
+          agentId: deployedAgent,
+          message: requiresApproval
+            ? `${toolName} requires approval before execution`
+            : `${toolName} ready to execute`
+        },
+        duration
+      };
+      onToolEvent(endEvent);
+      streamToolEvents.push(endEvent);
+    }
+
+    // Save to database (only save complete messages, not during streaming)
+    await this.saveMessage({
+      sessionId: input.sessionId,
+      agentId: this.config.id,
+      role: 'agent',
+      content: response,
+      requiresApproval,
+      deployedAgent
+    });
+
+    return {
+      message: response,
+      requiresApproval,
+      deployAgent: deployedAgent,
+      tokenUsage: streamResult,
+      streamToolEvents: streamToolEvents.length > 0 ? streamToolEvents : undefined
+    };
+  }
+
+  /**
+   * Get the tool name for a given agent ID
+   */
+  private getToolNameForAgent(agentId: AgentId): string {
+    switch (agentId) {
+      case 'meeting':
+        return 'deployMeetingAgent';
+      case 'training':
+        return 'deployTrainingAgent';
+      case 'intelligence':
+        return 'deployIntelligenceAgent';
+      default:
+        return 'unknownTool';
+    }
+  }
+
+  /**
+   * Extract tool parameters from context for a given agent
+   */
+  private getToolParamsFromContext(agentId: AgentId, input: AgentInput): Record<string, unknown> {
+    const baseParams = {
+      customerId: input.context.id || 'unknown',
+      customerName: input.context.name,
+      sessionId: input.sessionId
+    };
+
+    switch (agentId) {
+      case 'meeting':
+        return {
+          ...baseParams,
+          action: 'schedule',
+          details: `Meeting for ${input.context.name}`
+        };
+      case 'training':
+        return {
+          ...baseParams,
+          action: 'generate',
+          topic: 'onboarding'
+        };
+      case 'intelligence':
+        return {
+          ...baseParams,
+          action: 'pullCRM'
+        };
+      default:
+        return baseParams;
+    }
   }
 
   async executeWithSubagent(input: AgentInput, agentId: AgentId): Promise<AgentOutput> {

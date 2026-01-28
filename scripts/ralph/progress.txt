@@ -1,138 +1,103 @@
 ## Codebase Patterns
-- Supabase RLS uses `auth.uid()` function to get current user
-- Policies can reference other tables via joins for indirect ownership
-- Service role key bypasses RLS (for background jobs)
-- Migrations live in server/supabase/migrations/ with YYYYMMDD_description.sql naming
-- Consolidated versioned migrations: database/migrations/NNN_description.sql
-- Admin role check: `(auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'`
-- Pre-existing TypeScript errors: missing types/index.ts, Vite import.meta.env types - not blocking SQL migrations
-- Child table RLS pattern: `EXISTS (SELECT 1 FROM parent WHERE parent.id = child.fk AND parent.csm_user_id = auth.uid())`
-- Auth middleware: server/src/middleware/auth.ts - JWT via Authorization Bearer header only
-- Demo user fallback (dev only): df2dc7be-ece0-40b2-a9d7-0f6c45b75131
-- Route auth pattern: Use getUserId(req)/requireAuth(req,res) helpers with config.nodeEnv check
-- Production routes: Must return 401 for unauthenticated requests - NO demo user fallback
+- Express SSE requires res.flushHeaders() before streaming
+- Use res.write() not res.send() for streaming
+- Set Cache-Control: no-cache header
+- AbortController handles client disconnects
+- Gemini uses generateContentStream() for streaming
+- Anthropic uses stream: true option with messages.create()
+- Claude streaming events: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
+- Thinking blocks in Claude have type 'thinking' in content_block_start event
+- Token counts from Claude: input_tokens from message_start.message.usage, output_tokens from message_delta.usage
+
+- Agent routes are in server/src/routes/agents.ts
+- StreamEvent type is exported for reuse by frontend components
+- Frontend SSE parsing uses ReadableStream with TextDecoder for chunked reading
+- AbortController.abort() triggers fetch abort for cancellation
+- Use `behavior: 'auto'` (not 'smooth') during streaming for immediate scroll
+- Pre-existing TypeScript errors in codebase (not related to streaming implementation)
+- ClaudeService in server/src/services/claude.ts, GeminiService in server/src/services/gemini.ts
+- BaseAgent.thinkStream() in server/src/agents/base.ts handles model-specific streaming
+- ToolEvent and ToolEventCallback types in base.ts for tool call streaming
+- OnboardingAgent.executeStream accepts onToolEvent callback for tool event streaming
+- Use streamToolEvents (not toolCalls) to avoid type conflicts with AgentOutput.toolCalls
 
 ---
 
-# Security Hardening Progress Log
+# Streaming Chat Progress Log
 
-Initialized: Ready to start Loop 1
+Initialized: Ready to start Loop 2
 
 ---
 
 ## 2026-01-28 - US-001
-- Implemented RLS on customers table
-- Files changed:
-  - Created: server/supabase/migrations/20260128_enable_rls_customers.sql
-  - Updated: scripts/ralph/prd.json (marked US-001 as passing)
+- Implemented POST /api/agents/chat/stream SSE endpoint
+- Files changed: server/src/routes/agents.ts (+229 lines)
 - **Learnings for future iterations:**
-  - Migration naming: YYYYMMDD_description.sql in server/supabase/migrations/
-  - customers table had no csm_user_id column - added with FK to auth.users(id)
-  - Admin policies use JWT metadata: `(auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'`
-  - CSM policies use: `csm_user_id = auth.uid()`
-  - TypeScript errors exist in frontend but are pre-existing issues (missing types/index.ts barrel file, Vite env types)
-  - SQL migrations don't affect TypeScript compilation - treat `npx tsc --noEmit` requirement as applicable to TS files only
----
-
-## 2026-01-28 - US-002
-- Implemented RLS on contracts table
-- Files changed:
-  - Created: server/supabase/migrations/20260128_enable_rls_contracts.sql
-  - Updated: scripts/ralph/prd.json (marked US-002 as passing)
-- **Learnings for future iterations:**
-  - RLS policies for child tables use EXISTS subquery to join to parent table
-  - Pattern: `EXISTS (SELECT 1 FROM customers WHERE customers.id = contracts.customer_id AND customers.csm_user_id = auth.uid())`
-  - Include all CRUD operations: SELECT, UPDATE, INSERT, DELETE for both CSM and admin policies
-  - Contracts links through customer_id → customers → csm_user_id for ownership check
+  - res.flushHeaders() must be called after setting headers to start SSE
+  - Use req.on('close') and req.on('aborted') to detect client disconnects
+  - sendSSEEvent helper sends `data: ${JSON.stringify(event)}\n\n` format
+  - X-Accel-Buffering: no header disables nginx buffering for SSE
+  - StreamEvent type is exported for use by frontend (US-005)
+  - Pre-existing TypeScript errors exist in codebase (100+ errors) - focus on not introducing new errors
 ---
 
 ## 2026-01-28 - US-003
-- Confirmed RLS migration on agent_sessions table already committed
-- Files already changed (in previous iteration):
-  - Created: server/supabase/migrations/20260128_enable_rls_agent_sessions.sql
-  - Updated: scripts/ralph/prd.json (marked US-003 as passing)
+- Implemented Claude streaming responses
+- Files changed:
+  - server/src/services/claude.ts (+124 lines) - added generateStream method
+  - server/src/agents/base.ts (+9 lines, -15 lines) - updated thinkStream to use Claude streaming
 - **Learnings for future iterations:**
-  - agent_sessions has direct user_id column (no join needed like contracts)
-  - Simpler RLS pattern: `user_id = auth.uid()` directly
-  - Still need admin policies for full access: `(auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'`
-  - If a story is already committed but PRD shows passes: false, just update the PRD
+  - Anthropic streaming uses `stream: true` in messages.create() options
+  - Stream events are: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
+  - Thinking blocks (extended thinking) have type 'thinking' in content_block_start.content_block.type
+  - Text deltas are in content_block_delta events with delta.type === 'text_delta'
+  - Input tokens available in message_start.message.usage.input_tokens
+  - Output tokens available in message_delta.usage.output_tokens
+  - ThinkingCallback type exported from base.ts for thinking block notifications
+  - ClaudeService falls back to Gemini streaming if Claude streaming fails
 ---
 
 ## 2026-01-28 - US-004
-- Implemented RLS on tasks table
+- Implemented tool call event streaming
 - Files changed:
-  - Created: server/supabase/migrations/20260128_enable_rls_tasks.sql
-  - Updated: scripts/ralph/prd.json (marked US-004 as passing)
+  - server/src/agents/base.ts (+16 lines) - added ToolEvent and ToolEventCallback types
+  - server/src/agents/onboarding.ts (+98 lines) - added tool event emission in executeStream
+  - server/src/routes/agents.ts (+29 lines) - forward tool events to SSE stream
 - **Learnings for future iterations:**
-  - tasks uses same pattern as contracts: EXISTS subquery through customer_id -> customers.csm_user_id
-  - Reused exact policy structure from contracts migration
-  - Child tables with customer_id FK all use the same indirect ownership check pattern
+  - ToolEvent has type: 'tool_start' | 'tool_end', name, params, result, duration fields
+  - Duration is tracked in milliseconds from start to end of tool execution
+  - Use streamToolEvents property name (not toolCalls) to avoid type conflict with AgentOutput.toolCalls
+  - Tool events are emitted when subagent deployment is detected (meeting, training, intelligence agents)
+  - getToolNameForAgent() maps AgentId to tool names (e.g., 'meeting' -> 'deployMeetingAgent')
+  - getToolParamsFromContext() extracts relevant params from AgentInput for each tool type
 ---
 
 ## 2026-01-28 - US-005
-- Enforced JWT authentication in middleware - removed x-user-id header fallback
+- Updated AIPanel component for streaming responses
 - Files changed:
-  - Modified: server/src/middleware/auth.ts
-  - Updated: scripts/ralph/prd.json (marked US-005 as passing)
+  - components/AIPanel/index.tsx (+193 lines, -51 lines) - rewrote sendMessage for streaming
+  - types/streaming.ts (new file) - shared StreamEvent type for frontend
 - **Learnings for future iterations:**
-  - authMiddleware previously accepted x-user-id header as fallback - security vulnerability
-  - optionalAuthMiddleware also had x-user-id fallback - both needed updating
-  - Production mode (NODE_ENV !== 'development') now returns 401 for missing/invalid tokens
-  - Development mode still allows demo user UUID for local testing without auth setup
-  - Demo user ID: df2dc7be-ece0-40b2-a9d7-0f6c45b75131
-  - TypeScript errors in server/ are pre-existing (dependencies, test files) - not blocking
-  - Auth flow: Token → Supabase verify → set req.user/req.userId; No token in prod → 401
+  - Use fetch with response.body.getReader() and TextDecoder for SSE consumption
+  - Parse SSE by splitting on newlines and looking for 'data: ' prefix
+  - Track streaming state separately from loading state (isStreaming vs isLoading)
+  - Use AbortController for cancellation, store ref to abort on stop click
+  - Animate cursor with `animate-pulse` class on a small inline-block span
+  - Use scrollIntoView({ behavior: 'auto' }) during streaming for instant scroll (no animation lag)
+  - Pre-existing TypeScript errors (import.meta.env) are Vite-specific and don't affect runtime
 ---
 
 ## 2026-01-28 - US-006
-- Removed demo user fallback in production mode across all route files
+- Added cancel/stop button to AIPanel during streaming
 - Files changed:
-  - Modified: server/src/routes/google/calendar.ts
-  - Modified: server/src/routes/google/gmail.ts
-  - Modified: server/src/routes/google/drive.ts
-  - Modified: server/src/routes/ai-analysis.ts
-  - Modified: server/src/routes/agentic-mode.ts
-  - Modified: server/src/routes/schedules.ts
-  - Modified: server/src/routes/agentic-agents.ts
-  - Modified: server/src/routes/agents.ts
-  - Modified: server/src/routes/otter.ts
-  - Updated: scripts/ralph/prd.json (marked US-006 as passing)
+  - components/AIPanel/index.tsx (+27 lines, -10 lines) - added handleStop function and Stop button
 - **Learnings for future iterations:**
-  - Pattern for secure user ID retrieval across routes:
-    ```typescript
-    const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
-
-    function getUserId(req: Request): string | null {
-      if ((req as any).userId) return (req as any).userId;
-      if (config.nodeEnv === 'development') return DEMO_USER_ID;
-      return null;
-    }
-
-    function requireAuth(req: Request, res: Response): string | null {
-      const userId = getUserId(req);
-      if (!userId) {
-        res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
-        return null;
-      }
-      return userId;
-    }
-    ```
-  - Always check `if (!userId) return;` after calling requireAuth() in route handlers
-  - Use `config.nodeEnv === 'development'` for environment check (import config from '../config/index.js')
-  - Don't use x-user-id header fallback in routes - only accept userId from auth middleware
-  - TypeScript errors are pre-existing and unrelated to security changes
----
-
-## 2026-01-28 - US-007
-- Created consolidated database migration file for all RLS changes
-- Files changed:
-  - Created: database/migrations/020_enable_rls.sql (318 lines)
-  - Updated: scripts/ralph/prd.json (marked US-007 as passing)
-- **Learnings for future iterations:**
-  - Consolidated migrations use database/migrations/ directory with NNN_description.sql naming
-  - Individual table migrations live in server/supabase/migrations/ with YYYYMMDD_description.sql
-  - Consolidate related security changes into versioned migrations for easier deployment
-  - Include comprehensive rollback instructions as comments in migration files
-  - Use IF NOT EXISTS / IF EXISTS for idempotent column/index additions
-  - TypeScript errors are pre-existing frontend issues - SQL migrations don't affect TS compilation
+  - The abortControllerRef already existed from US-005, just needed UI trigger
+  - Stop button replaces send button when isStreaming is true (conditional render)
+  - Yellow color (bg-yellow-600) differentiates stop from normal actions
+  - Square icon (w-3 h-3 rounded-sm) is common stop button convention
+  - Input should be disabled during streaming to prevent confusion
+  - Placeholder text change ("AI is responding...") gives user feedback
+  - AbortError is caught specifically by checking error.name === 'AbortError'
+  - '[Stopped by user]' suffix already implemented in US-005, just needed trigger
 ---

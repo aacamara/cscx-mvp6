@@ -1,6 +1,25 @@
-import { GeminiService } from '../services/gemini.js';
+import { GeminiService, StreamCallback, StreamResult } from '../services/gemini.js';
 import { ClaudeService } from '../services/claude.js';
 import { SupabaseService } from '../services/supabase.js';
+
+export type { StreamCallback, StreamResult };
+export type ThinkingCallback = () => void;
+
+/**
+ * Callback for tool execution events during streaming
+ */
+export type ToolEventCallback = (event: ToolEvent) => void;
+
+/**
+ * Tool execution event for streaming
+ */
+export interface ToolEvent {
+  type: 'tool_start' | 'tool_end';
+  name: string;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  duration?: number; // milliseconds
+}
 
 export type AgentId = 'onboarding' | 'meeting' | 'training' | 'intelligence';
 
@@ -84,6 +103,48 @@ export abstract class BaseAgent {
       return this.claude.generate(prompt, this.config.systemPrompt);
     }
     return this.gemini.generate(prompt, this.config.systemPrompt);
+  }
+
+  /**
+   * Generate a streaming response
+   * @param prompt The prompt to send
+   * @param onChunk Callback for each text chunk
+   * @param signal Optional AbortSignal for cancellation
+   * @param onThinking Optional callback when thinking block is detected (Claude only)
+   * @returns StreamResult with complete text and token counts
+   */
+  protected async thinkStream(
+    prompt: string,
+    onChunk?: StreamCallback,
+    signal?: AbortSignal,
+    onThinking?: () => void
+  ): Promise<StreamResult> {
+    if (this.config.model === 'claude') {
+      // Use Claude streaming API
+      return this.claude.generateStream(
+        prompt,
+        this.config.systemPrompt,
+        onChunk,
+        onThinking,
+        signal
+      );
+    }
+    return this.gemini.generateStream(prompt, this.config.systemPrompt, onChunk, signal);
+  }
+
+  /**
+   * Check if this agent supports streaming
+   */
+  public supportsStreaming(): boolean {
+    // Both Claude and Gemini support streaming
+    return this.config.model === 'gemini' || this.config.model === 'claude';
+  }
+
+  /**
+   * Get the model type for this agent
+   */
+  public getModel(): 'gemini' | 'claude' {
+    return this.config.model;
   }
 
   protected async saveMessage(message: AgentMessage): Promise<void> {

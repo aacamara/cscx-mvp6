@@ -1,6 +1,21 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config/index.js';
 
+/**
+ * Result from streaming generation including token usage
+ */
+export interface StreamResult {
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+/**
+ * Callback for streaming chunks
+ */
+export type StreamCallback = (chunk: string) => void;
+
 export class GeminiService {
   private client: GoogleGenerativeAI;
   private model: string = 'gemini-2.0-flash';
@@ -174,6 +189,171 @@ Return ONLY the JSON object, no markdown or explanation.`;
       console.error('❌ Error message:', (error as Error)?.message);
       console.error('❌ Error stack:', (error as Error)?.stack);
       throw new Error(`Failed to parse document with Gemini: ${(error as Error)?.message}`);
+    }
+  }
+
+  /**
+   * Generate a streaming response from Gemini
+   * @param prompt The user prompt
+   * @param systemPrompt Optional system prompt
+   * @param onChunk Callback for each text chunk
+   * @param signal Optional AbortSignal for cancellation
+   * @returns StreamResult with complete text and token counts
+   */
+  async generateStream(
+    prompt: string,
+    systemPrompt?: string,
+    onChunk?: StreamCallback,
+    signal?: AbortSignal
+  ): Promise<StreamResult> {
+    try {
+      const model = this.client.getGenerativeModel({
+        model: this.model,
+        systemInstruction: systemPrompt
+      });
+
+      const result = await model.generateContentStream(prompt);
+
+      let fullText = '';
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      // Stream each chunk
+      for await (const chunk of result.stream) {
+        // Check for cancellation
+        if (signal?.aborted) {
+          console.log('[GeminiStream] Aborted by signal');
+          break;
+        }
+
+        const text = chunk.text();
+        if (text) {
+          fullText += text;
+          onChunk?.(text);
+        }
+
+        // Extract token usage if available
+        if (chunk.usageMetadata) {
+          inputTokens = chunk.usageMetadata.promptTokenCount || 0;
+          outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
+        }
+      }
+
+      // Get final response for accurate token count
+      const response = await result.response;
+      if (response.usageMetadata) {
+        inputTokens = response.usageMetadata.promptTokenCount || inputTokens;
+        outputTokens = response.usageMetadata.candidatesTokenCount || outputTokens;
+      }
+
+      return {
+        text: fullText,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens
+      };
+    } catch (error) {
+      // Handle aborted streams gracefully
+      if (signal?.aborted) {
+        console.log('[GeminiStream] Stream cancelled');
+        return {
+          text: '',
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0
+        };
+      }
+
+      console.error('Gemini Stream Error:', error);
+      throw new Error(`Failed to stream response from Gemini: ${(error as Error).message}`);
+    }
+  }
+
+  /**
+   * Generate a streaming response with conversation history
+   * @param messages Conversation history
+   * @param systemPrompt Optional system prompt
+   * @param onChunk Callback for each text chunk
+   * @param signal Optional AbortSignal for cancellation
+   * @returns StreamResult with complete text and token counts
+   */
+  async generateStreamWithHistory(
+    messages: Array<{ role: 'user' | 'model'; content: string }>,
+    systemPrompt?: string,
+    onChunk?: StreamCallback,
+    signal?: AbortSignal
+  ): Promise<StreamResult> {
+    try {
+      const model = this.client.getGenerativeModel({
+        model: this.model,
+        systemInstruction: systemPrompt
+      });
+
+      // Prepare history (all messages except the last user message)
+      const historyMessages = messages.slice(0, -1);
+      const chat = model.startChat({
+        history: historyMessages.map(m => ({
+          role: m.role,
+          parts: [{ text: m.content }]
+        }))
+      });
+
+      // Get the last user message to send
+      const lastMessage = messages[messages.length - 1];
+      const result = await chat.sendMessageStream(lastMessage.content);
+
+      let fullText = '';
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      // Stream each chunk
+      for await (const chunk of result.stream) {
+        // Check for cancellation
+        if (signal?.aborted) {
+          console.log('[GeminiStream] Aborted by signal');
+          break;
+        }
+
+        const text = chunk.text();
+        if (text) {
+          fullText += text;
+          onChunk?.(text);
+        }
+
+        // Extract token usage if available
+        if (chunk.usageMetadata) {
+          inputTokens = chunk.usageMetadata.promptTokenCount || 0;
+          outputTokens = chunk.usageMetadata.candidatesTokenCount || 0;
+        }
+      }
+
+      // Get final response for accurate token count
+      const response = await result.response;
+      if (response.usageMetadata) {
+        inputTokens = response.usageMetadata.promptTokenCount || inputTokens;
+        outputTokens = response.usageMetadata.candidatesTokenCount || outputTokens;
+      }
+
+      return {
+        text: fullText,
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens
+      };
+    } catch (error) {
+      // Handle aborted streams gracefully
+      if (signal?.aborted) {
+        console.log('[GeminiStream] Stream cancelled');
+        return {
+          text: '',
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0
+        };
+      }
+
+      console.error('Gemini Chat Stream Error:', error);
+      throw new Error(`Failed to stream chat response from Gemini: ${(error as Error).message}`);
     }
   }
 }

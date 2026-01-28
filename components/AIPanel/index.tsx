@@ -4,10 +4,11 @@
  * Adapts behavior based on current workflow phase
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { PendingApprovals } from '../PendingApprovals';
 import { OnboardingPhase } from '../../types/workflow';
+import { StreamEvent } from '../../types/streaming';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -22,6 +23,9 @@ interface Message {
   timestamp: Date;
   agentType?: string;
   isThinking?: boolean;
+  isStreaming?: boolean;
+  stoppedByUser?: boolean;
+  isRetrying?: boolean;
   metadata?: {
     phase?: OnboardingPhase;
     toolsUsed?: string[];
@@ -142,22 +146,35 @@ export const AIPanel: React.FC<AIPanelProps> = ({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [sessionId] = useState(() => `session_${Date.now()}`);
   const [refreshApprovals, setRefreshApprovals] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup retry timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Get phase-specific content
   const phaseContent = PHASE_PROMPTS[context.phase] || PHASE_PROMPTS['upload'];
   const quickActions = QUICK_ACTIONS.filter(a => a.phases.includes(context.phase));
 
-  // Auto-scroll to bottom
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Auto-scroll to bottom - use 'auto' during streaming for immediate scrolling
+  const scrollToBottom = useCallback((immediate = false) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: immediate ? 'auto' : 'smooth' });
+  }, []);
 
+  // Scroll when messages change - immediate during streaming
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    scrollToBottom(isStreaming);
+  }, [messages, isStreaming, scrollToBottom]);
 
   // Add welcome message when phase changes
   useEffect(() => {
@@ -203,35 +220,112 @@ export const AIPanel: React.FC<AIPanelProps> = ({
     }
   };
 
-  const sendMessage = async (content: string) => {
-    if (!content.trim() || isLoading) return;
+  // Parse SSE data from a chunk
+  const parseSSEData = (chunk: string): StreamEvent[] => {
+    const events: StreamEvent[] = [];
+    const lines = chunk.split('\n');
 
-    const userMessage: Message = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      content: content.trim(),
-      timestamp: new Date(),
-    };
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        try {
+          const data = JSON.parse(line.slice(6));
+          events.push(data);
+        } catch {
+          // Ignore parse errors for incomplete chunks
+        }
+      }
+    }
 
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
+    return events;
+  };
 
-    // Save user message to database
-    saveChatMessage('user', content.trim());
+  // Check if error is a connection/network error that warrants retry
+  const isConnectionError = (error: Error): boolean => {
+    // Network offline
+    if (!navigator.onLine) return true;
+    // Fetch failed (network error, CORS, server down)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) return true;
+    // Generic network errors
+    if (error.message.includes('network') || error.message.includes('Network')) return true;
+    // Connection refused/reset
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('ECONNRESET')) return true;
+    // HTTP 5xx errors (server issues) - these might be transient
+    if (error.message.match(/HTTP 5\d{2}/)) return true;
+    return false;
+  };
 
-    // Add thinking indicator
-    const thinkingId = `thinking_${Date.now()}`;
-    setMessages(prev => [...prev, {
-      id: thinkingId,
-      role: 'assistant',
-      content: 'Thinking...',
-      timestamp: new Date(),
-      isThinking: true,
-    }]);
+  // Calculate exponential backoff delay: 1s, 2s, 4s
+  const getRetryDelay = (attempt: number): number => {
+    return Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
+  };
+
+  const sendMessage = async (content: string, retryAttempt = 0): Promise<void> => {
+    if (!content.trim() || (isLoading && retryAttempt === 0) || (isStreaming && retryAttempt === 0)) return;
+
+    const maxRetries = 3;
+    const isRetry = retryAttempt > 0;
+
+    // Only add user message on first attempt
+    if (!isRetry) {
+      const userMessage: Message = {
+        id: `msg_${Date.now()}`,
+        role: 'user',
+        content: content.trim(),
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+      setIsLoading(true);
+
+      // Save user message to database
+      saveChatMessage('user', content.trim());
+    }
+
+    // Create or update streaming message placeholder
+    const streamingMessageId = isRetry ? `stream_retry_${Date.now()}` : `stream_${Date.now()}`;
+
+    // On retry, remove the previous failed streaming message and add system message
+    if (isRetry) {
+      const retryDelay = getRetryDelay(retryAttempt - 1);
+      setMessages(prev => {
+        // Remove any existing "retrying" system message
+        const filtered = prev.filter(m => !m.isRetrying);
+        return [...filtered, {
+          id: `retry_${Date.now()}`,
+          role: 'system',
+          content: `Connection lost, retrying... (attempt ${retryAttempt}/${maxRetries})`,
+          timestamp: new Date(),
+          isRetrying: true,
+        }];
+      });
+    }
+
+    setMessages(prev => {
+      // If retrying, filter out old streaming messages with no content
+      const filtered = isRetry
+        ? prev.filter(m => !(m.isStreaming && !m.content))
+        : prev;
+      return [...filtered, {
+        id: streamingMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      }];
+    });
+
+    // Create abort controller for cancellation
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    let accumulatedContent = '';
+    let toolsUsed: string[] = [];
 
     try {
-      const response = await fetch(`${API_URL}/api/agents/chat`, {
+      setIsStreaming(true);
+
+      const response = await fetch(`${API_URL}/api/agents/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -249,50 +343,161 @@ export const AIPanel: React.FC<AIPanelProps> = ({
             plan: context.plan,
           },
         }),
+        signal: abortController.signal,
       });
 
-      const data = await response.json();
-      const assistantContent = data.response || data.message || 'I encountered an issue. Please try again.';
-      const agentType = data.agentType || data.routing?.agentType;
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const events = parseSSEData(chunk);
+
+        for (const event of events) {
+          switch (event.type) {
+            case 'token':
+              if (event.content) {
+                accumulatedContent += event.content;
+                // Update the streaming message with new content
+                setMessages(prev => prev.map(m =>
+                  m.id === streamingMessageId
+                    ? { ...m, content: accumulatedContent }
+                    : m
+                ));
+              }
+              break;
+
+            case 'tool_start':
+              if (event.name) {
+                toolsUsed.push(event.name);
+              }
+              break;
+
+            case 'tool_end':
+              // Tool completed - could show indicator
+              break;
+
+            case 'thinking':
+              // Show thinking indicator
+              setMessages(prev => prev.map(m =>
+                m.id === streamingMessageId
+                  ? { ...m, isThinking: true, content: accumulatedContent || 'Thinking...' }
+                  : m
+              ));
+              break;
+
+            case 'done':
+              // Stream completed
+              break;
+
+            case 'error':
+              throw new Error(event.error || 'Stream error');
+          }
+        }
+      }
+
+      // Success! Remove any retry system messages
+      setMessages(prev => prev.filter(m => !m.isRetrying));
+
+      // Finalize the message
+      setMessages(prev => prev.map(m =>
+        m.id === streamingMessageId
+          ? {
+              ...m,
+              content: accumulatedContent || 'I encountered an issue. Please try again.',
+              isStreaming: false,
+              isThinking: false,
+              metadata: {
+                phase: context.phase,
+                toolsUsed: toolsUsed.length > 0 ? toolsUsed : undefined,
+              }
+            }
+          : m
+      ));
 
       // Save assistant response to database
-      saveChatMessage('assistant', assistantContent, agentType, data.toolsUsed);
+      saveChatMessage('assistant', accumulatedContent, undefined, toolsUsed.length > 0 ? toolsUsed : undefined);
 
-      // Remove thinking message and add real response
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== thinkingId);
-        return [...filtered, {
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: assistantContent,
-          timestamp: new Date(),
-          agentType,
-          metadata: {
-            phase: context.phase,
-            toolsUsed: data.toolsUsed,
-            approvalId: data.pendingApproval?.id,
-          }
-        }];
-      });
-
-      // If an action was created, refresh approvals
-      if (data.requiresApproval || data.pendingApproval) {
-        setRefreshApprovals(prev => prev + 1);
-        onApprovalChange?.();
-      }
-    } catch (error) {
-      console.error('AI request failed:', error);
-      setMessages(prev => {
-        const filtered = prev.filter(m => m.id !== thinkingId);
-        return [...filtered, {
-          id: `msg_${Date.now()}`,
-          role: 'assistant',
-          content: 'Sorry, I encountered an error. Please try again.',
-          timestamp: new Date(),
-        }];
-      });
-    } finally {
+      // Reset loading states on success
       setIsLoading(false);
+      setIsStreaming(false);
+      abortControllerRef.current = null;
+
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // User cancelled - mark message appropriately
+        setMessages(prev => prev
+          .filter(m => !m.isRetrying) // Remove retry messages
+          .map(m =>
+            m.id === streamingMessageId
+              ? {
+                  ...m,
+                  content: accumulatedContent + (accumulatedContent ? ' ' : '') + '[Stopped by user]',
+                  isStreaming: false,
+                  isThinking: false,
+                  stoppedByUser: true,
+                }
+              : m
+          ));
+        setIsLoading(false);
+        setIsStreaming(false);
+        abortControllerRef.current = null;
+      } else if (error instanceof Error && isConnectionError(error) && retryAttempt < maxRetries) {
+        // Connection error - retry with exponential backoff
+        console.warn(`Connection error (attempt ${retryAttempt + 1}/${maxRetries}):`, error.message);
+
+        // Remove the failed streaming message
+        setMessages(prev => prev.filter(m => m.id !== streamingMessageId));
+
+        const delay = getRetryDelay(retryAttempt);
+        retryTimeoutRef.current = setTimeout(() => {
+          sendMessage(content, retryAttempt + 1);
+        }, delay);
+      } else {
+        // Non-recoverable error or max retries exceeded
+        console.error('Streaming request failed:', error);
+
+        // Remove retry messages and show final error
+        const errorMessage = retryAttempt >= maxRetries
+          ? 'Connection failed after multiple attempts. Please refresh the page and try again.'
+          : 'Sorry, I encountered an error. Please try again.';
+
+        setMessages(prev => prev
+          .filter(m => !m.isRetrying)
+          .map(m =>
+            m.id === streamingMessageId
+              ? {
+                  ...m,
+                  content: errorMessage,
+                  isStreaming: false,
+                  isThinking: false,
+                }
+              : m
+          ));
+
+        setIsLoading(false);
+        setIsStreaming(false);
+        abortControllerRef.current = null;
+      }
+    }
+  };
+
+  // Handle stop button click - abort the current streaming request
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
     }
   };
 
@@ -376,7 +581,7 @@ export const AIPanel: React.FC<AIPanelProps> = ({
                   : 'bg-cscx-gray-800 text-white'
               }`}
             >
-              {message.isThinking ? (
+              {message.isThinking && !message.content ? (
                 <div className="flex items-center gap-2">
                   <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
                   <span className="text-sm">Thinking...</span>
@@ -390,7 +595,15 @@ export const AIPanel: React.FC<AIPanelProps> = ({
                   )}
                   <div className="whitespace-pre-wrap text-sm leading-relaxed">
                     {message.content}
+                    {message.isStreaming && (
+                      <span className="inline-block w-2 h-4 ml-0.5 bg-white animate-pulse" />
+                    )}
                   </div>
+                  {message.stoppedByUser && (
+                    <div className="text-xs text-yellow-400 mt-1 italic">
+                      Response stopped
+                    </div>
+                  )}
                 </>
               )}
             </div>
@@ -426,18 +639,28 @@ export const AIPanel: React.FC<AIPanelProps> = ({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage(input)}
-            placeholder="Ask me anything..."
-            disabled={isLoading}
+            onKeyDown={(e) => e.key === 'Enter' && !isStreaming && sendMessage(input)}
+            placeholder={isStreaming ? "AI is responding..." : "Ask me anything..."}
+            disabled={isLoading || isStreaming}
             className="flex-1 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-cscx-gray-500 focus:outline-none focus:border-cscx-accent disabled:opacity-50"
           />
-          <button
-            onClick={() => sendMessage(input)}
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2 bg-cscx-accent hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? '...' : '→'}
-          </button>
+          {isStreaming ? (
+            <button
+              onClick={handleStop}
+              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <span className="w-3 h-3 bg-white rounded-sm" />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={() => sendMessage(input)}
+              disabled={isLoading || !input.trim()}
+              className="px-4 py-2 bg-cscx-accent hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? '...' : '→'}
+            </button>
+          )}
         </div>
       </div>
     </div>
