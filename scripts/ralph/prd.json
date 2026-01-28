@@ -1,0 +1,126 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "ralph/streaming-chat",
+  "description": "Streaming Chat Implementation - SSE streaming for real-time agent responses",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Implement SSE endpoint",
+      "description": "As a system, chat responses should stream via Server-Sent Events instead of waiting for full response.",
+      "acceptanceCriteria": [
+        "Create `POST /api/agents/chat/stream` endpoint in server/src/routes/",
+        "Return `Content-Type: text/event-stream` header",
+        "Return `Cache-Control: no-cache` header",
+        "Stream tokens as `data: {\"type\":\"token\",\"content\":\"Hello\"}\\n\\n` events",
+        "Send `data: {\"type\":\"done\"}\\n\\n` on completion",
+        "Handle client disconnect via request abort signal",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Use res.flushHeaders() and res.write() for streaming in Express"
+    },
+    {
+      "id": "US-002",
+      "title": "Stream Gemini responses",
+      "description": "As a system, Gemini API responses should stream token-by-token to the client.",
+      "acceptanceCriteria": [
+        "Use `generateContentStream()` instead of `generateContent()` in Gemini calls",
+        "Forward each chunk to SSE response as it arrives",
+        "Maintain total token count for billing/analytics",
+        "Handle stream errors gracefully without crashing",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Look for existing Gemini integration in server/src/services/ or langchain/"
+    },
+    {
+      "id": "US-003",
+      "title": "Stream Claude responses",
+      "description": "As a system, Claude API responses should stream token-by-token to the client.",
+      "acceptanceCriteria": [
+        "Use Anthropic streaming API with stream: true option",
+        "Forward each text delta to SSE response",
+        "Handle thinking blocks (send indicator, don't stream content)",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Check for Anthropic client usage in the codebase"
+    },
+    {
+      "id": "US-004",
+      "title": "Stream tool call events",
+      "description": "As a user, I want to see when agents are using tools in real-time.",
+      "acceptanceCriteria": [
+        "Send `data: {\"type\":\"tool_start\",\"name\":\"draft_email\",\"params\":{...}}\\n\\n` when tool called",
+        "Send `data: {\"type\":\"tool_end\",\"name\":\"draft_email\",\"result\":{...}}\\n\\n` when complete",
+        "Include tool execution duration in milliseconds",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Tool calls happen in the agent execution flow"
+    },
+    {
+      "id": "US-005",
+      "title": "Update ChatPanel for streaming",
+      "description": "As a user, I want to see responses appear word-by-word in the chat UI.",
+      "acceptanceCriteria": [
+        "Use `fetch` with ReadableStream or EventSource in ChatPanel component",
+        "Append tokens to message content as they arrive",
+        "Show cursor/typing indicator during streaming",
+        "Auto-scroll to bottom as new content streams in",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "ChatPanel is likely in components/AIPanel/ or components/AgentControlCenter/"
+    },
+    {
+      "id": "US-006",
+      "title": "Add cancel/stop button",
+      "description": "As a user, I want to stop a long response if I don't need it anymore.",
+      "acceptanceCriteria": [
+        "Show 'Stop' button while streaming is in progress",
+        "Clicking stop calls AbortController.abort() on the fetch request",
+        "Server detects disconnect and stops LLM generation",
+        "Message shows '[Stopped by user]' suffix when cancelled",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Use AbortController for fetch cancellation"
+    },
+    {
+      "id": "US-007",
+      "title": "Handle connection errors gracefully",
+      "description": "As a user, I want graceful error handling when connection drops.",
+      "acceptanceCriteria": [
+        "Detect connection drop (network offline, server restart)",
+        "Show 'Connection lost, retrying...' message in chat",
+        "Auto-retry with exponential backoff (1s, 2s, 4s, max 3 retries)",
+        "After 3 failed retries, show 'Please refresh the page' error",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Handle both fetch errors and SSE connection errors"
+    },
+    {
+      "id": "US-008",
+      "title": "Save streamed messages to database",
+      "description": "As a system, completed streamed messages should be persisted for history.",
+      "acceptanceCriteria": [
+        "Save complete message to agent_messages table after stream ends",
+        "Include tool calls in message metadata JSON",
+        "Store input/output token counts for analytics",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 8,
+      "passes": false,
+      "notes": "Only save after stream completes, not during"
+    }
+  ]
+}

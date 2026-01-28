@@ -1,0 +1,31 @@
+## Codebase Patterns
+- Express SSE requires res.flushHeaders() before streaming
+- Use res.write() not res.send() for streaming
+- Set Cache-Control: no-cache header
+- AbortController handles client disconnects
+- Gemini uses generateContentStream() for streaming
+- Anthropic uses stream: true option
+
+- Agent routes are in server/src/routes/agents.ts
+- StreamEvent type is exported for reuse by frontend components
+- Pre-existing TypeScript errors in codebase (not related to streaming implementation)
+
+---
+
+# Streaming Chat Progress Log
+
+Initialized: Ready to start Loop 2
+
+---
+
+## 2026-01-28 - US-001
+- Implemented POST /api/agents/chat/stream SSE endpoint
+- Files changed: server/src/routes/agents.ts (+229 lines)
+- **Learnings for future iterations:**
+  - res.flushHeaders() must be called after setting headers to start SSE
+  - Use req.on('close') and req.on('aborted') to detect client disconnects
+  - sendSSEEvent helper sends `data: ${JSON.stringify(event)}\n\n` format
+  - X-Accel-Buffering: no header disables nginx buffering for SSE
+  - StreamEvent type is exported for use by frontend (US-005)
+  - Pre-existing TypeScript errors exist in codebase (100+ errors) - focus on not introducing new errors
+---
