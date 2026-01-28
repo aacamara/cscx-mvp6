@@ -25,7 +25,8 @@ const supabase: SupabaseClient | null =
 
 /**
  * Middleware to verify JWT token from Supabase
- * Allows requests without auth in development mode
+ * SECURITY: Requires valid JWT token. No header fallbacks allowed.
+ * In development mode, falls back to demo user only if no token provided.
  */
 export async function authMiddleware(
   req: Request,
@@ -36,33 +37,10 @@ export async function authMiddleware(
   const authHeader = req.headers.authorization;
   const token = authHeader?.replace('Bearer ', '');
 
-  // Get user ID from custom header (fallback for development)
-  const customUserId = req.headers['x-user-id'] as string;
+  // SECURITY: x-user-id header is NOT accepted - removed for security
+  // All authentication must go through proper JWT token validation
 
-  // In development, allow requests without auth
-  if (config.nodeEnv !== 'production') {
-    if (customUserId) {
-      req.userId = customUserId;
-      next();
-      return;
-    }
-
-    // Use demo user in dev if no auth
-    req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
-    next();
-    return;
-  }
-
-  // In production, require authentication
-  if (!token && !customUserId) {
-    res.status(401).json({
-      error: 'Unauthorized',
-      message: 'Authentication required'
-    });
-    return;
-  }
-
-  // If we have a Supabase token, verify it
+  // If we have a Supabase token, always verify it (both dev and prod)
   if (token && supabase) {
     try {
       const { data: { user }, error } = await supabase.auth.getUser(token);
@@ -89,21 +67,33 @@ export async function authMiddleware(
     }
   }
 
-  // Fall back to custom header
-  if (customUserId) {
-    req.userId = customUserId;
+  // If token provided but no Supabase client configured
+  if (token && !supabase) {
+    res.status(500).json({
+      error: 'Configuration Error',
+      message: 'Authentication service not configured'
+    });
+    return;
+  }
+
+  // No token provided - check environment
+  // In development only: allow demo user for local testing without auth setup
+  if (config.nodeEnv === 'development') {
+    req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
     next();
     return;
   }
 
+  // Production: require valid JWT token - no fallbacks
   res.status(401).json({
     error: 'Unauthorized',
-    message: 'Authentication required'
+    message: 'Authentication required. Please provide a valid JWT token.'
   });
 }
 
 /**
  * Middleware that makes auth optional (doesn't block if not authenticated)
+ * SECURITY: x-user-id header is NOT accepted - all auth through JWT tokens
  */
 export function optionalAuthMiddleware(
   req: Request,
@@ -112,29 +102,35 @@ export function optionalAuthMiddleware(
 ): void {
   const authHeader = req.headers.authorization;
   const token = authHeader?.replace('Bearer ', '');
-  const customUserId = req.headers['x-user-id'] as string;
 
-  // Set user ID if available
-  if (customUserId) {
-    req.userId = customUserId;
-  } else if (config.nodeEnv !== 'production') {
-    req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
-  }
+  // SECURITY: x-user-id header fallback removed for security
 
-  // Try to verify token if provided (but don't fail if invalid)
+  // Try to verify token if provided
   if (token && supabase) {
     supabase.auth.getUser(token)
       .then(({ data: { user } }) => {
         if (user) {
           req.user = user;
           req.userId = user.id;
+        } else if (config.nodeEnv === 'development') {
+          // Development fallback only if token verification fails
+          req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
         }
         next();
       })
       .catch(() => {
+        // Token verification failed
+        if (config.nodeEnv === 'development') {
+          req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+        }
         next();
       });
     return;
+  }
+
+  // No token provided - development fallback only
+  if (config.nodeEnv === 'development') {
+    req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
   }
 
   next();
