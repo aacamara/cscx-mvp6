@@ -1,0 +1,25 @@
+## Codebase Patterns
+- Supabase RLS uses `auth.uid()` function to get current user
+- Policies can reference other tables via joins for indirect ownership
+- Service role key bypasses RLS (for background jobs)
+- Check existing migrations in server/supabase/migrations/ for numbering (format: YYYYMMDD_description.sql)
+- TypeScript errors in codebase are pre-existing and unrelated to RLS migrations
+- Admin policies use: (auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'
+
+---
+
+# Security Hardening Progress Log
+
+Initialized: Ready to start Loop 1
+
+---
+
+## 2026-01-28 - US-003
+- What was implemented: Enabled RLS on agent_sessions table with user-based policies
+- Files changed:
+  - server/supabase/migrations/20260128_enable_rls_agent_sessions.sql (created)
+- **Learnings for future iterations:**
+  - agent_sessions table has user_id column for RLS ownership
+  - Policy pattern: user_id = auth.uid() for direct ownership
+  - Include rollback instructions as comments in migration files
+---

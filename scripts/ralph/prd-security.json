@@ -1,0 +1,111 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "ralph/security-hardening",
+  "description": "Production Security Hardening - Enable RLS and enforce JWT authentication for multi-tenant safety",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Enable RLS on customers table",
+      "description": "As a CSM, I should only see customers assigned to me. This prevents cross-tenant data leaks.",
+      "acceptanceCriteria": [
+        "Add `csm_user_id UUID REFERENCES auth.users(id)` column to customers table if not exists",
+        "Enable RLS: `ALTER TABLE customers ENABLE ROW LEVEL SECURITY`",
+        "Create policy: users see only their assigned customers using auth.uid()",
+        "Create admin policy: admins (role='admin') can see all customers",
+        "Run `npx tsc --noEmit` - exits with code 0",
+        "Test: Query as User A should not return User B's customers"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Migration created: server/supabase/migrations/20260128_enable_rls_customers.sql"
+    },
+    {
+      "id": "US-002",
+      "title": "Enable RLS on contracts table",
+      "description": "As a CSM, I should only see contracts for my customers.",
+      "acceptanceCriteria": [
+        "Enable RLS on contracts table",
+        "Create policy: contracts visible only if customer.csm_user_id = auth.uid()",
+        "Join through customer_id to check ownership",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Migration created: server/supabase/migrations/20260128_enable_rls_contracts.sql"
+    },
+    {
+      "id": "US-003",
+      "title": "Enable RLS on agent_sessions table",
+      "description": "As a CSM, I should only see my own chat sessions.",
+      "acceptanceCriteria": [
+        "Verify user_id column exists and is NOT NULL",
+        "Enable RLS on agent_sessions table",
+        "Create policy: sessions visible only where user_id = auth.uid()",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Migration created: server/supabase/migrations/20260128_enable_rls_agent_sessions.sql"
+    },
+    {
+      "id": "US-004",
+      "title": "Enable RLS on tasks table",
+      "description": "As a CSM, I should only see tasks for my customers.",
+      "acceptanceCriteria": [
+        "Add user_id column if not exists, or create policy through customer_id join",
+        "Enable RLS on tasks table",
+        "Create policy for task visibility based on ownership",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "tasks may link through customer_id to customers table"
+    },
+    {
+      "id": "US-005",
+      "title": "Enforce JWT authentication in middleware",
+      "description": "As a system, all API calls must have valid JWT tokens. No fallback to demo user.",
+      "acceptanceCriteria": [
+        "Find and update authMiddleware in server/src/middleware/",
+        "Remove any `x-user-id` header fallback",
+        "Return 401 Unauthorized for missing/invalid tokens (not 200 with demo user)",
+        "Test: API call without token returns 401",
+        "Test: API call with invalid token returns 401",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Look for hardcoded demo user IDs or fallback logic"
+    },
+    {
+      "id": "US-006",
+      "title": "Remove demo user fallback in production",
+      "description": "As a system, demo users should not exist in production mode.",
+      "acceptanceCriteria": [
+        "Find all hardcoded demo user IDs in the codebase",
+        "Add environment check: only allow demo in NODE_ENV=development",
+        "Production mode (NODE_ENV=production) must reject unauthenticated requests",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Search for 'demo', 'test-user', hardcoded UUIDs in auth code"
+    },
+    {
+      "id": "US-007",
+      "title": "Create database migration file",
+      "description": "As a developer, all security changes should be in a versioned migration file.",
+      "acceptanceCriteria": [
+        "Create `database/migrations/020_enable_rls.sql`",
+        "Include all ALTER TABLE ... ENABLE ROW LEVEL SECURITY statements",
+        "Include all CREATE POLICY statements",
+        "Include rollback comments (how to undo)",
+        "Migration should apply cleanly on fresh database",
+        "Run `npx tsc --noEmit` - exits with code 0"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Check existing migrations in database/migrations/ for numbering convention"
+    }
+  ]
+}
