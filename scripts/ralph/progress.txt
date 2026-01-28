@@ -11,6 +11,9 @@
 
 - Agent routes are in server/src/routes/agents.ts
 - StreamEvent type is exported for reuse by frontend components
+- Frontend SSE parsing uses ReadableStream with TextDecoder for chunked reading
+- AbortController.abort() triggers fetch abort for cancellation
+- Use `behavior: 'auto'` (not 'smooth') during streaming for immediate scroll
 - Pre-existing TypeScript errors in codebase (not related to streaming implementation)
 - ClaudeService in server/src/services/claude.ts, GeminiService in server/src/services/gemini.ts
 - BaseAgent.thinkStream() in server/src/agents/base.ts handles model-specific streaming
@@ -67,4 +70,19 @@ Initialized: Ready to start Loop 2
   - Tool events are emitted when subagent deployment is detected (meeting, training, intelligence agents)
   - getToolNameForAgent() maps AgentId to tool names (e.g., 'meeting' -> 'deployMeetingAgent')
   - getToolParamsFromContext() extracts relevant params from AgentInput for each tool type
+---
+
+## 2026-01-28 - US-005
+- Updated AIPanel component for streaming responses
+- Files changed:
+  - components/AIPanel/index.tsx (+193 lines, -51 lines) - rewrote sendMessage for streaming
+  - types/streaming.ts (new file) - shared StreamEvent type for frontend
+- **Learnings for future iterations:**
+  - Use fetch with response.body.getReader() and TextDecoder for SSE consumption
+  - Parse SSE by splitting on newlines and looking for 'data: ' prefix
+  - Track streaming state separately from loading state (isStreaming vs isLoading)
+  - Use AbortController for cancellation, store ref to abort on stop click
+  - Animate cursor with `animate-pulse` class on a small inline-block span
+  - Use scrollIntoView({ behavior: 'auto' }) during streaming for instant scroll (no animation lag)
+  - Pre-existing TypeScript errors (import.meta.env) are Vite-specific and don't affect runtime
 ---

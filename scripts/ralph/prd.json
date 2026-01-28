@@ -75,7 +75,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "ChatPanel is likely in components/AIPanel/ or components/AgentControlCenter/"
     },
     {
