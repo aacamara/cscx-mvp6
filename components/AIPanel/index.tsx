@@ -403,6 +403,13 @@ export const AIPanel: React.FC<AIPanelProps> = ({
     }
   };
 
+  // Handle stop button click - abort the current streaming request
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+  };
+
   const handleQuickAction = (action: QuickAction) => {
     sendMessage(action.prompt);
   };
@@ -541,18 +548,28 @@ export const AIPanel: React.FC<AIPanelProps> = ({
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && sendMessage(input)}
-            placeholder="Ask me anything..."
-            disabled={isLoading}
+            onKeyDown={(e) => e.key === 'Enter' && !isStreaming && sendMessage(input)}
+            placeholder={isStreaming ? "AI is responding..." : "Ask me anything..."}
+            disabled={isLoading || isStreaming}
             className="flex-1 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-cscx-gray-500 focus:outline-none focus:border-cscx-accent disabled:opacity-50"
           />
-          <button
-            onClick={() => sendMessage(input)}
-            disabled={isLoading || !input.trim()}
-            className="px-4 py-2 bg-cscx-accent hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isLoading ? '...' : '→'}
-          </button>
+          {isStreaming ? (
+            <button
+              onClick={handleStop}
+              className="px-4 py-2 bg-yellow-600 hover:bg-yellow-700 text-white text-sm font-medium rounded-lg transition-colors flex items-center gap-1.5"
+            >
+              <span className="w-3 h-3 bg-white rounded-sm" />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={() => sendMessage(input)}
+              disabled={isLoading || !input.trim()}
+              className="px-4 py-2 bg-cscx-accent hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isLoading ? '...' : '→'}
+            </button>
+          )}
         </div>
       </div>
     </div>
