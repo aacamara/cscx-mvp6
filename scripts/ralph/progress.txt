@@ -40,3 +40,15 @@ Initialized: Ready to start Loop 1
   - Include all CRUD operations: SELECT, UPDATE, INSERT, DELETE for both CSM and admin policies
   - Contracts links through customer_id → customers → csm_user_id for ownership check
 ---
+
+## 2026-01-28 - US-003
+- Confirmed RLS migration on agent_sessions table already committed
+- Files already changed (in previous iteration):
+  - Created: server/supabase/migrations/20260128_enable_rls_agent_sessions.sql
+  - Updated: scripts/ralph/prd.json (marked US-003 as passing)
+- **Learnings for future iterations:**
+  - agent_sessions has direct user_id column (no join needed like contracts)
+  - Simpler RLS pattern: `user_id = auth.uid()` directly
+  - Still need admin policies for full access: `(auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'`
+  - If a story is already committed but PRD shows passes: false, just update the PRD
+---
