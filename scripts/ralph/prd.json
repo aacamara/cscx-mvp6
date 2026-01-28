@@ -46,7 +46,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Check for Anthropic client usage in the codebase"
     },
     {

@@ -4,11 +4,16 @@
 - Set Cache-Control: no-cache header
 - AbortController handles client disconnects
 - Gemini uses generateContentStream() for streaming
-- Anthropic uses stream: true option
+- Anthropic uses stream: true option with messages.create()
+- Claude streaming events: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
+- Thinking blocks in Claude have type 'thinking' in content_block_start event
+- Token counts from Claude: input_tokens from message_start.message.usage, output_tokens from message_delta.usage
 
 - Agent routes are in server/src/routes/agents.ts
 - StreamEvent type is exported for reuse by frontend components
 - Pre-existing TypeScript errors in codebase (not related to streaming implementation)
+- ClaudeService in server/src/services/claude.ts, GeminiService in server/src/services/gemini.ts
+- BaseAgent.thinkStream() in server/src/agents/base.ts handles model-specific streaming
 
 ---
 
@@ -28,4 +33,20 @@ Initialized: Ready to start Loop 2
   - X-Accel-Buffering: no header disables nginx buffering for SSE
   - StreamEvent type is exported for use by frontend (US-005)
   - Pre-existing TypeScript errors exist in codebase (100+ errors) - focus on not introducing new errors
+---
+
+## 2026-01-28 - US-003
+- Implemented Claude streaming responses
+- Files changed:
+  - server/src/services/claude.ts (+124 lines) - added generateStream method
+  - server/src/agents/base.ts (+9 lines, -15 lines) - updated thinkStream to use Claude streaming
+- **Learnings for future iterations:**
+  - Anthropic streaming uses `stream: true` in messages.create() options
+  - Stream events are: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
+  - Thinking blocks (extended thinking) have type 'thinking' in content_block_start.content_block.type
+  - Text deltas are in content_block_delta events with delta.type === 'text_delta'
+  - Input tokens available in message_start.message.usage.input_tokens
+  - Output tokens available in message_delta.usage.output_tokens
+  - ThinkingCallback type exported from base.ts for thinking block notifications
+  - ClaudeService falls back to Gemini streaming if Claude streaming fails
 ---
