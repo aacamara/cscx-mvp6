@@ -165,6 +165,235 @@ async function executeApprovedAction(
   }
 }
 
+// ============================================
+// SSE Streaming Types
+// ============================================
+
+/**
+ * Types for SSE streaming events
+ */
+export interface StreamEvent {
+  type: 'token' | 'tool_start' | 'tool_end' | 'thinking' | 'done' | 'error';
+  content?: string;
+  name?: string;
+  params?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  duration?: number;
+  error?: string;
+}
+
+/**
+ * Helper to send SSE event
+ */
+function sendSSEEvent(res: Response, event: StreamEvent): void {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+// POST /api/agents/chat/stream - Stream chat response via SSE
+router.post('/chat/stream', async (req: Request, res: Response) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+  res.flushHeaders();
+
+  // Track if client disconnected
+  let clientDisconnected = false;
+
+  // Handle client disconnect
+  req.on('close', () => {
+    clientDisconnected = true;
+    console.log('SSE client disconnected');
+  });
+
+  req.on('aborted', () => {
+    clientDisconnected = true;
+    console.log('SSE client aborted');
+  });
+
+  try {
+    const { sessionId, message, customerId, context } = req.body;
+
+    // Handle session initialization
+    if (message === '[SESSION_INIT]') {
+      let session = legacySessions.get(sessionId);
+      if (!session) {
+        const customerContext: CustomerContext = context || {
+          name: 'Customer',
+          arr: 0,
+          stage: 'onboarding'
+        };
+
+        session = {
+          customerId: customerId || 'unknown',
+          context: customerContext,
+          messages: [],
+          pendingActions: new Map()
+        };
+        legacySessions.set(sessionId, session);
+      } else if (context) {
+        session.context = { ...session.context, ...context };
+      }
+
+      sendSSEEvent(res, {
+        type: 'done',
+        content: 'Session initialized'
+      });
+      res.end();
+      return;
+    }
+
+    if (!message) {
+      sendSSEEvent(res, {
+        type: 'error',
+        error: 'Message is required'
+      });
+      res.end();
+      return;
+    }
+
+    // Get or create session
+    let session = legacySessions.get(sessionId);
+    if (!session) {
+      const customerContext: CustomerContext = context || {
+        name: 'Customer',
+        arr: 0,
+        stage: 'onboarding'
+      };
+
+      session = {
+        customerId: customerId || 'unknown',
+        context: customerContext,
+        messages: [],
+        pendingActions: new Map()
+      };
+      legacySessions.set(sessionId, session);
+    } else if (context) {
+      session.context = { ...session.context, ...context };
+    }
+
+    // Add user message to history
+    const userMessage: AgentMessage = {
+      sessionId,
+      role: 'user',
+      content: message,
+      timestamp: new Date()
+    };
+    session.messages.push(userMessage);
+
+    console.log(`[Stream] Processing message for ${session.context.name}: "${message.substring(0, 50)}..."`);
+
+    // Check for client disconnect before processing
+    if (clientDisconnected) {
+      console.log('[Stream] Client disconnected before processing');
+      return;
+    }
+
+    // Execute agent (currently non-streaming, will be enhanced in US-002/US-003)
+    const result = await onboardingAgent.execute({
+      sessionId,
+      message,
+      context: session.context,
+      history: session.messages
+    });
+
+    // Check for client disconnect after processing
+    if (clientDisconnected) {
+      console.log('[Stream] Client disconnected after processing');
+      return;
+    }
+
+    // Generate unique message ID
+    const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Stream the response token by token (simulated for now, will be real in US-002/US-003)
+    const responseText = result.message;
+    const words = responseText.split(' ');
+
+    for (let i = 0; i < words.length; i++) {
+      if (clientDisconnected) {
+        console.log('[Stream] Client disconnected during streaming');
+        return;
+      }
+
+      const token = i === 0 ? words[i] : ' ' + words[i];
+      sendSSEEvent(res, {
+        type: 'token',
+        content: token
+      });
+
+      // Small delay for visual effect (will be removed when using real streaming)
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+
+    // Add agent response to history
+    const agentMessage: AgentMessage = {
+      id: messageId,
+      sessionId,
+      agentId: 'onboarding',
+      role: 'agent',
+      content: result.message,
+      requiresApproval: result.requiresApproval,
+      deployedAgent: result.deployAgent,
+      timestamp: new Date()
+    };
+    session.messages.push(agentMessage);
+
+    // Handle pending actions if approval needed
+    if (result.requiresApproval) {
+      const actionId = `action_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      const pendingAction: PendingAction = {
+        id: actionId,
+        sessionId,
+        agentId: 'onboarding',
+        actionType: result.deployAgent ? `deploy_${result.deployAgent}` : 'general_action',
+        description: extractActionDescription(result.message),
+        actionData: result.data || {},
+        createdAt: new Date(),
+        status: 'pending'
+      };
+      session.pendingActions.set(actionId, pendingAction);
+
+      try {
+        await db.createApproval({
+          session_id: sessionId,
+          action_type: pendingAction.actionType,
+          action_data: pendingAction.actionData,
+          status: 'pending'
+        });
+      } catch (e) {
+        console.log('Approval saved to memory (no DB configured)');
+      }
+    }
+
+    // Send done event with metadata
+    sendSSEEvent(res, {
+      type: 'done',
+      content: JSON.stringify({
+        id: messageId,
+        sessionId,
+        agentId: 'onboarding',
+        requiresApproval: result.requiresApproval || false,
+        deployedAgent: result.deployAgent || null
+      })
+    });
+
+    res.end();
+
+  } catch (error) {
+    console.error('Agent stream error:', error);
+
+    if (!clientDisconnected) {
+      sendSSEEvent(res, {
+        type: 'error',
+        error: error instanceof Error ? error.message : 'Failed to process message'
+      });
+      res.end();
+    }
+  }
+});
+
 // POST /api/agents/chat - Send message to agent
 router.post('/chat', async (req: Request, res: Response) => {
   try {
