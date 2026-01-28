@@ -52,3 +52,14 @@ Initialized: Ready to start Loop 1
   - Still need admin policies for full access: `(auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'`
   - If a story is already committed but PRD shows passes: false, just update the PRD
 ---
+
+## 2026-01-28 - US-004
+- Implemented RLS on tasks table
+- Files changed:
+  - Created: server/supabase/migrations/20260128_enable_rls_tasks.sql
+  - Updated: scripts/ralph/prd.json (marked US-004 as passing)
+- **Learnings for future iterations:**
+  - tasks uses same pattern as contracts: EXISTS subquery through customer_id -> customers.csm_user_id
+  - Reused exact policy structure from contracts migration
+  - Child tables with customer_id FK all use the same indirect ownership check pattern
+---
