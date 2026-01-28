@@ -25,6 +25,7 @@ interface Message {
   isThinking?: boolean;
   isStreaming?: boolean;
   stoppedByUser?: boolean;
+  isRetrying?: boolean;
   metadata?: {
     phase?: OnboardingPhase;
     toolsUsed?: string[];
@@ -150,6 +151,16 @@ export const AIPanel: React.FC<AIPanelProps> = ({
   const [refreshApprovals, setRefreshApprovals] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Cleanup retry timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Get phase-specific content
   const phaseContent = PHASE_PROMPTS[context.phase] || PHASE_PROMPTS['upload'];
@@ -228,32 +239,81 @@ export const AIPanel: React.FC<AIPanelProps> = ({
     return events;
   };
 
-  const sendMessage = async (content: string) => {
-    if (!content.trim() || isLoading || isStreaming) return;
+  // Check if error is a connection/network error that warrants retry
+  const isConnectionError = (error: Error): boolean => {
+    // Network offline
+    if (!navigator.onLine) return true;
+    // Fetch failed (network error, CORS, server down)
+    if (error.name === 'TypeError' && error.message.includes('fetch')) return true;
+    // Generic network errors
+    if (error.message.includes('network') || error.message.includes('Network')) return true;
+    // Connection refused/reset
+    if (error.message.includes('ECONNREFUSED') || error.message.includes('ECONNRESET')) return true;
+    // HTTP 5xx errors (server issues) - these might be transient
+    if (error.message.match(/HTTP 5\d{2}/)) return true;
+    return false;
+  };
 
-    const userMessage: Message = {
-      id: `msg_${Date.now()}`,
-      role: 'user',
-      content: content.trim(),
-      timestamp: new Date(),
-    };
+  // Calculate exponential backoff delay: 1s, 2s, 4s
+  const getRetryDelay = (attempt: number): number => {
+    return Math.pow(2, attempt) * 1000; // 1000, 2000, 4000
+  };
 
-    setMessages(prev => [...prev, userMessage]);
-    setInput('');
-    setIsLoading(true);
+  const sendMessage = async (content: string, retryAttempt = 0): Promise<void> => {
+    if (!content.trim() || (isLoading && retryAttempt === 0) || (isStreaming && retryAttempt === 0)) return;
 
-    // Save user message to database
-    saveChatMessage('user', content.trim());
+    const maxRetries = 3;
+    const isRetry = retryAttempt > 0;
 
-    // Create streaming message placeholder
-    const streamingMessageId = `stream_${Date.now()}`;
-    setMessages(prev => [...prev, {
-      id: streamingMessageId,
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      isStreaming: true,
-    }]);
+    // Only add user message on first attempt
+    if (!isRetry) {
+      const userMessage: Message = {
+        id: `msg_${Date.now()}`,
+        role: 'user',
+        content: content.trim(),
+        timestamp: new Date(),
+      };
+
+      setMessages(prev => [...prev, userMessage]);
+      setInput('');
+      setIsLoading(true);
+
+      // Save user message to database
+      saveChatMessage('user', content.trim());
+    }
+
+    // Create or update streaming message placeholder
+    const streamingMessageId = isRetry ? `stream_retry_${Date.now()}` : `stream_${Date.now()}`;
+
+    // On retry, remove the previous failed streaming message and add system message
+    if (isRetry) {
+      const retryDelay = getRetryDelay(retryAttempt - 1);
+      setMessages(prev => {
+        // Remove any existing "retrying" system message
+        const filtered = prev.filter(m => !m.isRetrying);
+        return [...filtered, {
+          id: `retry_${Date.now()}`,
+          role: 'system',
+          content: `Connection lost, retrying... (attempt ${retryAttempt}/${maxRetries})`,
+          timestamp: new Date(),
+          isRetrying: true,
+        }];
+      });
+    }
+
+    setMessages(prev => {
+      // If retrying, filter out old streaming messages with no content
+      const filtered = isRetry
+        ? prev.filter(m => !(m.isStreaming && !m.content))
+        : prev;
+      return [...filtered, {
+        id: streamingMessageId,
+        role: 'assistant',
+        content: '',
+        timestamp: new Date(),
+        isStreaming: true,
+      }];
+    });
 
     // Create abort controller for cancellation
     const abortController = new AbortController();
@@ -261,7 +321,6 @@ export const AIPanel: React.FC<AIPanelProps> = ({
 
     let accumulatedContent = '';
     let toolsUsed: string[] = [];
-    let wasAborted = false;
 
     try {
       setIsStreaming(true);
@@ -349,6 +408,9 @@ export const AIPanel: React.FC<AIPanelProps> = ({
         }
       }
 
+      // Success! Remove any retry system messages
+      setMessages(prev => prev.filter(m => !m.isRetrying));
+
       // Finalize the message
       setMessages(prev => prev.map(m =>
         m.id === streamingMessageId
@@ -368,38 +430,67 @@ export const AIPanel: React.FC<AIPanelProps> = ({
       // Save assistant response to database
       saveChatMessage('assistant', accumulatedContent, undefined, toolsUsed.length > 0 ? toolsUsed : undefined);
 
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        wasAborted = true;
-        // User cancelled - mark message appropriately
-        setMessages(prev => prev.map(m =>
-          m.id === streamingMessageId
-            ? {
-                ...m,
-                content: accumulatedContent + (accumulatedContent ? ' ' : '') + '[Stopped by user]',
-                isStreaming: false,
-                isThinking: false,
-                stoppedByUser: true,
-              }
-            : m
-        ));
-      } else {
-        console.error('Streaming request failed:', error);
-        setMessages(prev => prev.map(m =>
-          m.id === streamingMessageId
-            ? {
-                ...m,
-                content: 'Sorry, I encountered an error. Please try again.',
-                isStreaming: false,
-                isThinking: false,
-              }
-            : m
-        ));
-      }
-    } finally {
+      // Reset loading states on success
       setIsLoading(false);
       setIsStreaming(false);
       abortControllerRef.current = null;
+
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        // User cancelled - mark message appropriately
+        setMessages(prev => prev
+          .filter(m => !m.isRetrying) // Remove retry messages
+          .map(m =>
+            m.id === streamingMessageId
+              ? {
+                  ...m,
+                  content: accumulatedContent + (accumulatedContent ? ' ' : '') + '[Stopped by user]',
+                  isStreaming: false,
+                  isThinking: false,
+                  stoppedByUser: true,
+                }
+              : m
+          ));
+        setIsLoading(false);
+        setIsStreaming(false);
+        abortControllerRef.current = null;
+      } else if (error instanceof Error && isConnectionError(error) && retryAttempt < maxRetries) {
+        // Connection error - retry with exponential backoff
+        console.warn(`Connection error (attempt ${retryAttempt + 1}/${maxRetries}):`, error.message);
+
+        // Remove the failed streaming message
+        setMessages(prev => prev.filter(m => m.id !== streamingMessageId));
+
+        const delay = getRetryDelay(retryAttempt);
+        retryTimeoutRef.current = setTimeout(() => {
+          sendMessage(content, retryAttempt + 1);
+        }, delay);
+      } else {
+        // Non-recoverable error or max retries exceeded
+        console.error('Streaming request failed:', error);
+
+        // Remove retry messages and show final error
+        const errorMessage = retryAttempt >= maxRetries
+          ? 'Connection failed after multiple attempts. Please refresh the page and try again.'
+          : 'Sorry, I encountered an error. Please try again.';
+
+        setMessages(prev => prev
+          .filter(m => !m.isRetrying)
+          .map(m =>
+            m.id === streamingMessageId
+              ? {
+                  ...m,
+                  content: errorMessage,
+                  isStreaming: false,
+                  isThinking: false,
+                }
+              : m
+          ));
+
+        setIsLoading(false);
+        setIsStreaming(false);
+        abortControllerRef.current = null;
+      }
     }
   };
 
