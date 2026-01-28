@@ -3,9 +3,14 @@
 - Policies can reference other tables via joins for indirect ownership
 - Service role key bypasses RLS (for background jobs)
 - Migrations live in server/supabase/migrations/ with YYYYMMDD_description.sql naming
+- Consolidated versioned migrations: database/migrations/NNN_description.sql
 - Admin role check: `(auth.jwt() -> 'user_metadata' ->> 'role') = 'admin'`
 - Pre-existing TypeScript errors: missing types/index.ts, Vite import.meta.env types - not blocking SQL migrations
 - Child table RLS pattern: `EXISTS (SELECT 1 FROM parent WHERE parent.id = child.fk AND parent.csm_user_id = auth.uid())`
+- Auth middleware: server/src/middleware/auth.ts - JWT via Authorization Bearer header only
+- Demo user fallback (dev only): df2dc7be-ece0-40b2-a9d7-0f6c45b75131
+- Route auth pattern: Use getUserId(req)/requireAuth(req,res) helpers with config.nodeEnv check
+- Production routes: Must return 401 for unauthenticated requests - NO demo user fallback
 
 ---
 
@@ -62,4 +67,72 @@ Initialized: Ready to start Loop 1
   - tasks uses same pattern as contracts: EXISTS subquery through customer_id -> customers.csm_user_id
   - Reused exact policy structure from contracts migration
   - Child tables with customer_id FK all use the same indirect ownership check pattern
+---
+
+## 2026-01-28 - US-005
+- Enforced JWT authentication in middleware - removed x-user-id header fallback
+- Files changed:
+  - Modified: server/src/middleware/auth.ts
+  - Updated: scripts/ralph/prd.json (marked US-005 as passing)
+- **Learnings for future iterations:**
+  - authMiddleware previously accepted x-user-id header as fallback - security vulnerability
+  - optionalAuthMiddleware also had x-user-id fallback - both needed updating
+  - Production mode (NODE_ENV !== 'development') now returns 401 for missing/invalid tokens
+  - Development mode still allows demo user UUID for local testing without auth setup
+  - Demo user ID: df2dc7be-ece0-40b2-a9d7-0f6c45b75131
+  - TypeScript errors in server/ are pre-existing (dependencies, test files) - not blocking
+  - Auth flow: Token → Supabase verify → set req.user/req.userId; No token in prod → 401
+---
+
+## 2026-01-28 - US-006
+- Removed demo user fallback in production mode across all route files
+- Files changed:
+  - Modified: server/src/routes/google/calendar.ts
+  - Modified: server/src/routes/google/gmail.ts
+  - Modified: server/src/routes/google/drive.ts
+  - Modified: server/src/routes/ai-analysis.ts
+  - Modified: server/src/routes/agentic-mode.ts
+  - Modified: server/src/routes/schedules.ts
+  - Modified: server/src/routes/agentic-agents.ts
+  - Modified: server/src/routes/agents.ts
+  - Modified: server/src/routes/otter.ts
+  - Updated: scripts/ralph/prd.json (marked US-006 as passing)
+- **Learnings for future iterations:**
+  - Pattern for secure user ID retrieval across routes:
+    ```typescript
+    const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+
+    function getUserId(req: Request): string | null {
+      if ((req as any).userId) return (req as any).userId;
+      if (config.nodeEnv === 'development') return DEMO_USER_ID;
+      return null;
+    }
+
+    function requireAuth(req: Request, res: Response): string | null {
+      const userId = getUserId(req);
+      if (!userId) {
+        res.status(401).json({ error: 'Unauthorized', message: 'Authentication required' });
+        return null;
+      }
+      return userId;
+    }
+    ```
+  - Always check `if (!userId) return;` after calling requireAuth() in route handlers
+  - Use `config.nodeEnv === 'development'` for environment check (import config from '../config/index.js')
+  - Don't use x-user-id header fallback in routes - only accept userId from auth middleware
+  - TypeScript errors are pre-existing and unrelated to security changes
+---
+
+## 2026-01-28 - US-007
+- Created consolidated database migration file for all RLS changes
+- Files changed:
+  - Created: database/migrations/020_enable_rls.sql (318 lines)
+  - Updated: scripts/ralph/prd.json (marked US-007 as passing)
+- **Learnings for future iterations:**
+  - Consolidated migrations use database/migrations/ directory with NNN_description.sql naming
+  - Individual table migrations live in server/supabase/migrations/ with YYYYMMDD_description.sql
+  - Consolidate related security changes into versioned migrations for easier deployment
+  - Include comprehensive rollback instructions as comments in migration files
+  - Use IF NOT EXISTS / IF EXISTS for idempotent column/index additions
+  - TypeScript errors are pre-existing frontend issues - SQL migrations don't affect TS compilation
 ---
