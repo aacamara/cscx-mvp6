@@ -423,6 +423,50 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       })
     });
 
+    // Persist completed messages to database after stream ends
+    // This ensures the full conversation history is stored for later retrieval
+    try {
+      // Get or create a persistent session (maps to agent_sessions table)
+      const persistentSession = await sessionService.getOrCreateSession({
+        sessionId,
+        customerId: session.customerId,
+        context: { customerContext: session.context }
+      });
+
+      // Save user message to database
+      await sessionService.addMessage({
+        sessionId: persistentSession.id,
+        role: 'user',
+        content: message,
+        metadata: {
+          originalSessionId: sessionId
+        }
+      });
+
+      // Save agent response with tool calls and token usage
+      await sessionService.addMessage({
+        sessionId: persistentSession.id,
+        agentId: 'onboarding',
+        role: 'assistant',
+        content: result.message,
+        requiresApproval: result.requiresApproval,
+        deployedAgent: result.deployAgent,
+        toolCalls: toolCallsData.length > 0 ? toolCallsData : undefined,
+        metadata: {
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          totalTokens: tokenUsage.totalTokens,
+          messageId,
+          originalSessionId: sessionId
+        }
+      });
+
+      console.log(`[Stream] Messages persisted to database for session ${persistentSession.id}`);
+    } catch (persistError) {
+      // Log but don't fail the response - persistence is secondary to streaming response
+      console.error('[Stream] Failed to persist messages to database:', persistError);
+    }
+
     res.end();
 
   } catch (error) {
