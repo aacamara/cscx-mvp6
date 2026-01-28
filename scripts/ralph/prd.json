@@ -32,7 +32,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Look for existing Gemini integration in server/src/services/ or langchain/"
     },
     {
