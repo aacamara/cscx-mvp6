@@ -97,6 +97,8 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
   const [showChatHistory, setShowChatHistory] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -1178,12 +1180,40 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   };
 
   const handleSend = () => {
-    if (!input.trim() || isProcessing) return;
+    if ((!input.trim() && !selectedFile) || isProcessing) return;
 
     const userMessage = input.trim();
+    const attachedFile = selectedFile;
     setInput('');
-    setMessages(prev => [...prev, { isUser: true, message: userMessage }]);
-    sendToAgent(userMessage);
+    setSelectedFile(null);
+
+    // Build message with attachment info if present
+    let messageToSend = userMessage;
+    let messageToDisplay = userMessage;
+
+    if (attachedFile) {
+      // Add attachment indicator to display message
+      const attachmentText = `📄 ${attachedFile.name}`;
+      messageToDisplay = userMessage ? `${userMessage}\n\n${attachmentText}` : attachmentText;
+
+      // For the AI, include file info in the message context
+      messageToSend = userMessage
+        ? `[Attached document: ${attachedFile.name} (${(attachedFile.size / 1024).toFixed(1)} KB, type: ${attachedFile.type || 'unknown'})]\n\n${userMessage}`
+        : `[Attached document: ${attachedFile.name} (${(attachedFile.size / 1024).toFixed(1)} KB, type: ${attachedFile.type || 'unknown'})]\n\nPlease analyze this document.`;
+    }
+
+    // Add message to UI with attachment metadata
+    setMessages(prev => [...prev, {
+      isUser: true,
+      message: messageToDisplay,
+      attachment: attachedFile ? {
+        name: attachedFile.name,
+        size: attachedFile.size,
+        type: attachedFile.type || 'application/octet-stream',
+      } : undefined,
+    }]);
+
+    sendToAgent(messageToSend);
   };
 
   // Calculate plan progress for sidebar
@@ -1641,6 +1671,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                   isApproval={msg.isApproval && pendingApproval !== null}
                   onApprove={handleApproval}
                   toolResults={msg.toolResults}
+                  attachment={msg.attachment}
                 />
               ))}
               {/* Show workflow progress after messages if active */}
@@ -1718,18 +1749,120 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               <QuickActions onAction={handleQuickAction} disabled={isProcessing || pendingApproval !== null} activeAgent={activeAgent} />
             </div>
           )}
+          {/* Selected File Chip */}
+          {selectedFile && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '6px 10px',
+              background: '#1a1a1a',
+              borderRadius: '8px',
+              marginBottom: '8px',
+              border: '1px solid #333',
+            }}>
+              <span style={{ fontSize: '14px' }}>📄</span>
+              <span style={{
+                fontSize: '12px',
+                color: '#fff',
+                flex: 1,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {selectedFile.name}
+              </span>
+              <span style={{ fontSize: '10px', color: '#888' }}>
+                {(selectedFile.size / 1024).toFixed(1)} KB
+              </span>
+              <button
+                onClick={() => setSelectedFile(null)}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  color: '#888',
+                  cursor: 'pointer',
+                  padding: '2px 6px',
+                  fontSize: '14px',
+                  borderRadius: '4px',
+                  transition: 'all 0.2s',
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = '#e63946';
+                  e.currentTarget.style.background = 'rgba(230, 57, 70, 0.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = '#888';
+                  e.currentTarget.style.background = 'transparent';
+                }}
+                title="Remove attachment"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
+          {/* Hidden file input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                setSelectedFile(file);
+              }
+              // Reset input so same file can be selected again
+              e.target.value = '';
+            }}
+            accept=".pdf,.doc,.docx,.txt,.csv,.xlsx,.xls"
+            style={{ display: 'none' }}
+          />
+
           <div className="input-row">
+            {/* Paperclip attachment button */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isProcessing || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
+              title="Attach document"
+              style={{
+                background: '#1a1a1a',
+                border: '1px solid #333',
+                borderRadius: '8px',
+                padding: '10px 12px',
+                cursor: isProcessing || showOnboardingFlow ? 'not-allowed' : 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s',
+                color: selectedFile ? '#e63946' : '#888',
+                opacity: isProcessing || showOnboardingFlow ? 0.5 : 1,
+              }}
+              onMouseEnter={(e) => {
+                if (!isProcessing && !showOnboardingFlow) {
+                  e.currentTarget.style.borderColor = '#e63946';
+                  e.currentTarget.style.color = '#e63946';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isProcessing && !showOnboardingFlow) {
+                  e.currentTarget.style.borderColor = '#333';
+                  e.currentTarget.style.color = selectedFile ? '#e63946' : '#888';
+                }
+              }}
+            >
+              <span style={{ fontSize: '16px' }}>📎</span>
+            </button>
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-              placeholder={showOnboardingFlow ? 'Complete onboarding flow above...' : activeWorkflow ? 'Workflow in progress...' : `Message the ${CS_AGENTS[activeAgent]?.name || 'AI Agent'}...`}
+              placeholder={showOnboardingFlow ? 'Complete onboarding flow above...' : activeWorkflow ? 'Workflow in progress...' : selectedFile ? `Message with ${selectedFile.name}...` : `Message the ${CS_AGENTS[activeAgent]?.name || 'AI Agent'}...`}
               disabled={isProcessing || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
             />
             <button
               onClick={handleSend}
-              disabled={isProcessing || !input.trim() || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
+              disabled={isProcessing || (!input.trim() && !selectedFile) || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
             >
               {isProcessing ? '...' : 'Send'}
             </button>

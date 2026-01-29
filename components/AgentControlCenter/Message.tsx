@@ -10,6 +10,11 @@ interface MessageProps {
   isApproval?: boolean;
   onApprove?: (approved: boolean) => void;
   toolResults?: Array<{ toolCallId?: string; toolName: string; result: any }>;
+  attachment?: {
+    name: string;
+    size: number;
+    type: string;
+  };
 }
 
 // Clean up spurious placeholder text from AI responses
@@ -154,13 +159,43 @@ export const Message: React.FC<MessageProps> = ({
   isThinking,
   isApproval,
   onApprove,
-  toolResults
+  toolResults,
+  attachment
 }) => {
   if (isUser) {
     return (
       <div className="message user-message">
         <div className="message-content user">
           <p>{message}</p>
+          {/* Attachment indicator for user messages */}
+          {attachment && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '8px',
+              padding: '6px 10px',
+              background: 'rgba(230, 57, 70, 0.1)',
+              borderRadius: '6px',
+              border: '1px solid rgba(230, 57, 70, 0.2)',
+            }}>
+              <span style={{ fontSize: '14px' }}>📄</span>
+              <span style={{
+                fontSize: '11px',
+                color: '#e63946',
+                fontWeight: 500,
+              }}>
+                {attachment.name}
+              </span>
+              <span style={{
+                fontSize: '10px',
+                color: '#888',
+                marginLeft: 'auto',
+              }}>
+                {(attachment.size / 1024).toFixed(1)} KB
+              </span>
+            </div>
+          )}
         </div>
         <p className="message-sender">CSM</p>
       </div>

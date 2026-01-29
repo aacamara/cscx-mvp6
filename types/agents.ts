@@ -32,6 +32,11 @@ export interface AgentMessage {
   deploy?: AgentId;
   routing?: RoutingDecision;
   toolResults?: Array<{ toolCallId?: string; toolName: string; result: any }>;
+  attachment?: {
+    name: string;
+    size: number;
+    type: string;
+  };
 }
 
 // Re-export CustomerContext from workflow for consistency
