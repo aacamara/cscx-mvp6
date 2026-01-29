@@ -21,3 +21,16 @@
   - `flex-wrap` is useful for tab navigation that may need multiple rows
 ---
 
+## 2026-01-29 - WAD-002
+- Implemented MCP Tools Browser component
+- Files changed:
+  - `components/WorkspaceAgentV2/MCPToolsBrowser.tsx` - New component with tools fetching, category grouping, provider filtering, search, and collapsible sections
+  - `components/AgentCenterView.tsx` - Added MCPToolsBrowser import and replaced placeholder with component
+- **Learnings for future iterations:**
+  - API endpoint is `/api/mcp/tools` returning `{ tools: MCPTool[], total: number }`
+  - Tool structure: `{ name, description, category, provider, requiresApproval }`
+  - Categories: communication, scheduling, documents, meeting_intelligence
+  - Providers: google, slack, zoom, internal
+  - Use `useMemo` for filtered/grouped data to avoid recalculation on every render
+---
+

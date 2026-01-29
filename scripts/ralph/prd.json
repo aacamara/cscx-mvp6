@@ -28,7 +28,7 @@
         "Category filter tabs (All, Gmail, Calendar, Drive, Slack, Zoom)"
       ],
       "priority": 2,
-      "passes": false
+      "passes": true
     },
     {
       "id": "WAD-003",
