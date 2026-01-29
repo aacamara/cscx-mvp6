@@ -1,103 +1,63 @@
 ## Codebase Patterns
-- Express SSE requires res.flushHeaders() before streaming
-- Use res.write() not res.send() for streaming
-- Set Cache-Control: no-cache header
-- AbortController handles client disconnects
-- Gemini uses generateContentStream() for streaming
-- Anthropic uses stream: true option with messages.create()
-- Claude streaming events: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
-- Thinking blocks in Claude have type 'thinking' in content_block_start event
-- Token counts from Claude: input_tokens from message_start.message.usage, output_tokens from message_delta.usage
-
-- Agent routes are in server/src/routes/agents.ts
-- StreamEvent type is exported for reuse by frontend components
-- Frontend SSE parsing uses ReadableStream with TextDecoder for chunked reading
-- AbortController.abort() triggers fetch abort for cancellation
-- Use `behavior: 'auto'` (not 'smooth') during streaming for immediate scroll
-- Pre-existing TypeScript errors in codebase (not related to streaming implementation)
-- ClaudeService in server/src/services/claude.ts, GeminiService in server/src/services/gemini.ts
-- BaseAgent.thinkStream() in server/src/agents/base.ts handles model-specific streaming
-- ToolEvent and ToolEventCallback types in base.ts for tool call streaming
-- OnboardingAgent.executeStream accepts onToolEvent callback for tool event streaming
-- Use streamToolEvents (not toolCalls) to avoid type conflicts with AgentOutput.toolCalls
+- Frontend uses AuthContext for auth state and getAuthHeaders() for API calls
+- API_URL from import.meta.env.VITE_API_URL
+- Supabase client in server/src/services/supabase.ts
+- Customer routes at server/src/routes/customers.ts
+- Contract routes at server/src/routes/contracts.ts - POST /api/contracts for creating with customer_id
+- Google auth routes at server/src/routes/google/auth.ts
+- OnboardingContext manages workflow state
+- Toast notifications use inline state pattern (useState with setTimeout for auto-dismiss)
+- ContractData type in types/workflow.ts does NOT include industry; industry is in CompanyResearch
+- UnifiedOnboarding.onComplete receives { contract: ContractData; plan: OnboardingPlan; fileMetadata?: FileMetadata }
+- ContractInput from uploads has fileName and mimeType but not file size - estimate from base64 content length * 0.75
 
 ---
 
-# Streaming Chat Progress Log
+# Onboarding Completion Progress Log
 
-Initialized: Ready to start Loop 2
+Initialized: Ready to complete the onboarding flow
 
 ---
 
 ## 2026-01-28 - US-001
-- Implemented POST /api/agents/chat/stream SSE endpoint
-- Files changed: server/src/routes/agents.ts (+229 lines)
+- What was implemented: Save customer on onboarding completion
+- Files changed: App.tsx
+- Changes:
+  - Added getAuthHeaders() import from useAuth hook
+  - Added toast notification state and showToast() helper function
+  - Modified onComplete handler in UnifiedOnboarding to:
+    - Call POST /api/customers with name, arr, status from contract data
+    - Include auth headers for RLS
+    - Show success toast "Customer created successfully"
+    - Navigate to customer-detail view with new customer ID
+    - Handle errors gracefully with error toast
+  - Added toast UI component (fixed position, top-right)
 - **Learnings for future iterations:**
-  - res.flushHeaders() must be called after setting headers to start SSE
-  - Use req.on('close') and req.on('aborted') to detect client disconnects
-  - sendSSEEvent helper sends `data: ${JSON.stringify(event)}\n\n` format
-  - X-Accel-Buffering: no header disables nginx buffering for SSE
-  - StreamEvent type is exported for use by frontend (US-005)
-  - Pre-existing TypeScript errors exist in codebase (100+ errors) - focus on not introducing new errors
+  - ContractData doesn't have industry field - that's in CompanyResearch
+  - Customer API accepts: name, industry (optional), arr, status, renewal_date, csm_name, primary_contact, tags
+  - Pre-existing TypeScript errors in other files (types/index.ts, AgentControlCenter, WorkspaceAgent) - not related to US-001
+  - Toast pattern: use useState + setTimeout(4000ms) for auto-dismiss
+
 ---
 
-## 2026-01-28 - US-003
-- Implemented Claude streaming responses
+## 2026-01-28 - US-002
+- What was implemented: Save contract linked to customer after onboarding completion
 - Files changed:
-  - server/src/services/claude.ts (+124 lines) - added generateStream method
-  - server/src/agents/base.ts (+9 lines, -15 lines) - updated thinkStream to use Claude streaming
+  - server/src/routes/contracts.ts - Added POST /api/contracts endpoint
+  - components/UnifiedOnboarding.tsx - Added file metadata tracking
+  - App.tsx - Added contract save after customer creation
+- Changes:
+  - Added POST /api/contracts endpoint that accepts customer_id, file_name, file_type, file_size, parsed_data, status
+  - Endpoint extracts company_name, arr, contract_period from parsed_data for easier querying
+  - Added FileMetadata interface to UnifiedOnboarding to track file info through workflow
+  - Capture file metadata on upload (estimate size from base64 content)
+  - Call onComplete with contract, plan, and fileMetadata when deploying agents
+  - App.tsx now calls POST /api/contracts after successful customer creation
+  - Contract save failure is logged but doesn't block customer creation success
 - **Learnings for future iterations:**
-  - Anthropic streaming uses `stream: true` in messages.create() options
-  - Stream events are: message_start, content_block_start, content_block_delta, content_block_stop, message_delta, message_stop
-  - Thinking blocks (extended thinking) have type 'thinking' in content_block_start.content_block.type
-  - Text deltas are in content_block_delta events with delta.type === 'text_delta'
-  - Input tokens available in message_start.message.usage.input_tokens
-  - Output tokens available in message_delta.usage.output_tokens
-  - ThinkingCallback type exported from base.ts for thinking block notifications
-  - ClaudeService falls back to Gemini streaming if Claude streaming fails
----
+  - ContractInput doesn't have fileSize; estimate from base64 content length * 0.75
+  - Express routes order matters: POST / must come before GET /:id or params will catch it
+  - db.saveContract accepts any Record<string, unknown> - flexible for adding new fields
+  - Contract linked to customer via customer_id field in contracts table
 
-## 2026-01-28 - US-004
-- Implemented tool call event streaming
-- Files changed:
-  - server/src/agents/base.ts (+16 lines) - added ToolEvent and ToolEventCallback types
-  - server/src/agents/onboarding.ts (+98 lines) - added tool event emission in executeStream
-  - server/src/routes/agents.ts (+29 lines) - forward tool events to SSE stream
-- **Learnings for future iterations:**
-  - ToolEvent has type: 'tool_start' | 'tool_end', name, params, result, duration fields
-  - Duration is tracked in milliseconds from start to end of tool execution
-  - Use streamToolEvents property name (not toolCalls) to avoid type conflict with AgentOutput.toolCalls
-  - Tool events are emitted when subagent deployment is detected (meeting, training, intelligence agents)
-  - getToolNameForAgent() maps AgentId to tool names (e.g., 'meeting' -> 'deployMeetingAgent')
-  - getToolParamsFromContext() extracts relevant params from AgentInput for each tool type
----
-
-## 2026-01-28 - US-005
-- Updated AIPanel component for streaming responses
-- Files changed:
-  - components/AIPanel/index.tsx (+193 lines, -51 lines) - rewrote sendMessage for streaming
-  - types/streaming.ts (new file) - shared StreamEvent type for frontend
-- **Learnings for future iterations:**
-  - Use fetch with response.body.getReader() and TextDecoder for SSE consumption
-  - Parse SSE by splitting on newlines and looking for 'data: ' prefix
-  - Track streaming state separately from loading state (isStreaming vs isLoading)
-  - Use AbortController for cancellation, store ref to abort on stop click
-  - Animate cursor with `animate-pulse` class on a small inline-block span
-  - Use scrollIntoView({ behavior: 'auto' }) during streaming for instant scroll (no animation lag)
-  - Pre-existing TypeScript errors (import.meta.env) are Vite-specific and don't affect runtime
----
-
-## 2026-01-28 - US-006
-- Added cancel/stop button to AIPanel during streaming
-- Files changed:
-  - components/AIPanel/index.tsx (+27 lines, -10 lines) - added handleStop function and Stop button
-- **Learnings for future iterations:**
-  - The abortControllerRef already existed from US-005, just needed UI trigger
-  - Stop button replaces send button when isStreaming is true (conditional render)
-  - Yellow color (bg-yellow-600) differentiates stop from normal actions
-  - Square icon (w-3 h-3 rounded-sm) is common stop button convention
-  - Input should be disabled during streaming to prevent confusion
-  - Placeholder text change ("AI is responding...") gives user feedback
-  - AbortError is caught specifically by checking error.name === 'AbortError'
-  - '[Stopped by user]' suffix already implemented in US-005, just needed trigger
 ---
