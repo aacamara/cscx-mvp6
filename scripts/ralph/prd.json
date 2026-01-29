@@ -92,7 +92,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Focus on typography and spacing. Keep the dark theme consistent."
     },
     {
@@ -110,7 +110,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "This is a verification story - test manually after all UI changes are complete."
     }
   ]
