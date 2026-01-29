@@ -34,11 +34,21 @@ import { parseContractFull } from '../services/geminiService';
 import { ContractInput, WorkflowState as LegacyWorkflowState } from '../types';
 
 // ============================================
+// File metadata for contract persistence
+// ============================================
+
+interface FileMetadata {
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+}
+
+// ============================================
 // Props
 // ============================================
 
 interface UnifiedOnboardingProps {
-  onComplete?: (data: { contract: ContractData; plan: OnboardingPlan }) => void;
+  onComplete?: (data: { contract: ContractData; plan: OnboardingPlan; fileMetadata?: FileMetadata }) => void;
   onBack?: () => void;
 }
 
@@ -62,6 +72,7 @@ export const UnifiedOnboarding: React.FC<UnifiedOnboardingProps> = ({
   const [researchData, setResearchData] = useState<CompanyResearch | null>(null);
   const [plan, setPlan] = useState<OnboardingPlan | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [fileMetadata, setFileMetadata] = useState<FileMetadata | null>(null);
 
   // UI states
   const [activeTab, setActiveTab] = useState('entitlements');
@@ -100,6 +111,18 @@ export const UnifiedOnboarding: React.FC<UnifiedOnboardingProps> = ({
       setLegacyState(LegacyWorkflowState.Parsing);
       setError(null);
 
+      // Capture file metadata for later persistence
+      // Estimate file size from base64 content length (base64 is ~33% larger than original)
+      const estimatedSize = input.type === 'file' && input.content
+        ? Math.round(input.content.length * 0.75)
+        : input.content?.length || 0;
+
+      setFileMetadata({
+        fileName: input.fileName || 'Unknown',
+        fileType: input.mimeType || (input.type === 'text' ? 'text/plain' : 'application/octet-stream'),
+        fileSize: estimatedSize
+      });
+
       // Parse contract
       const result = await parseContractFull(input);
 
@@ -124,7 +147,16 @@ export const UnifiedOnboarding: React.FC<UnifiedOnboardingProps> = ({
   // Handle deploy agents
   const handleDeployAgents = useCallback(() => {
     dispatch({ type: 'APPROVE_PLAN' });
-  }, []);
+
+    // Call onComplete with contract data, plan, and file metadata
+    if (onComplete && contractData && plan) {
+      onComplete({
+        contract: contractData,
+        plan,
+        fileMetadata: fileMetadata || undefined
+      });
+    }
+  }, [onComplete, contractData, plan, fileMetadata]);
 
   // Get phase progress
   const getPhaseProgress = (): { current: number; total: number } => {

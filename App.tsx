@@ -289,6 +289,33 @@ const AppContent: React.FC = () => {
                   }
 
                   const newCustomer = await response.json();
+
+                  // US-002: Save contract linked to customer
+                  try {
+                    const contractResponse = await fetch(`${API_URL}/api/contracts`, {
+                      method: 'POST',
+                      headers: {
+                        'Content-Type': 'application/json',
+                        ...getAuthHeaders()
+                      },
+                      body: JSON.stringify({
+                        customer_id: newCustomer.id,
+                        file_name: data.fileMetadata?.fileName || 'Unknown',
+                        file_type: data.fileMetadata?.fileType || 'unknown',
+                        file_size: data.fileMetadata?.fileSize || 0,
+                        parsed_data: data.contract,
+                        status: 'parsed'
+                      })
+                    });
+
+                    if (!contractResponse.ok) {
+                      console.error('Failed to save contract, but customer was created');
+                    }
+                  } catch (contractError) {
+                    console.error('Error saving contract:', contractError);
+                    // Don't fail the whole operation if contract save fails
+                  }
+
                   showToast('Customer created successfully', 'success');
 
                   // Navigate to the new customer's detail view

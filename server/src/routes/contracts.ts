@@ -168,6 +168,46 @@ router.post('/:id/reparse', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/contracts - Create a contract record (without file upload)
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const { customer_id, file_name, file_type, file_size, parsed_data, status = 'parsed' } = req.body;
+
+    if (!customer_id) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'customer_id is required' }
+      });
+    }
+
+    // Extract common fields from parsed_data for easier querying
+    const companyName = parsed_data?.company_name;
+    const arr = parsed_data?.arr;
+    const contractPeriod = parsed_data?.contract_period;
+
+    const contract = await db.saveContract({
+      customer_id,
+      file_name: file_name || 'Unknown',
+      file_type: file_type || 'unknown',
+      file_size: file_size || 0,
+      company_name: companyName,
+      arr,
+      contract_period: contractPeriod,
+      parsed_data,
+      status
+    });
+
+    res.status(201).json(contract);
+  } catch (error) {
+    console.error('Create contract error:', error);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: error instanceof Error ? error.message : 'Failed to create contract'
+      }
+    });
+  }
+});
+
 // GET /api/contracts/:id - Get contract by ID
 router.get('/:id', async (req: Request, res: Response) => {
   try {
