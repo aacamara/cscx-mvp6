@@ -47,3 +47,17 @@
   - formatLastFired helper converts timestamps to relative time (e.g., "2h ago")
 ---
 
+## 2026-01-29 - WAD-004
+- Implemented Playbooks Manager component
+- Files changed:
+  - `components/WorkspaceAgentV2/PlaybooksManager.tsx` - New component with playbooks fetching, stage timeline visualization, expandable details, start button
+  - `components/AgentCenterView.tsx` - Added PlaybooksManager import and replaced placeholder, passing customerId and customerName props
+- **Learnings for future iterations:**
+  - API endpoint is `/api/playbooks` returning `{ playbooks: Playbook[] }` or direct array
+  - POST to `/api/playbooks/:id/execute` with `{ customer_id }` body to start
+  - Playbook structure: `{ id, name, description, type, stages, total_duration_days }`
+  - Stage structure: `{ name, description, duration_days, actions }`
+  - Types: onboarding, renewal, expansion, risk, qbr, custom
+  - Stage timeline uses dynamic width based on duration_days for visual representation
+---
+

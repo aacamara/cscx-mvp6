@@ -56,7 +56,7 @@
         "Start Playbook button (disabled without customer context)"
       ],
       "priority": 4,
-      "passes": false
+      "passes": true
     },
     {
       "id": "WAD-005",

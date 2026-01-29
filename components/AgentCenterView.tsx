@@ -10,6 +10,7 @@ import { AgentControlCenter } from './AgentControlCenter';
 import { ContractUpload } from './ContractUpload';
 import { MCPToolsBrowser } from './WorkspaceAgentV2/MCPToolsBrowser';
 import { TriggersDashboard } from './WorkspaceAgentV2/TriggersDashboard';
+import { PlaybooksManager } from './WorkspaceAgentV2/PlaybooksManager';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -479,18 +480,10 @@ export const AgentCenterView: React.FC = () => {
       {activeAgentTab === 'triggers' && <TriggersDashboard />}
 
       {activeAgentTab === 'playbooks' && (
-        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
-          <div className="text-center py-12">
-            <div className="text-4xl mb-4">📋</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Playbooks Manager</h3>
-            <p className="text-cscx-gray-400 max-w-md mx-auto">
-              Browse playbook templates with stage visualizations. Start playbook executions for customers.
-            </p>
-            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
-              <span className="text-cscx-gray-500 text-sm">Coming in WAD-004</span>
-            </div>
-          </div>
-        </div>
+        <PlaybooksManager
+          customerId={selectedCustomer?.id}
+          customerName={selectedCustomer?.name}
+        />
       )}
 
       {activeAgentTab === 'skills' && (
