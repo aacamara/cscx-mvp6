@@ -200,7 +200,7 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
 
       <header className="landing-header">
         <div className="landing-logo">
-          CSCX<span className="accent">.</span>ai
+          cscx<span className="accent">.</span>ai
         </div>
       </header>
 
@@ -209,8 +209,7 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
           <div className="landing-label">Customer Success Platform</div>
 
           <h1 className="landing-title">
-            The future of<br />
-            <span className="muted">Customer Success</span><span className="accent-dot">.</span>
+            The future of <span className="muted">Customer Success</span><span className="accent-dot">.</span>
           </h1>
 
           <p className="landing-subtitle">
