@@ -98,7 +98,7 @@
         "Filter by customer dropdown"
       ],
       "priority": 7,
-      "passes": false
+      "passes": true
     }
   ]
 }
