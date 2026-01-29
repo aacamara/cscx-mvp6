@@ -42,6 +42,7 @@ import mcpRoutes from './routes/mcp.js';
 import slackRoutes from './routes/slack.js';
 import zoomRoutes from './routes/zoom.js';
 import meetingIntelligenceRoutes from './routes/meeting-intelligence.js';
+import automationsRoutes from './routes/automations.js';
 import { config } from './config/index.js';
 import { schedulerService } from './services/scheduler.js';
 import { agentMemoryService } from './services/agentMemory.js';
@@ -245,6 +246,7 @@ app.use('/api/mcp', mcpRoutes); // MCP tool router and execution
 app.use('/api/slack', slackRoutes); // Slack integration and messaging
 app.use('/api/zoom', zoomRoutes); // Zoom integration and meetings
 app.use('/api/meeting-intelligence', meetingIntelligenceRoutes); // AI-powered meeting analysis
+app.use('/api/automations', automationsRoutes); // NL-driven automation builder
 
 // Error handler
 app.use(errorHandler);
