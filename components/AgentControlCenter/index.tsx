@@ -10,6 +10,7 @@ import { OnboardingFlow, OnboardingResult } from '../AgentStudio/OnboardingFlow'
 import { EmailPreviewModal } from './EmailPreviewModal';
 import { WorkspaceDataPanel, WorkspaceData } from './WorkspaceDataPanel';
 import { AgentAnalysisActions } from './AgentAnalysisActions';
+import { ChatHistoryDropdown } from './ChatHistoryDropdown';
 import { useAgenticMode } from '../../context/AgenticModeContext';
 import { useWebSocket } from '../../context/WebSocketContext';
 import './styles.css';
@@ -95,6 +96,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [onboardingResult, setOnboardingResult] = useState<OnboardingResult | null>(null);
   const [completedTasks, setCompletedTasks] = useState<Set<string>>(new Set());
   const [showAnalysisPanel, setShowAnalysisPanel] = useState(false);
+  const [showChatHistory, setShowChatHistory] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -1476,6 +1478,45 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             <p>LangChain RAG-powered • {customer?.name || 'Ready'}</p>
           </div>
           <div className="agent-status" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            {/* Chat History Search Button */}
+            <div style={{ position: 'relative' }}>
+              <button
+                onClick={() => setShowChatHistory(!showChatHistory)}
+                title="Chat History"
+                style={{
+                  background: showChatHistory ? '#e63946' : '#1a1a1a',
+                  border: `1px solid ${showChatHistory ? '#e63946' : '#333'}`,
+                  borderRadius: '8px',
+                  padding: '8px 10px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.2s',
+                  color: showChatHistory ? '#fff' : '#888'
+                }}
+                onMouseEnter={(e) => {
+                  if (!showChatHistory) {
+                    e.currentTarget.style.borderColor = '#e63946';
+                    e.currentTarget.style.color = '#e63946';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!showChatHistory) {
+                    e.currentTarget.style.borderColor = '#333';
+                    e.currentTarget.style.color = '#888';
+                  }
+                }}
+              >
+                <span style={{ fontSize: '16px' }}>🔍</span>
+              </button>
+              <ChatHistoryDropdown
+                isOpen={showChatHistory}
+                onClose={() => setShowChatHistory(false)}
+                customerId={customer?.id}
+                customerName={customer?.name}
+              />
+            </div>
             {/* Agentic Mode Indicator */}
             {agenticModeEnabled && (
               <div style={{
