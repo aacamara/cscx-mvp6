@@ -12,6 +12,7 @@
 import React, { useState, useEffect } from 'react';
 import { CustomerDetail } from './components/CustomerDetail';
 import { Login } from './components/Login';
+import { LandingPage } from './components/LandingPage';
 import { AuthCallback } from './components/AuthCallback';
 import { UserProfile } from './components/UserProfile';
 import { UnifiedOnboarding } from './components/UnifiedOnboarding';
@@ -128,9 +129,9 @@ const AppContent: React.FC = () => {
     return <AuthCallback />;
   }
 
-  // Show login if not authenticated
+  // Show landing page if not authenticated
   if (!isAuthenticated && !demoMode && isSupabaseConfigured()) {
-    return <Login onDemoMode={() => setDemoMode(true)} />;
+    return <LandingPage />;
   }
 
   return (
