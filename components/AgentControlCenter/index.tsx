@@ -1391,19 +1391,49 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           </p>
         </div>
 
-        <div className="agent-list">
+        {/* Compact Agent Selector Pills */}
+        <div className="agent-pills-container" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
           <p className="section-label">CS Specialist Agents</p>
-          {(Object.keys(CS_AGENTS) as CSAgentType[]).map((agentKey) => (
-            <AgentCard
-              key={agentKey}
-              agent={CS_AGENTS[agentKey]}
-              status={csAgentStatuses[agentKey]}
-              isActive={activeAgent === agentKey}
-              isDeploying={false}
-              onClick={handleAgentClick}
-              onActionSelect={handleAgentAction}
-            />
-          ))}
+          <div className="agent-pills" style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '6px',
+            marginTop: '8px',
+          }}>
+            {(Object.keys(CS_AGENTS) as CSAgentType[]).map((agentKey) => {
+              const agent = CS_AGENTS[agentKey];
+              const isActive = activeAgent === agentKey;
+              return (
+                <button
+                  key={agentKey}
+                  onClick={() => handleAgentClick(agentKey)}
+                  className="agent-pill"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '6px 10px',
+                    background: isActive ? '#e63946' : '#1a1a1a',
+                    border: `1px solid ${isActive ? '#e63946' : '#333'}`,
+                    borderRadius: '16px',
+                    color: isActive ? '#fff' : '#999',
+                    fontSize: '12px',
+                    fontWeight: isActive ? 600 : 400,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s',
+                  }}
+                >
+                  <span>{agent.icon}</span>
+                  <span>{agentKey.charAt(0).toUpperCase() + agentKey.slice(1)}</span>
+                </button>
+              );
+            })}
+          </div>
+          {activeAgent && (
+            <p style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
+              {CS_AGENTS[activeAgent].description}
+            </p>
+          )}
         </div>
 
         {/* Customer Context - Enhanced */}

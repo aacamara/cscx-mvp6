@@ -1,113 +1,117 @@
 {
   "project": "CSCX.AI",
-  "branchName": "feature/landing-page",
-  "description": "Minimalist landing page for CSCX.ai with Google OAuth authentication",
-  "designSystem": {
-    "background": "#ffffff",
-    "text": "#000000",
-    "accent": "#e63946",
-    "muted": "#555555",
-    "font": "Inter",
-    "style": "minimalist, clean, professional"
-  },
+  "branchName": "feature/chat-ui-cleanup",
+  "description": "Clean up chat UI - reduce sidebar bloat while keeping 100% agentic functionality",
+  "designPrinciples": [
+    "Minimize visual noise, maximize usability",
+    "Keep ALL agentic functionality accessible",
+    "Use progressive disclosure - show details on demand",
+    "Dark theme: #000000 bg, #ffffff text, #e63946 accent",
+    "Compact but not cramped"
+  ],
   "userStories": [
     {
       "id": "US-001",
-      "title": "Landing Page Component Structure",
-      "description": "Create the base LandingPage component with proper structure",
+      "title": "Collapse CS Specialist Agents into compact selector",
+      "description": "Replace 5 large agent cards with a compact dropdown or pill selector",
       "acceptanceCriteria": [
-        "components/LandingPage.tsx exists with proper TypeScript types",
-        "Component receives onLogin callback prop (optional)",
-        "Uses useAuth hook from ../context/AuthContext for signInWithGoogle and isLoading",
-        "Page has three sections: header (landing-header), main (landing-main), footer (landing-footer)",
-        "Uses inline <style> tag for all CSS",
-        "Imports Inter font from Google Fonts",
-        "Build succeeds with no new TypeScript errors"
+        "In AgentControlCenter/index.tsx, find the CS Specialist Agents section (around lines 1394-1407)",
+        "Replace individual agent cards with a compact horizontal pill/chip selector or dropdown",
+        "Show agent name + emoji only (e.g., '🎯 Onboarding', '📈 Adoption', '🔄 Renewal', '⚠️ Risk', '🎖️ Strategic')",
+        "Clicking a pill/chip selects that agent (same functionality as before)",
+        "Selected agent highlighted with accent color #e63946",
+        "Total height reduced from ~350px to ~60px max",
+        "All 5 agents still accessible and functional",
+        "Build succeeds: npm run build"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "LandingPage.tsx already exists - review and verify it meets all criteria"
+      "notes": "Agents: Onboarding, Adoption, Renewal, Risk, Strategic CSM. Keep the agent selection logic intact."
     },
     {
       "id": "US-002",
-      "title": "Header with Logo",
-      "description": "Display CSCX.ai branding in the header",
+      "title": "Remove System Status section",
+      "description": "Remove the verbose system status indicators - redundant information",
       "acceptanceCriteria": [
-        "Header displays 'CSCX' text followed by '.ai'",
-        "The period uses accent color #e63946 via .accent class",
-        "Logo uses font-weight 800, letter-spacing -0.03em",
-        "Header has padding: 2rem 4rem",
-        "Responsive: padding 1.5rem on mobile (max-width: 768px)"
+        "In AgentControlCenter/index.tsx, find System Status section (around lines 1444-1466)",
+        "Remove or comment out the entire System Status section",
+        "Keep the underlying connection logic intact (just remove the UI display)",
+        "If any critical status (like AI backend disconnected) needs to show, use a subtle indicator elsewhere",
+        "No functionality lost - just UI removed",
+        "Build succeeds: npm run build"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Part of LandingPage.tsx header section"
+      "passes": false,
+      "notes": "The status info is redundant - users can tell if things work by using the chat. Keep error states visible via toast or inline message."
     },
     {
       "id": "US-003",
-      "title": "Hero Content Section",
-      "description": "Display compelling hero content with value proposition",
+      "title": "Remove standalone Google Workspace widget from sidebar",
+      "description": "Remove the Google Workspace connection widget - already available in Settings",
       "acceptanceCriteria": [
-        "Label 'Customer Success Platform' in uppercase, accent color, letter-spacing 0.15em",
-        "Title: 'The future of' on first line, 'Customer Success.' on second line",
-        "'Customer Success' uses muted color #555555 via .muted class",
-        "Period at end uses accent color via .accent-dot class",
-        "Title uses font-size clamp(2.5rem, 8vw, 4.5rem), font-weight 800",
-        "Subtitle describes AI-powered workflows for onboarding and agents",
-        "Content centered with max-width 580px"
+        "In AgentControlCenter/index.tsx, find the Google Connection Widget section (around lines 1469-1475)",
+        "Remove or comment out the Google Workspace widget",
+        "Google Workspace connection is already available in Settings (gear icon) via GoogleConnect component",
+        "No functionality lost - just removing duplicate UI",
+        "Build succeeds: npm run build"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Part of LandingPage.tsx main section"
+      "passes": false,
+      "notes": "GoogleConnect.tsx in Settings modal already handles this. Removing duplicate."
     },
     {
       "id": "US-004",
-      "title": "Google Sign-In Button",
-      "description": "Implement Google OAuth sign-in button with proper styling",
+      "title": "Compact the AI Model and Knowledge Base toggles",
+      "description": "Combine model selector and toggles into a more compact layout",
       "acceptanceCriteria": [
-        "Button displays Google multicolor SVG logo",
-        "Button text: 'Continue with Google' normally, 'Signing in...' when loading",
-        "Button calls signInWithGoogle() on click",
-        "Button disabled when isLoading is true",
-        "Button style: black background #000000, white text, no border",
-        "Hover: opacity 0.85, transform translateY(-2px)",
-        "Below button: 'By signing in, you agree to our Terms and Privacy Policy'",
-        "Terms and Privacy links use accent color"
+        "In AgentControlCenter/index.tsx, find AI Model Selector (lines 1284-1306) and toggles (1308-1392)",
+        "Combine into a single compact 'Settings' row or collapsible section",
+        "Model selector: simple dropdown or two-button toggle (Claude/Gemini)",
+        "Knowledge Base toggle: small switch with label",
+        "AI Enhancement toggle: small switch with label",
+        "Arrange horizontally if space permits, or as tight vertical list",
+        "Reduce total height by at least 50%",
+        "All functionality preserved",
+        "Build succeeds: npm run build"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Button uses signInWithGoogle from useAuth hook"
+      "passes": false,
+      "notes": "Use compact toggle switches. Consider a single row: [Claude|Gemini] [KB: on] [AI: on]"
     },
     {
       "id": "US-005",
-      "title": "Footer Section",
-      "description": "Display footer with copyright and links",
+      "title": "Improve overall sidebar spacing and visual hierarchy",
+      "description": "Tighten spacing, improve visual hierarchy with better typography",
       "acceptanceCriteria": [
-        "Footer displays '© 2025 CSCX.ai — CAS Advisory'",
-        "Footer links: About, Contact, info@casadvisory.ca (mailto)",
-        "Footer has border-top: 1px solid #e5e5e5",
-        "Links use color #555555, hover to #000000",
-        "Responsive: flex-direction column, centered on mobile"
+        "In AgentControlCenter/styles.css, reduce gap from 16px to 12px",
+        "Use smaller font sizes for labels (text-xs or 0.75rem)",
+        "Use consistent section headers with subtle dividers",
+        "Ensure sidebar still scrolls if content exceeds viewport",
+        "Current Customer and Onboarding Plan sections: keep but make more compact",
+        "Overall sidebar should feel lighter and less cluttered",
+        "Build succeeds: npm run build"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Part of LandingPage.tsx footer section"
+      "passes": false,
+      "notes": "Focus on typography and spacing. Keep the dark theme consistent."
     },
     {
       "id": "US-006",
-      "title": "App.tsx Integration",
-      "description": "Show landing page when user is not authenticated",
+      "title": "Verify all agentic functionality still works",
+      "description": "Ensure agent selection, model switching, and chat all work after UI changes",
       "acceptanceCriteria": [
-        "Import LandingPage component in App.tsx",
-        "Check authentication state using useAuth hook (user or session)",
-        "If no authenticated user, render LandingPage instead of main dashboard",
-        "After successful Google login, user sees main dashboard",
-        "No flash of dashboard before landing page shows (use isLoading state)",
-        "Build succeeds: npm run build exits with code 0"
+        "Agent selection via new compact UI works - selecting an agent changes the active agent",
+        "Model toggle (Claude/Gemini) still switches the AI model",
+        "Knowledge Base toggle still enables/disables KB context",
+        "AI Enhancement toggle still enables/disables enhancements",
+        "Chat messages send and receive correctly",
+        "Streaming responses work",
+        "No console errors related to the UI changes",
+        "Build succeeds: npm run build"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "App.tsx already uses useAuth. Check for user/session state to conditionally render."
+      "passes": false,
+      "notes": "This is a verification story - test manually after all UI changes are complete."
     }
   ]
 }

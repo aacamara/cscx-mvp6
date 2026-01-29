@@ -1,20 +1,22 @@
 # Ralph Progress Log
-Started: Wed 28 Jan 2026 22:10:13 EST
+Started: Wed 28 Jan 2026 23:14:39 EST
 
 ## Codebase Patterns
-- App.tsx uses conditional rendering based on `isAuthenticated` from `useAuth()` hook
-- Show loading spinner during `authLoading` to prevent flash of content
-- Components that need auth use the `useAuth` hook from `../context/AuthContext`
+- Agent pill selectors use #e63946 accent for active state
+- CS_AGENTS object in types/agents.ts defines all specialist agents with icon/name/color
+- Sidebar sections use consistent styling: padding: '12px', borderBottom: '1px solid #1a1a1a'
+
 ---
 
-## 2026-01-28 - US-006
-- **What was implemented:** Integrated LandingPage component into App.tsx for unauthenticated users
+## 2026-01-28 23:16 - US-001: Collapse CS Specialist Agents into compact selector
+- **What was implemented:** Replaced 5 large AgentCard components with compact horizontal pill/chip buttons
 - **Files changed:**
-  - `App.tsx:15` - Added LandingPage import
-  - `App.tsx:132-134` - Changed conditional render from Login to LandingPage
-  - `components/LandingPage.tsx:9-13` - Made onLogin prop optional
+  - `components/AgentControlCenter/index.tsx` (lines ~1394-1407 → new pill selector)
+- **Visual change:** From ~350px agent cards to ~60px pill row
+- **Functionality preserved:** Clicking pills still selects agents via handleAgentClick()
 - **Learnings for future iterations:**
-  - The auth flow uses `authLoading` state to show a spinner, preventing flash of dashboard before landing page
-  - `isSupabaseConfigured()` check allows the app to work in demo mode when Supabase isn't set up
-  - LandingPage uses `signInWithGoogle` from useAuth hook directly, so the onLogin prop is unused
+  - The AgentCard component is still imported but no longer used in the main sidebar - could be cleaned up if not used elsewhere
+  - Active state uses #e63946 background with white text
+  - Agent description shown below pills when an agent is selected
+
 ---
