@@ -1,153 +1,116 @@
-# Ralph Progress Log
-Started: Thu 29 Jan 2026 00:03:28 EST
----
-
 ## Codebase Patterns
-- Migrations are in `database/migrations/` with sequential numbering (001, 002, etc.)
-- Use `IF NOT EXISTS` and `IF EXISTS` for idempotent migrations
-- RLS policies follow pattern: `{table}_{role}_{action}_policy` (e.g., `chat_messages_user_select_policy`)
-- For FK to Supabase auth users, reference `auth.users(id)` not `public.users(id)`
-- Use DO $$ blocks for dynamic SQL in migrations (e.g., finding and dropping constraints)
-- Pre-existing TypeScript errors exist in server/ - don't let these block unrelated work
-- Chat routes are in `server/src/routes/chat.ts` mounted at `/api/chat`
-- Use x-user-id header for auth in routes (not full auth middleware)
-- Supabase ILIKE for case-insensitive search: `.ilike('column', '%search%')`
+- Use Tailwind CSS with CSCX custom colors: cscx-accent (#e63946), cscx-black, cscx-gray-900, cscx-gray-800, cscx-gray-700, cscx-gray-400, cscx-gray-300
+- API calls use `const API_URL = import.meta.env.VITE_API_URL || ''` and `getAuthHeaders()` from useAuth hook
+- Components use functional React with hooks (useState, useEffect, useCallback)
+- Dark theme: bg-cscx-black, bg-cscx-gray-900, text-white, text-cscx-gray-400
+- Buttons: bg-cscx-accent for primary, border-cscx-gray-700 for secondary
+- Cards: bg-cscx-gray-900 border border-cscx-gray-800 rounded-lg
 
 ---
 
-## Wed 29 Jan 2026 - US-007
-- **What was implemented:** Handle document content in AI chat context with full text extraction for supported files
-- **Files changed:**
-  - `components/AgentControlCenter/index.tsx` (modified - added file content reading and AI context)
-  - `components/AgentControlCenter/ChatHistoryDropdown.tsx` (modified - added attachment indicator)
-  - `server/src/routes/chat.ts` (modified - include tool_calls in history response)
-- **Details:**
-  - Added `readFileAsText()` helper to read file content using FileReader API
-  - Added `isTextBasedFile()` to detect text-based formats (.txt, .csv, .json, .md, .html, .xml)
-  - For text files: Content is read, truncated at 50KB, and included in AI message context
-  - For binary files (PDF, DOCX, XLSX): Metadata only, with helpful guidance for user
-  - Modified `saveChatMessage()` to accept attachment metadata and store in tool_calls
-  - Modified `sendToAgent()` to pass attachment metadata for database persistence
-  - Added `hasAttachment()` helper in ChatHistoryDropdown to detect attachments from tool_calls
-  - ChatHistoryDropdown shows attachment indicator with filename and "analyzed" badge if content was read
-  - Updated /api/chat/history to include tool_calls field for attachment display
+## WorkspaceAgent V2 Dashboard - Progress Log
+
+## 2026-01-29 - WAD-001
+- Implemented tabbed dashboard layout in AgentCenterView
+- Files changed:
+  - `components/AgentCenterView.tsx` - Updated activeAgentTab type from `'chat' | 'workspace'` to include all 7 tabs; replaced 2-button tab UI with dynamic tab rendering; added placeholder components for each new tab; removed WorkspaceAgent import
 - **Learnings for future iterations:**
-  - FileReader API with `readAsText()` works well for text-based files in browser
-  - Store attachment metadata in tool_calls array as `{ type: 'attachment', name, size, type, hasContent }`
-  - Truncate large documents to avoid overwhelming AI context (50KB is reasonable)
-  - Binary formats need explicit user guidance since content can't be extracted client-side
-  - The `handleSend` function was converted to `async` to support FileReader promises
+  - Tab array pattern with `as const` for type inference works well for dynamic tab rendering
+  - Placeholders should include the story ID (e.g., "Coming in WAD-002") for tracking progress
+  - Pre-existing TypeScript errors in other files don't block compilation of modified components
+  - `flex-wrap` is useful for tab navigation that may need multiple rows
 ---
 
-## Wed 29 Jan 2026 - US-005
-- **What was implemented:** Customer-specific vs general chat history toggle (verified existing implementation)
-- **Files changed:**
-  - No code changes needed - functionality already complete from US-004
-- **Details:**
-  - Verified toggle "All Chats" vs "This Customer" exists in ChatHistoryDropdown.tsx (lines 233-274)
-  - Defaults correctly: `useState(!customerId)` - shows "This Customer" when customer selected
-  - API filtering works: customerId passed only when toggle is "This Customer" and customer selected
-  - Customer name badge displays on messages in "All Chats" mode (lines 343-354)
-  - Empty state with icon and helpful message present (lines 292-305)
-  - Props correctly passed from AgentControlCenter (customerId, customerName at lines 1513-1518)
-  - Frontend build succeeds
+## 2026-01-29 - WAD-002
+- Implemented MCP Tools Browser component
+- Files changed:
+  - `components/WorkspaceAgentV2/MCPToolsBrowser.tsx` - New component with tools fetching, category grouping, provider filtering, search, and collapsible sections
+  - `components/AgentCenterView.tsx` - Added MCPToolsBrowser import and replaced placeholder with component
 - **Learnings for future iterations:**
-  - User stories can be fully satisfied by earlier implementations - always verify before coding
-  - ChatHistoryDropdown receives customer context via props from parent AgentControlCenter
-  - Toggle state is local to dropdown (`showAllChats`) while customer context comes from props
+  - API endpoint is `/api/mcp/tools` returning `{ tools: MCPTool[], total: number }`
+  - Tool structure: `{ name, description, category, provider, requiresApproval }`
+  - Categories: communication, scheduling, documents, meeting_intelligence
+  - Providers: google, slack, zoom, internal
+  - Use `useMemo` for filtered/grouped data to avoid recalculation on every render
 ---
 
-## Wed 29 Jan 2026 - US-004
-- **What was implemented:** Chat history search UI with magnifying glass icon in header
-- **Files changed:**
-  - `components/AgentControlCenter/ChatHistoryDropdown.tsx` (new)
-  - `components/AgentControlCenter/index.tsx` (modified)
-- **Details:**
-  - Created new ChatHistoryDropdown component with search input and message list
-  - Added 🔍 magnifying glass button in the AgentControlCenter header
-  - Dropdown fetches from GET /api/chat/history with debounced search
-  - Shows last 20 messages with truncated content, agent type, timestamp
-  - Customer badge shown in "All Chats" mode for customer-specific messages
-  - Toggle between "This Customer" and "All Chats" when customer is selected
-  - Closes on click outside or Escape key
-  - Styled to match dark theme (#0a0a0a, #1a1a1a, #e63946 accent)
-  - Empty state with helpful message when no history
+## 2026-01-29 - WAD-003
+- Implemented Triggers Dashboard component
+- Files changed:
+  - `components/WorkspaceAgentV2/TriggersDashboard.tsx` - New component with triggers fetching, enable/disable toggle, stats display, empty state
+  - `components/AgentCenterView.tsx` - Added TriggersDashboard import and replaced placeholder
 - **Learnings for future iterations:**
-  - Modal/dropdown styling patterns in EmailPreviewModal.tsx are good reference
-  - Use inline styles for component-specific styling (no need for CSS file)
-  - Position: relative on parent + position: absolute on dropdown for positioning
-  - Debounce search with useEffect + setTimeout pattern
+  - API endpoint is `/api/triggers` returning `{ triggers: Trigger[] }` or direct array
+  - PATCH to `/api/triggers/:id` with `{ enabled }` body to toggle
+  - Trigger structure: `{ id, name, description, type, conditions, actions, enabled, fire_count, last_fired_at }`
+  - Types: email, calendar, health_score, renewal, custom
+  - formatLastFired helper converts timestamps to relative time (e.g., "2h ago")
 ---
 
-## Wed 29 Jan 2026 - US-003
-- **What was implemented:** GET /api/chat/history endpoint for chat history with search and filtering
-- **Files changed:**
-  - `server/src/routes/chat.ts` (modified)
-- **Details:**
-  - Added GET /api/chat/history endpoint with query params: customerId, search, limit, offset
-  - User can only access their own messages (filtered by user_id = x-user-id header)
-  - Search uses case-insensitive ILIKE on content field
-  - Messages ordered by created_at DESC (newest first)
-  - Returns: id, customer_id, user_id, role, content, agent_type, session_id, created_at
-  - Includes pagination (limit max 100, default 50)
+## 2026-01-29 - WAD-004
+- Implemented Playbooks Manager component
+- Files changed:
+  - `components/WorkspaceAgentV2/PlaybooksManager.tsx` - New component with playbooks fetching, stage timeline visualization, expandable details, start button
+  - `components/AgentCenterView.tsx` - Added PlaybooksManager import and replaced placeholder, passing customerId and customerName props
 - **Learnings for future iterations:**
-  - Supabase select() can specify columns: `.select('col1, col2', { count: 'exact' })`
-  - For ILIKE search, wrap pattern: `.ilike('content', \`%${search}%\`)`
-  - Range pagination: `.range(offset, offset + limit - 1)` (inclusive)
+  - API endpoint is `/api/playbooks` returning `{ playbooks: Playbook[] }` or direct array
+  - POST to `/api/playbooks/:id/execute` with `{ customer_id }` body to start
+  - Playbook structure: `{ id, name, description, type, stages, total_duration_days }`
+  - Stage structure: `{ name, description, duration_days, actions }`
+  - Types: onboarding, renewal, expansion, risk, qbr, custom
+  - Stage timeline uses dynamic width based on duration_days for visual representation
 ---
 
-## Wed 29 Jan 2026 - US-002
-- **What was implemented:** Updated /chat-message endpoint with proper error handling and documentation
-- **Files changed:**
-  - `server/src/routes/agentActivities.ts` (modified)
-- **Details:**
-  - Added JSDoc documentation explaining the schema (user_id stores auth.uid() directly, no FK)
-  - Made customer_id explicitly optional (null for general mode chat)
-  - Added descriptive error messages for all error cases (401, 400, 503, 500)
-  - Added role validation (must be 'user', 'assistant', or 'system')
-  - Added explicit null handling for optional fields (customer_id, agent_type, tool_calls, session_id)
-  - Separated database errors from internal server errors for better debugging
+## 2026-01-29 - WAD-005
+- Implemented Skills Library component
+- Files changed:
+  - `components/WorkspaceAgentV2/SkillsLibrary.tsx` - New component with skills fetching, variable inputs, execute functionality
+  - `components/AgentCenterView.tsx` - Added SkillsLibrary import and replaced placeholder
 - **Learnings for future iterations:**
-  - Error responses should include both `error` (short code) and `message` (descriptive explanation)
-  - Document schema assumptions in JSDoc comments, especially when they differ from typical patterns
-  - agentActivities.ts has no TypeScript errors despite server-wide build failures
+  - API endpoint is `/api/skills` returning `{ skills: Skill[] }` or direct array
+  - POST to `/api/skills/:id/execute` with `{ customer_id, variables }` body
+  - Skill structure: `{ id, name, description, icon, category, variables, estimated_duration_seconds, cost_savings_percent }`
+  - Variable structure: `{ name, type, description, required, default }`
+  - Types for variables: string, number, boolean, email, date
+  - Grid layout (md:grid-cols-2) works well for skill cards
 ---
 
-## Wed 29 Jan 2026 - US-001
-- **What was implemented:** Migration to fix chat_messages user_id FK constraint
-- **Files changed:**
-  - `database/migrations/021_fix_chat_messages_userid.sql` (new)
-- **Details:**
-  - Drop FK constraint on user_id that referenced public.users(id)
-  - user_id now stores auth.uid() directly without FK
-  - Enabled RLS on chat_messages table
-  - Added user policies (select, insert, update, delete) checking user_id = auth.uid()
-  - Added admin policies for full access
-  - Migration is idempotent (uses IF EXISTS/IF NOT EXISTS, DO blocks)
+## 2026-01-29 - WAD-006
+- Implemented Automations Panel component
+- Files changed:
+  - `components/WorkspaceAgentV2/AutomationsPanel.tsx` - New component with automations fetching, enable/disable toggle, natural language creation
+  - `components/AgentCenterView.tsx` - Added AutomationsPanel import and replaced placeholder
 - **Learnings for future iterations:**
-  - The original 012_chat_messages_table.sql referenced public.users which exists (002_google_workspace.sql creates it), but the app was using auth.uid() directly without ensuring records in public.users
-  - RLS policies in this codebase use auth.jwt() -> 'user_metadata' ->> 'role' for admin checks
-  - Always check existing migration patterns (020_enable_rls.sql has good examples)
+  - API endpoint is `/api/automations` returning `{ automations: Automation[] }` or direct array
+  - POST to `/api/automations` with `{ natural_language }` body to create
+  - PATCH to `/api/automations/:id` with `{ enabled }` body to toggle
+  - Automation structure: `{ id, name, description, natural_language, schedule, enabled, run_count, last_run_at, next_run_at }`
+  - formatTimestamp handles both past (e.g., "2h ago") and future (e.g., "in 1h") timestamps
+  - parseSchedule helper converts cron-like strings to human-readable format
 ---
 
-## Wed 29 Jan 2026 - US-006
-- **What was implemented:** Document attachment button in chat input
-- **Files changed:**
-  - `components/AgentControlCenter/index.tsx` (modified)
-  - `components/AgentControlCenter/Message.tsx` (modified)
-  - `types/agents.ts` (modified)
-- **Details:**
-  - Added `selectedFile` state and `fileInputRef` for file handling
-  - Added paperclip (📎) icon button next to chat input (subtle gray, hover shows #e63946 accent)
-  - Hidden file input accepts: .pdf, .doc, .docx, .txt, .csv, .xlsx, .xls
-  - Selected file displayed as chip above input with name, size, and X remove button
-  - Modified `handleSend()` to include file info in messages sent to AI
-  - Updated `AgentMessage` interface with `attachment` field (name, size, type)
-  - Updated `Message` component to display attachment indicator in user messages
-  - Attachment shown with 📄 icon, filename, and size in styled container
+## 2026-01-29 - WAD-007
+- Implemented Meeting Intelligence Viewer component (FINAL STORY)
+- Files changed:
+  - `components/WorkspaceAgentV2/MeetingIntelligenceViewer.tsx` - New component with meeting analyses, sentiment indicators, action items, risk indicators, customer filter
+  - `components/AgentCenterView.tsx` - Added MeetingIntelligenceViewer import and replaced placeholder
 - **Learnings for future iterations:**
-  - File input needs `e.target.value = ''` reset to allow re-selecting same file
-  - Use inline styles for UI consistency with existing component patterns
-  - Message components receive props spread from parent map - add new props to both interface and component
-  - Build passes even with pre-existing TypeScript errors - focus on ensuring no new errors
+  - API endpoint is `/api/meeting-intelligence/analyses` returning `{ analyses: MeetingAnalysis[] }` or direct array
+  - Fetches customers from `/api/customers` in parallel for the filter dropdown
+  - Analysis structure: `{ id, title, date, duration_minutes, platform, customer_id, customer_name, summary, sentiment, key_points, action_items, risk_indicators, participants }`
+  - Sentiment options: positive, neutral, negative, mixed (each with emoji icons)
+  - Platform options: zoom, google_meet, teams, other (each with platform icons)
+  - Action item structure: `{ description, assignee, due_date, priority }`
+  - useMemo for filtered analyses prevents recalculation on every render
 ---
+
+## ALL STORIES COMPLETE ✅
+Dashboard features implemented:
+1. WAD-001: Tabbed dashboard layout ✅
+2. WAD-002: MCP Tools Browser ✅
+3. WAD-003: Triggers Dashboard ✅
+4. WAD-004: Playbooks Manager ✅
+5. WAD-005: Skills Library ✅
+6. WAD-006: Automations Panel ✅
+7. WAD-007: Meeting Intelligence Viewer ✅
+

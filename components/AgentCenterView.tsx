@@ -7,8 +7,13 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { AgentControlCenter } from './AgentControlCenter';
-import { WorkspaceAgent } from './WorkspaceAgent';
 import { ContractUpload } from './ContractUpload';
+import { MCPToolsBrowser } from './WorkspaceAgentV2/MCPToolsBrowser';
+import { TriggersDashboard } from './WorkspaceAgentV2/TriggersDashboard';
+import { PlaybooksManager } from './WorkspaceAgentV2/PlaybooksManager';
+import { SkillsLibrary } from './WorkspaceAgentV2/SkillsLibrary';
+import { AutomationsPanel } from './WorkspaceAgentV2/AutomationsPanel';
+import { MeetingIntelligenceViewer } from './WorkspaceAgentV2/MeetingIntelligenceViewer';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -51,7 +56,9 @@ export const AgentCenterView: React.FC = () => {
 
   // View mode
   const [showCustomerSelector, setShowCustomerSelector] = useState(true);
-  const [activeAgentTab, setActiveAgentTab] = useState<'chat' | 'workspace'>('chat');
+  const [activeAgentTab, setActiveAgentTab] = useState<
+    'chat' | 'tools' | 'triggers' | 'playbooks' | 'skills' | 'automations' | 'meetings'
+  >('chat');
 
   // New onboarding from contract upload
   const [showContractUpload, setShowContractUpload] = useState(false);
@@ -428,31 +435,32 @@ export const AgentCenterView: React.FC = () => {
       </div>
 
       {/* Agent Tabs */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setActiveAgentTab('chat')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-            activeAgentTab === 'chat'
-              ? 'bg-cscx-accent text-white'
-              : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
-          }`}
-        >
-          <span>💬</span> Agent Chat
-        </button>
-        <button
-          onClick={() => setActiveAgentTab('workspace')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-            activeAgentTab === 'workspace'
-              ? 'bg-cscx-accent text-white'
-              : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
-          }`}
-        >
-          <span>📧</span> Workspace Agent
-        </button>
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { id: 'chat' as const, label: 'Chat', icon: '💬' },
+          { id: 'tools' as const, label: 'Tools', icon: '🔧' },
+          { id: 'triggers' as const, label: 'Triggers', icon: '⚡' },
+          { id: 'playbooks' as const, label: 'Playbooks', icon: '📋' },
+          { id: 'skills' as const, label: 'Skills', icon: '🎯' },
+          { id: 'automations' as const, label: 'Automations', icon: '🤖' },
+          { id: 'meetings' as const, label: 'Meetings', icon: '📅' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveAgentTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+              activeAgentTab === tab.id
+                ? 'bg-cscx-accent text-white'
+                : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
+            }`}
+          >
+            <span>{tab.icon}</span> {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Tab Content */}
-      {activeAgentTab === 'chat' ? (
+      {activeAgentTab === 'chat' && (
         <div className="h-[calc(100vh-340px)] min-h-[500px]">
           <AgentControlCenter
             customer={buildCustomerContext(selectedCustomer)}
@@ -468,13 +476,29 @@ export const AgentCenterView: React.FC = () => {
             }
           />
         </div>
-      ) : (
-        <WorkspaceAgent
+      )}
+
+      {activeAgentTab === 'tools' && <MCPToolsBrowser />}
+
+      {activeAgentTab === 'triggers' && <TriggersDashboard />}
+
+      {activeAgentTab === 'playbooks' && (
+        <PlaybooksManager
           customerId={selectedCustomer?.id}
-          customerName={selectedCustomer?.name || 'General'}
-          stakeholderEmails={selectedCustomer?.primary_contact ? [selectedCustomer.primary_contact.email] : []}
+          customerName={selectedCustomer?.name}
         />
       )}
+
+      {activeAgentTab === 'skills' && (
+        <SkillsLibrary
+          customerId={selectedCustomer?.id}
+          customerName={selectedCustomer?.name}
+        />
+      )}
+
+      {activeAgentTab === 'automations' && <AutomationsPanel />}
+
+      {activeAgentTab === 'meetings' && <MeetingIntelligenceViewer />}
     </div>
   );
 };
