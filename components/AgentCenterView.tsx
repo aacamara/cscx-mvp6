@@ -12,6 +12,7 @@ import { MCPToolsBrowser } from './WorkspaceAgentV2/MCPToolsBrowser';
 import { TriggersDashboard } from './WorkspaceAgentV2/TriggersDashboard';
 import { PlaybooksManager } from './WorkspaceAgentV2/PlaybooksManager';
 import { SkillsLibrary } from './WorkspaceAgentV2/SkillsLibrary';
+import { AutomationsPanel } from './WorkspaceAgentV2/AutomationsPanel';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -494,20 +495,7 @@ export const AgentCenterView: React.FC = () => {
         />
       )}
 
-      {activeAgentTab === 'automations' && (
-        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
-          <div className="text-center py-12">
-            <div className="text-4xl mb-4">🤖</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Automations Panel</h3>
-            <p className="text-cscx-gray-400 max-w-md mx-auto">
-              Create automations using natural language. Manage schedules and view run history.
-            </p>
-            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
-              <span className="text-cscx-gray-500 text-sm">Coming in WAD-006</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeAgentTab === 'automations' && <AutomationsPanel />}
 
       {activeAgentTab === 'meetings' && (
         <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">

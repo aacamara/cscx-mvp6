@@ -84,7 +84,7 @@
         "Text input to create new automation via natural language"
       ],
       "priority": 6,
-      "passes": false
+      "passes": true
     },
     {
       "id": "WAD-007",

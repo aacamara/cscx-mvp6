@@ -75,3 +75,17 @@
   - Grid layout (md:grid-cols-2) works well for skill cards
 ---
 
+## 2026-01-29 - WAD-006
+- Implemented Automations Panel component
+- Files changed:
+  - `components/WorkspaceAgentV2/AutomationsPanel.tsx` - New component with automations fetching, enable/disable toggle, natural language creation
+  - `components/AgentCenterView.tsx` - Added AutomationsPanel import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/automations` returning `{ automations: Automation[] }` or direct array
+  - POST to `/api/automations` with `{ natural_language }` body to create
+  - PATCH to `/api/automations/:id` with `{ enabled }` body to toggle
+  - Automation structure: `{ id, name, description, natural_language, schedule, enabled, run_count, last_run_at, next_run_at }`
+  - formatTimestamp handles both past (e.g., "2h ago") and future (e.g., "in 1h") timestamps
+  - parseSchedule helper converts cron-like strings to human-readable format
+---
+
