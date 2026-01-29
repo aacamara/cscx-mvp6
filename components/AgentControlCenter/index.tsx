@@ -1424,7 +1424,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               );
             })}
           </div>
-          {activeAgent && (
+          {activeAgent && CS_AGENTS[activeAgent] && (
             <p style={{ fontSize: '9px', color: '#777', marginTop: '5px', lineHeight: '1.3' }}>
               {CS_AGENTS[activeAgent].description}
             </p>
