@@ -1248,20 +1248,20 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
         </div>
 
         {/* Agent Selector */}
-        <div className="agent-selector" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
+        <div className="agent-selector" style={{ padding: '10px', borderBottom: '1px solid #1a1a1a' }}>
           <p className="section-label">Agent Routing</p>
           <select
             value={selectedAgent}
             onChange={(e) => setSelectedAgent(e.target.value as CSAgentType | 'auto')}
             style={{
               width: '100%',
-              padding: '8px',
+              padding: '6px 8px',
               background: '#1a1a1a',
               border: '1px solid #333',
               borderRadius: '6px',
               color: '#fff',
-              fontSize: '13px',
-              marginTop: '8px',
+              fontSize: '12px',
+              marginTop: '6px',
             }}
           >
             <option value="auto">Auto-route (Recommended)</option>
@@ -1272,28 +1272,28 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             <option value="strategic">Strategic CSM</option>
           </select>
           {lastRouting && (
-            <p style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
+            <p style={{ fontSize: '9px', color: '#888', marginTop: '4px' }}>
               Last: {lastRouting.agentType} ({Math.round(lastRouting.confidence * 100)}% conf)
             </p>
           )}
         </div>
 
         {/* Compact AI Settings */}
-        <div className="ai-settings-compact" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
-          <p className="section-label" style={{ marginBottom: '8px' }}>AI Settings</p>
+        <div className="ai-settings-compact" style={{ padding: '10px', borderBottom: '1px solid #1a1a1a' }}>
+          <p className="section-label" style={{ marginBottom: '6px' }}>AI Settings</p>
 
           {/* Model Toggle - Two buttons */}
-          <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '8px' }}>
             <button
               onClick={() => setSelectedModel('claude')}
               style={{
                 flex: 1,
-                padding: '6px 8px',
+                padding: '5px 6px',
                 background: selectedModel === 'claude' ? '#e63946' : '#1a1a1a',
                 border: `1px solid ${selectedModel === 'claude' ? '#e63946' : '#333'}`,
                 borderRadius: '4px',
                 color: selectedModel === 'claude' ? '#fff' : '#999',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: selectedModel === 'claude' ? 600 : 400,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
@@ -1305,12 +1305,12 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               onClick={() => setSelectedModel('gemini')}
               style={{
                 flex: 1,
-                padding: '6px 8px',
+                padding: '5px 6px',
                 background: selectedModel === 'gemini' ? '#e63946' : '#1a1a1a',
                 border: `1px solid ${selectedModel === 'gemini' ? '#e63946' : '#333'}`,
                 borderRadius: '4px',
                 color: selectedModel === 'gemini' ? '#fff' : '#999',
-                fontSize: '11px',
+                fontSize: '10px',
                 fontWeight: selectedModel === 'gemini' ? 600 : 400,
                 cursor: 'pointer',
                 transition: 'all 0.2s',
@@ -1321,16 +1321,16 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           </div>
 
           {/* Compact Toggles Row */}
-          <div style={{ display: 'flex', gap: '12px' }}>
+          <div style={{ display: 'flex', gap: '10px' }}>
             {/* Knowledge Base Toggle */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flex: 1 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', flex: 1 }}>
               <div
                 onClick={() => setUseKnowledgeBase(!useKnowledgeBase)}
                 style={{
-                  width: '32px',
-                  height: '18px',
+                  width: '28px',
+                  height: '16px',
                   background: useKnowledgeBase ? '#e63946' : '#333',
-                  borderRadius: '9px',
+                  borderRadius: '8px',
                   position: 'relative',
                   transition: 'background 0.2s',
                   cursor: 'pointer',
@@ -1339,29 +1339,29 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               >
                 <div
                   style={{
-                    width: '14px',
-                    height: '14px',
+                    width: '12px',
+                    height: '12px',
                     background: '#fff',
                     borderRadius: '50%',
                     position: 'absolute',
                     top: '2px',
-                    left: useKnowledgeBase ? '16px' : '2px',
+                    left: useKnowledgeBase ? '14px' : '2px',
                     transition: 'left 0.2s',
                   }}
                 />
               </div>
-              <span style={{ fontSize: '11px', color: useKnowledgeBase ? '#fff' : '#666' }}>KB</span>
+              <span style={{ fontSize: '10px', color: useKnowledgeBase ? '#fff' : '#666' }}>KB</span>
             </label>
 
             {/* AI Enhancement Toggle */}
-            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flex: 1 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', flex: 1 }}>
               <div
                 onClick={() => setUseAIEnhancement(!useAIEnhancement)}
                 style={{
-                  width: '32px',
-                  height: '18px',
+                  width: '28px',
+                  height: '16px',
                   background: useAIEnhancement ? '#e63946' : '#333',
-                  borderRadius: '9px',
+                  borderRadius: '8px',
                   position: 'relative',
                   transition: 'background 0.2s',
                   cursor: 'pointer',
@@ -1370,30 +1370,30 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               >
                 <div
                   style={{
-                    width: '14px',
-                    height: '14px',
+                    width: '12px',
+                    height: '12px',
                     background: '#fff',
                     borderRadius: '50%',
                     position: 'absolute',
                     top: '2px',
-                    left: useAIEnhancement ? '16px' : '2px',
+                    left: useAIEnhancement ? '14px' : '2px',
                     transition: 'left 0.2s',
                   }}
                 />
               </div>
-              <span style={{ fontSize: '11px', color: useAIEnhancement ? '#fff' : '#666' }}>AI+</span>
+              <span style={{ fontSize: '10px', color: useAIEnhancement ? '#fff' : '#666' }}>AI+</span>
             </label>
           </div>
         </div>
 
         {/* Compact Agent Selector Pills */}
-        <div className="agent-pills-container" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
+        <div className="agent-pills-container" style={{ padding: '10px', borderBottom: '1px solid #1a1a1a' }}>
           <p className="section-label">CS Specialist Agents</p>
           <div className="agent-pills" style={{
             display: 'flex',
             flexWrap: 'wrap',
-            gap: '6px',
-            marginTop: '8px',
+            gap: '5px',
+            marginTop: '6px',
           }}>
             {(Object.keys(CS_AGENTS) as CSAgentType[]).map((agentKey) => {
               const agent = CS_AGENTS[agentKey];
@@ -1406,26 +1406,26 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '4px',
-                    padding: '6px 10px',
+                    gap: '3px',
+                    padding: '5px 8px',
                     background: isActive ? '#e63946' : '#1a1a1a',
                     border: `1px solid ${isActive ? '#e63946' : '#333'}`,
-                    borderRadius: '16px',
+                    borderRadius: '14px',
                     color: isActive ? '#fff' : '#999',
-                    fontSize: '12px',
+                    fontSize: '11px',
                     fontWeight: isActive ? 600 : 400,
                     cursor: 'pointer',
                     transition: 'all 0.2s',
                   }}
                 >
-                  <span>{agent.icon}</span>
+                  <span style={{ fontSize: '10px' }}>{agent.icon}</span>
                   <span>{agentKey.charAt(0).toUpperCase() + agentKey.slice(1)}</span>
                 </button>
               );
             })}
           </div>
           {activeAgent && (
-            <p style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
+            <p style={{ fontSize: '9px', color: '#777', marginTop: '5px', lineHeight: '1.3' }}>
               {CS_AGENTS[activeAgent].description}
             </p>
           )}
@@ -1439,7 +1439,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             {customer ? `$${typeof customer.arr === 'number' ? (customer.arr / 1000).toFixed(0) + 'K' : customer.arr} ARR` : 'Select a customer to begin'}
           </p>
           {contractData && (
-            <p className="customer-details" style={{ marginTop: '4px', fontSize: '11px' }}>
+            <p className="customer-details" style={{ marginTop: '2px', fontSize: '10px' }}>
               {contractData.entitlements?.length || 0} entitlements • {contractData.stakeholders?.length || 0} stakeholders
             </p>
           )}
@@ -1447,12 +1447,12 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
 
         {/* Plan Progress */}
         {plan && (
-          <div className="customer-context" style={{ marginTop: '8px', borderTop: '1px solid #1a1a1a', paddingTop: '12px' }}>
+          <div className="customer-context" style={{ marginTop: '0', borderTop: 'none', paddingTop: '0' }}>
             <p className="section-label">Onboarding Plan</p>
-            <p className="customer-details">
+            <p className="customer-details" style={{ fontSize: '10px' }}>
               {plan.timeline_days} days • {plan.phases?.length || 3} phases
             </p>
-            <div style={{ marginTop: '8px', background: '#1a1a1a', borderRadius: '4px', height: '4px', overflow: 'hidden' }}>
+            <div style={{ marginTop: '6px', background: '#1a1a1a', borderRadius: '3px', height: '3px', overflow: 'hidden' }}>
               <div style={{
                 width: planProgress.total > 0 ? `${(planProgress.completed / planProgress.total) * 100}%` : '0%',
                 height: '100%',
@@ -1460,7 +1460,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                 transition: 'width 0.3s'
               }} />
             </div>
-            <p className="customer-details" style={{ marginTop: '4px', fontSize: '10px' }}>
+            <p className="customer-details" style={{ marginTop: '3px', fontSize: '9px' }}>
               {planProgress.completed}/{planProgress.total} milestones
             </p>
           </div>
