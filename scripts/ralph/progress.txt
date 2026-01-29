@@ -61,3 +61,17 @@
   - Stage timeline uses dynamic width based on duration_days for visual representation
 ---
 
+## 2026-01-29 - WAD-005
+- Implemented Skills Library component
+- Files changed:
+  - `components/WorkspaceAgentV2/SkillsLibrary.tsx` - New component with skills fetching, variable inputs, execute functionality
+  - `components/AgentCenterView.tsx` - Added SkillsLibrary import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/skills` returning `{ skills: Skill[] }` or direct array
+  - POST to `/api/skills/:id/execute` with `{ customer_id, variables }` body
+  - Skill structure: `{ id, name, description, icon, category, variables, estimated_duration_seconds, cost_savings_percent }`
+  - Variable structure: `{ name, type, description, required, default }`
+  - Types for variables: string, number, boolean, email, date
+  - Grid layout (md:grid-cols-2) works well for skill cards
+---
+

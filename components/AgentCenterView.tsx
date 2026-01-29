@@ -11,6 +11,7 @@ import { ContractUpload } from './ContractUpload';
 import { MCPToolsBrowser } from './WorkspaceAgentV2/MCPToolsBrowser';
 import { TriggersDashboard } from './WorkspaceAgentV2/TriggersDashboard';
 import { PlaybooksManager } from './WorkspaceAgentV2/PlaybooksManager';
+import { SkillsLibrary } from './WorkspaceAgentV2/SkillsLibrary';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -487,18 +488,10 @@ export const AgentCenterView: React.FC = () => {
       )}
 
       {activeAgentTab === 'skills' && (
-        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
-          <div className="text-center py-12">
-            <div className="text-4xl mb-4">🎯</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Skills Library</h3>
-            <p className="text-cscx-gray-400 max-w-md mx-auto">
-              Execute pre-built skills with custom inputs. Track cost savings and time estimates.
-            </p>
-            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
-              <span className="text-cscx-gray-500 text-sm">Coming in WAD-005</span>
-            </div>
-          </div>
-        </div>
+        <SkillsLibrary
+          customerId={selectedCustomer?.id}
+          customerName={selectedCustomer?.name}
+        />
       )}
 
       {activeAgentTab === 'automations' && (

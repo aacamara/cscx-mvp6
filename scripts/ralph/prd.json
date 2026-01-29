@@ -70,7 +70,7 @@
         "Execute button triggers skill (with customer context if available)"
       ],
       "priority": 5,
-      "passes": false
+      "passes": true
     },
     {
       "id": "WAD-006",
