@@ -37,6 +37,12 @@ import schedulesRoutes from './routes/schedules.js';
 import skillsRoutes from './routes/skills.js';
 import { tracesRoutes } from './routes/traces.js';
 import { agentMetricsRoutes } from './routes/agent-metrics.js';
+import { triggersRoutes } from './routes/triggers.js';
+import mcpRoutes from './routes/mcp.js';
+import slackRoutes from './routes/slack.js';
+import zoomRoutes from './routes/zoom.js';
+import meetingIntelligenceRoutes from './routes/meeting-intelligence.js';
+import automationsRoutes from './routes/automations.js';
 import { config } from './config/index.js';
 import { schedulerService } from './services/scheduler.js';
 import { agentMemoryService } from './services/agentMemory.js';
@@ -235,6 +241,12 @@ app.use('/api/schedules', schedulesRoutes); // Scheduled agent runs (cron-based)
 app.use('/api/skills', skillsRoutes); // Skills layer - reusable multi-step workflows
 app.use('/api/traces', tracesRoutes); // Agent trace visualization and replay
 app.use('/api/agent-metrics', agentMetricsRoutes); // Agent performance metrics dashboard
+app.use('/api/triggers', triggersRoutes); // Event-driven automation triggers
+app.use('/api/mcp', mcpRoutes); // MCP tool router and execution
+app.use('/api/slack', slackRoutes); // Slack integration and messaging
+app.use('/api/zoom', zoomRoutes); // Zoom integration and meetings
+app.use('/api/meeting-intelligence', meetingIntelligenceRoutes); // AI-powered meeting analysis
+app.use('/api/automations', automationsRoutes); // NL-driven automation builder
 
 // Error handler
 app.use(errorHandler);
