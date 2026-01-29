@@ -99,7 +99,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "CustomerDetail.tsx should exist. May need to add API call for contracts."
     }
   ]

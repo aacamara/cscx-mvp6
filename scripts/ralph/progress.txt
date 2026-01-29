@@ -4,6 +4,7 @@
 - Supabase client in server/src/services/supabase.ts
 - Customer routes at server/src/routes/customers.ts
 - Contract routes at server/src/routes/contracts.ts - POST /api/contracts for creating with customer_id
+- GET /api/contracts returns camelCase keys (fileName, fileUrl, parsedData) - query param is customerId (camelCase)
 - Google auth routes at server/src/routes/google/auth.ts
 - OnboardingContext manages workflow state
 - Toast notifications use inline state pattern (useState with setTimeout for auto-dismiss)
@@ -12,6 +13,7 @@
 - ContractInput from uploads has fileName and mimeType but not file size - estimate from base64 content length * 0.75
 - Supabase Storage: use db.uploadFile(bucket, path, buffer, contentType) to upload files
 - optionalAuthMiddleware sets req.userId from JWT token or dev fallback
+- parsedData.stakeholders contains extracted stakeholder info from contract AI parsing
 
 ---
 
@@ -128,5 +130,32 @@ Initialized: Ready to complete the onboarding flow
   - Just needed auth headers for RLS to work correctly
   - Always include getAuthHeaders in useCallback dependencies when used
   - Pre-existing TypeScript errors don't affect build (Vite is lenient)
+
+---
+
+## 2026-01-28 - US-006
+- What was implemented: Show contract data in customer detail
+- Files changed:
+  - components/CustomerDetail.tsx - Added contracts fetching, updated tabs
+- Changes:
+  - Added Contract interface for typed contract data
+  - Added fetchContracts() to fetch from GET /api/contracts?customerId={id}
+  - Added contracts and contractsLoading state
+  - Updated tab type from 'contacts' to 'stakeholders'
+  - Added helper functions: formatFileSize(), getContractStatusBadge(), getAllStakeholders()
+  - Replaced mock contracts tab with real fetched contract data
+  - Show file icon based on type (PDF vs other)
+  - Display file info: name, size, upload date, status badge
+  - Added Download button linking to fileUrl when available
+  - Show extracted ARR, period, company name from contracts
+  - Stakeholders tab shows primary contact and extracted stakeholders from parsed_data
+  - Added source attribution showing which contract stakeholder came from
+  - Proper loading and empty states for both tabs
+- **Learnings for future iterations:**
+  - GET /api/contracts returns transformed data with camelCase keys: fileName, fileType, fileSize, fileUrl, companyName, parsedData, createdAt
+  - Contracts API uses customerId (camelCase) as query param, not customer_id
+  - parsedData.stakeholders contains extracted stakeholder info from contract parsing
+  - CustomerDetail already had tab structure - just needed to update content and add fetch
+  - Pre-existing TypeScript errors still present but no new errors introduced
 
 ---
