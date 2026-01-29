@@ -292,6 +292,95 @@ router.get('/user/:userId/sessions', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/chat/history
+ *
+ * Get chat history with search and filtering.
+ * Supports both general mode (all user's messages) and customer-specific mode.
+ *
+ * Query params:
+ * - customerId: Optional UUID - filter to specific customer's messages
+ * - search: Optional string - case-insensitive text search on content
+ * - limit: Optional number - max results (default 50)
+ * - offset: Optional number - pagination offset (default 0)
+ *
+ * Returns messages ordered by created_at DESC (newest first).
+ * User can only access their own messages (enforced via x-user-id header).
+ */
+router.get('/history', async (req: Request, res: Response) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: 'User ID header (x-user-id) is required to access chat history',
+      });
+    }
+
+    if (!supabase) {
+      return res.json({
+        messages: [],
+        total: 0,
+        persisted: false,
+      });
+    }
+
+    const {
+      customerId,
+      search,
+      limit = '50',
+      offset = '0',
+    } = req.query;
+
+    // Start building the query - filter by user_id for security
+    let query = supabase
+      .from('chat_messages')
+      .select('id, customer_id, user_id, role, content, agent_type, session_id, created_at', { count: 'exact' })
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false });
+
+    // Filter by customer if provided
+    if (customerId && typeof customerId === 'string') {
+      query = query.eq('customer_id', customerId);
+    }
+
+    // Apply text search if provided (case-insensitive)
+    if (search && typeof search === 'string' && search.trim()) {
+      query = query.ilike('content', `%${search.trim()}%`);
+    }
+
+    // Apply pagination
+    const limitNum = Math.min(parseInt(limit as string, 10) || 50, 100);
+    const offsetNum = parseInt(offset as string, 10) || 0;
+    query = query.range(offsetNum, offsetNum + limitNum - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      console.error('Failed to fetch chat history:', error);
+      return res.status(500).json({
+        error: 'Database error',
+        message: error.message,
+      });
+    }
+
+    res.json({
+      messages: data || [],
+      total: count || 0,
+      limit: limitNum,
+      offset: offsetNum,
+      persisted: true,
+    });
+  } catch (error) {
+    console.error('Chat history fetch error:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: (error as Error).message,
+    });
+  }
+});
+
+/**
  * DELETE /api/chat/session/:sessionId
  *
  * Delete all messages in a session.
