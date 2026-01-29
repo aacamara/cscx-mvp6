@@ -4,7 +4,6 @@ import { ContractExtraction, OnboardingPlan } from '../../types';
 import { AgentCard, AGENT_ACTIONS } from './AgentCard';
 import { Message } from './Message';
 import { QuickActions } from './QuickActions';
-import { GoogleConnectionWidget } from '../GoogleConnectionWidget';
 import { MeetingScheduler, EmailComposer, DocumentActions } from './InteractiveActions';
 import { WorkflowProgress, WorkflowExecution } from './WorkflowProgress';
 import { OnboardingFlow, OnboardingResult } from '../AgentStudio/OnboardingFlow';
@@ -89,7 +88,6 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [workspaceData, setWorkspaceData] = useState<WorkspaceData>({});
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(true);
   const [initialized, setInitialized] = useState(false);
-  const [googleConnected, setGoogleConnected] = useState(false);
   const [activeInteractiveAction, setActiveInteractiveAction] = useState<InteractiveActionType>(null);
   const [activeWorkflow, setActiveWorkflow] = useState<WorkflowExecution | null>(null);
   const [workflowPolling, setWorkflowPolling] = useState<NodeJS.Timeout | null>(null);
@@ -1471,15 +1469,6 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           </div>
         )}
 
-
-        {/* Google Connection */}
-        <div style={{ padding: '12px', borderTop: '1px solid #1a1a1a' }}>
-          <GoogleConnectionWidget
-            userId={DEMO_USER_ID}
-            compact={false}
-            onStatusChange={setGoogleConnected}
-          />
-        </div>
       </div>
 
       {/* Main Chat Area */}
