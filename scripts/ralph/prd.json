@@ -42,7 +42,7 @@
         "Empty state with helpful message when no triggers exist"
       ],
       "priority": 3,
-      "passes": false
+      "passes": true
     },
     {
       "id": "WAD-004",

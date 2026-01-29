@@ -34,3 +34,16 @@
   - Use `useMemo` for filtered/grouped data to avoid recalculation on every render
 ---
 
+## 2026-01-29 - WAD-003
+- Implemented Triggers Dashboard component
+- Files changed:
+  - `components/WorkspaceAgentV2/TriggersDashboard.tsx` - New component with triggers fetching, enable/disable toggle, stats display, empty state
+  - `components/AgentCenterView.tsx` - Added TriggersDashboard import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/triggers` returning `{ triggers: Trigger[] }` or direct array
+  - PATCH to `/api/triggers/:id` with `{ enabled }` body to toggle
+  - Trigger structure: `{ id, name, description, type, conditions, actions, enabled, fire_count, last_fired_at }`
+  - Types: email, calendar, health_score, renewal, custom
+  - formatLastFired helper converts timestamps to relative time (e.g., "2h ago")
+---
+

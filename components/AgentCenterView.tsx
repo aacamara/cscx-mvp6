@@ -9,6 +9,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { AgentControlCenter } from './AgentControlCenter';
 import { ContractUpload } from './ContractUpload';
 import { MCPToolsBrowser } from './WorkspaceAgentV2/MCPToolsBrowser';
+import { TriggersDashboard } from './WorkspaceAgentV2/TriggersDashboard';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -475,20 +476,7 @@ export const AgentCenterView: React.FC = () => {
 
       {activeAgentTab === 'tools' && <MCPToolsBrowser />}
 
-      {activeAgentTab === 'triggers' && (
-        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
-          <div className="text-center py-12">
-            <div className="text-4xl mb-4">⚡</div>
-            <h3 className="text-xl font-semibold text-white mb-2">Triggers Dashboard</h3>
-            <p className="text-cscx-gray-400 max-w-md mx-auto">
-              Create and manage event-driven triggers that automatically execute actions based on conditions.
-            </p>
-            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
-              <span className="text-cscx-gray-500 text-sm">Coming in WAD-003</span>
-            </div>
-          </div>
-        </div>
-      )}
+      {activeAgentTab === 'triggers' && <TriggersDashboard />}
 
       {activeAgentTab === 'playbooks' && (
         <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
