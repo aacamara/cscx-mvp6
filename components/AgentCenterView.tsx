@@ -7,7 +7,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { AgentControlCenter } from './AgentControlCenter';
-import { WorkspaceAgent } from './WorkspaceAgent';
 import { ContractUpload } from './ContractUpload';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
@@ -51,7 +50,9 @@ export const AgentCenterView: React.FC = () => {
 
   // View mode
   const [showCustomerSelector, setShowCustomerSelector] = useState(true);
-  const [activeAgentTab, setActiveAgentTab] = useState<'chat' | 'workspace'>('chat');
+  const [activeAgentTab, setActiveAgentTab] = useState<
+    'chat' | 'tools' | 'triggers' | 'playbooks' | 'skills' | 'automations' | 'meetings'
+  >('chat');
 
   // New onboarding from contract upload
   const [showContractUpload, setShowContractUpload] = useState(false);
@@ -428,31 +429,32 @@ export const AgentCenterView: React.FC = () => {
       </div>
 
       {/* Agent Tabs */}
-      <div className="flex gap-2">
-        <button
-          onClick={() => setActiveAgentTab('chat')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-            activeAgentTab === 'chat'
-              ? 'bg-cscx-accent text-white'
-              : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
-          }`}
-        >
-          <span>💬</span> Agent Chat
-        </button>
-        <button
-          onClick={() => setActiveAgentTab('workspace')}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-            activeAgentTab === 'workspace'
-              ? 'bg-cscx-accent text-white'
-              : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
-          }`}
-        >
-          <span>📧</span> Workspace Agent
-        </button>
+      <div className="flex gap-2 flex-wrap">
+        {[
+          { id: 'chat' as const, label: 'Chat', icon: '💬' },
+          { id: 'tools' as const, label: 'Tools', icon: '🔧' },
+          { id: 'triggers' as const, label: 'Triggers', icon: '⚡' },
+          { id: 'playbooks' as const, label: 'Playbooks', icon: '📋' },
+          { id: 'skills' as const, label: 'Skills', icon: '🎯' },
+          { id: 'automations' as const, label: 'Automations', icon: '🤖' },
+          { id: 'meetings' as const, label: 'Meetings', icon: '📅' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveAgentTab(tab.id)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
+              activeAgentTab === tab.id
+                ? 'bg-cscx-accent text-white'
+                : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
+            }`}
+          >
+            <span>{tab.icon}</span> {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* Tab Content */}
-      {activeAgentTab === 'chat' ? (
+      {activeAgentTab === 'chat' && (
         <div className="h-[calc(100vh-340px)] min-h-[500px]">
           <AgentControlCenter
             customer={buildCustomerContext(selectedCustomer)}
@@ -468,12 +470,96 @@ export const AgentCenterView: React.FC = () => {
             }
           />
         </div>
-      ) : (
-        <WorkspaceAgent
-          customerId={selectedCustomer?.id}
-          customerName={selectedCustomer?.name || 'General'}
-          stakeholderEmails={selectedCustomer?.primary_contact ? [selectedCustomer.primary_contact.email] : []}
-        />
+      )}
+
+      {activeAgentTab === 'tools' && (
+        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">🔧</div>
+            <h3 className="text-xl font-semibold text-white mb-2">MCP Tools Browser</h3>
+            <p className="text-cscx-gray-400 max-w-md mx-auto">
+              Browse and search 47 MCP tools across Gmail, Calendar, Drive, Slack, and Zoom integrations.
+            </p>
+            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
+              <span className="text-cscx-gray-500 text-sm">Coming in WAD-002</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAgentTab === 'triggers' && (
+        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">⚡</div>
+            <h3 className="text-xl font-semibold text-white mb-2">Triggers Dashboard</h3>
+            <p className="text-cscx-gray-400 max-w-md mx-auto">
+              Create and manage event-driven triggers that automatically execute actions based on conditions.
+            </p>
+            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
+              <span className="text-cscx-gray-500 text-sm">Coming in WAD-003</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAgentTab === 'playbooks' && (
+        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">📋</div>
+            <h3 className="text-xl font-semibold text-white mb-2">Playbooks Manager</h3>
+            <p className="text-cscx-gray-400 max-w-md mx-auto">
+              Browse playbook templates with stage visualizations. Start playbook executions for customers.
+            </p>
+            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
+              <span className="text-cscx-gray-500 text-sm">Coming in WAD-004</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAgentTab === 'skills' && (
+        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">🎯</div>
+            <h3 className="text-xl font-semibold text-white mb-2">Skills Library</h3>
+            <p className="text-cscx-gray-400 max-w-md mx-auto">
+              Execute pre-built skills with custom inputs. Track cost savings and time estimates.
+            </p>
+            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
+              <span className="text-cscx-gray-500 text-sm">Coming in WAD-005</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAgentTab === 'automations' && (
+        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">🤖</div>
+            <h3 className="text-xl font-semibold text-white mb-2">Automations Panel</h3>
+            <p className="text-cscx-gray-400 max-w-md mx-auto">
+              Create automations using natural language. Manage schedules and view run history.
+            </p>
+            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
+              <span className="text-cscx-gray-500 text-sm">Coming in WAD-006</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeAgentTab === 'meetings' && (
+        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-8">
+          <div className="text-center py-12">
+            <div className="text-4xl mb-4">📅</div>
+            <h3 className="text-xl font-semibold text-white mb-2">Meeting Intelligence</h3>
+            <p className="text-cscx-gray-400 max-w-md mx-auto">
+              View meeting analyses with summaries, sentiment, action items, and risk indicators.
+            </p>
+            <div className="mt-6 px-4 py-2 bg-cscx-gray-800 rounded-lg inline-block">
+              <span className="text-cscx-gray-500 text-sm">Coming in WAD-007</span>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
