@@ -112,3 +112,21 @@ Initialized: Ready to complete the onboarding flow
   - Pre-existing TypeScript errors still present, build still succeeds (Vite more lenient)
 
 ---
+
+## 2026-01-28 - US-005
+- What was implemented: Display saved customers in CustomerList with auth headers
+- Files changed:
+  - components/CustomerList.tsx - Added auth headers to fetch, updated empty state
+- Changes:
+  - Imported useAuth hook from AuthContext
+  - Added getAuthHeaders() to component
+  - Added headers parameter to fetch call for RLS filtering
+  - Updated useCallback dependencies to include getAuthHeaders
+  - Updated empty state message: "No customers yet. Start by onboarding a new customer."
+- **Learnings for future iterations:**
+  - CustomerList already had good structure (loading, error, empty states, sorting, filtering)
+  - Just needed auth headers for RLS to work correctly
+  - Always include getAuthHeaders in useCallback dependencies when used
+  - Pre-existing TypeScript errors don't affect build (Vite is lenient)
+
+---

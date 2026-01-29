@@ -83,7 +83,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "CustomerList.tsx likely exists. Check if it's fetching from API or using mock data."
     },
     {
