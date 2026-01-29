@@ -1,131 +1,47 @@
 # Ralph Progress Log
-Started: Wed 28 Jan 2026 23:14:39 EST
+Started: Thu 29 Jan 2026 00:03:28 EST
+---
 
 ## Codebase Patterns
-- Agent pill selectors use #e63946 accent for active state
-- CS_AGENTS object in types/agents.ts defines all specialist agents with icon/name/color
-- Sidebar sections use consistent styling: padding: '10px', borderBottom: '1px solid #1a1a1a'
-- Compact toggle switches: 28x16px with 12px knob for tight layouts
-- Two-button toggles preferred over dropdowns for binary choices (e.g., Claude/Gemini)
-- Section labels: 9px font, 500 weight, #555 color, uppercase with 0.06em letter-spacing
+- Migrations are in `database/migrations/` with sequential numbering (001, 002, etc.)
+- Use `IF NOT EXISTS` and `IF EXISTS` for idempotent migrations
+- RLS policies follow pattern: `{table}_{role}_{action}_policy` (e.g., `chat_messages_user_select_policy`)
+- For FK to Supabase auth users, reference `auth.users(id)` not `public.users(id)`
+- Use DO $$ blocks for dynamic SQL in migrations (e.g., finding and dropping constraints)
+- Pre-existing TypeScript errors exist in server/ - don't let these block unrelated work
 
 ---
 
-## 2026-01-28 23:16 - US-001: Collapse CS Specialist Agents into compact selector
-- **What was implemented:** Replaced 5 large AgentCard components with compact horizontal pill/chip buttons
+## Wed 29 Jan 2026 - US-002
+- **What was implemented:** Updated /chat-message endpoint with proper error handling and documentation
 - **Files changed:**
-  - `components/AgentControlCenter/index.tsx` (lines ~1394-1407 → new pill selector)
-- **Visual change:** From ~350px agent cards to ~60px pill row
-- **Functionality preserved:** Clicking pills still selects agents via handleAgentClick()
+  - `server/src/routes/agentActivities.ts` (modified)
+- **Details:**
+  - Added JSDoc documentation explaining the schema (user_id stores auth.uid() directly, no FK)
+  - Made customer_id explicitly optional (null for general mode chat)
+  - Added descriptive error messages for all error cases (401, 400, 503, 500)
+  - Added role validation (must be 'user', 'assistant', or 'system')
+  - Added explicit null handling for optional fields (customer_id, agent_type, tool_calls, session_id)
+  - Separated database errors from internal server errors for better debugging
 - **Learnings for future iterations:**
-  - The AgentCard component is still imported but no longer used in the main sidebar - could be cleaned up if not used elsewhere
-  - Active state uses #e63946 background with white text
-  - Agent description shown below pills when an agent is selected
-
+  - Error responses should include both `error` (short code) and `message` (descriptive explanation)
+  - Document schema assumptions in JSDoc comments, especially when they differ from typical patterns
+  - agentActivities.ts has no TypeScript errors despite server-wide build failures
 ---
 
-## 2026-01-28 23:30 - US-002: Remove System Status section
-- **What was implemented:** Removed the verbose System Status section from the sidebar
+## Wed 29 Jan 2026 - US-001
+- **What was implemented:** Migration to fix chat_messages user_id FK constraint
 - **Files changed:**
-  - `components/AgentControlCenter/index.tsx` (lines ~1474-1496 removed)
-- **What was removed:**
-  - AI Backend connection status indicator
-  - Agentic Mode status indicator
-  - WebSocket connection status indicator
-  - Contract data loaded indicator
-  - Google Workspace connection status
-- **Functionality preserved:**
-  - All underlying state variables (`wsConnected`, `agenticModeEnabled`, `googleConnected`, etc.) remain intact
-  - Agentic Mode indicator still shows in header when active (line ~1517)
-  - Google connection widget still in sidebar for taking actions
+  - `database/migrations/021_fix_chat_messages_userid.sql` (new)
+- **Details:**
+  - Drop FK constraint on user_id that referenced public.users(id)
+  - user_id now stores auth.uid() directly without FK
+  - Enabled RLS on chat_messages table
+  - Added user policies (select, insert, update, delete) checking user_id = auth.uid()
+  - Added admin policies for full access
+  - Migration is idempotent (uses IF EXISTS/IF NOT EXISTS, DO blocks)
 - **Learnings for future iterations:**
-  - Status information was redundant - users can tell if things work by using the chat
-  - Critical status indicators should be shown inline where relevant, not in a dedicated section
-  - The header already has an "Agentic Mode" badge when enabled
-
----
-
-## 2026-01-28 23:45 - US-003: Remove standalone Google Workspace widget from sidebar
-- **What was implemented:** Removed the Google Connection Widget from the sidebar
-- **Files changed:**
-  - `components/AgentControlCenter/index.tsx` (lines ~1474-1482 removed)
-- **What was removed:**
-  - GoogleConnectionWidget component and its container div
-  - Import statement for GoogleConnectionWidget
-  - Unused `googleConnected` state variable
-- **Functionality preserved:**
-  - Google Workspace connection is still accessible via Settings gear icon (App.tsx line 380)
-  - GoogleConnect component in Settings modal handles all connection functionality
-- **Learnings for future iterations:**
-  - When removing duplicate UI, always check App.tsx for Settings modal alternatives
-  - Clean up unused imports and state variables when removing components
-
----
-
-## 2026-01-29 00:15 - US-004: Compact the AI Model and Knowledge Base toggles
-- **What was implemented:** Combined 3 separate sections (AI Model, Knowledge Base, AI Enhancement) into a single compact "AI Settings" section
-- **Files changed:**
-  - `components/AgentControlCenter/index.tsx` (lines ~1282-1390 → new compact layout)
-- **Visual change:** From ~110 lines across 3 sections to ~85 lines in 1 section, ~50%+ height reduction
-- **New layout:**
-  - Two-button toggle for Claude/Gemini (more compact than dropdown)
-  - Horizontal row with KB and AI+ compact switches
-  - Smaller toggle switches (32x18px vs 40x22px)
-  - Abbreviated labels: "KB" and "AI+"
-- **Functionality preserved:**
-  - `selectedModel` state still toggles between 'claude' and 'gemini'
-  - `useKnowledgeBase` toggle still works
-  - `useAIEnhancement` toggle still works
-  - All state passed to API calls unchanged
-- **Learnings for future iterations:**
-  - Two-button toggles are more compact than dropdowns for binary choices
-  - Horizontal arrangement of toggles saves significant vertical space
-  - Abbreviated labels work well when toggle meaning is clear from context
-
----
-
-## 2026-01-29 01:00 - US-005: Improve overall sidebar spacing and visual hierarchy
-- **What was implemented:** Tightened spacing and improved typography across the entire sidebar
-- **Files changed:**
-  - `components/AgentControlCenter/styles.css` (sidebar, section-label, customer-context classes)
-  - `components/AgentControlCenter/index.tsx` (inline styles for all sidebar sections)
-- **CSS Changes:**
-  - Sidebar gap reduced from 16px to 12px
-  - Sidebar padding reduced from 16px to 12px
-  - Added overflow-y: auto for scrollability
-  - Section labels: 9px (was 10px), weight 500, color #555
-  - Customer context: padding 10px, name 13px, details 11px
-  - Sidebar header: padding-bottom 10px (was 16px)
-- **Inline Style Changes:**
-  - Agent Routing section: padding 10px, select padding 6px 8px, font 12px
-  - AI Settings: padding 10px, model buttons 10px font, toggles 28x16px with 12px knobs
-  - Agent Pills: padding 10px, gap 5px, font 11px, radius 14px
-  - Customer Context: details margin 2px, font 10px
-  - Onboarding Plan: progress bar 3px height, milestone font 9px
-- **Visual result:** Sidebar feels ~20% lighter and more compact
-- **Learnings for future iterations:**
-  - Consistent padding (10px) makes sections feel cohesive
-  - 9px uppercase labels with 500 weight are readable but subtle
-  - 3px progress bars are sufficient for status indication
-  - overflow-y: auto is essential for sidebars with variable content
-
----
-
-## 2026-01-29 01:15 - US-006: Verify all agentic functionality still works
-- **What was verified:** Code review and build verification of all agentic functionality
-- **Verification method:** Static code analysis + production build
-- **Functionality verified:**
-  - ✅ Agent selection via pills (handleAgentClick at line 1404)
-  - ✅ Model toggle Claude/Gemini (setSelectedModel at lines 1288, 1305)
-  - ✅ Knowledge Base toggle (setUseKnowledgeBase at line 1328)
-  - ✅ AI Enhancement toggle (setUseAIEnhancement at line 1359)
-  - ✅ Chat send functionality (handleSend at lines 1685, 1690)
-  - ✅ State properly passed to API calls (lines 479-480)
-  - ✅ Build succeeds with no errors
-- **Pre-existing TypeScript errors:** Not introduced by UI changes
-- **Learnings for future iterations:**
-  - Code review can verify wiring without runtime testing
-  - Build success is the definitive acceptance criteria
-  - Pre-existing type errors should be tracked separately
-
+  - The original 012_chat_messages_table.sql referenced public.users which exists (002_google_workspace.sql creates it), but the app was using auth.uid() directly without ensuring records in public.users
+  - RLS policies in this codebase use auth.jwt() -> 'user_metadata' ->> 'role' for admin checks
+  - Always check existing migration patterns (020_enable_rls.sql has good examples)
 ---

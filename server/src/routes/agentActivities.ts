@@ -198,22 +198,39 @@ router.post('/', async (req: Request, res: Response) => {
 
 /**
  * POST /api/agent-activities/chat-message
- * Save a chat message for a customer
+ * Save a chat message for a customer or general chat (no customer)
+ *
+ * Note on schema: user_id stores Supabase auth.uid() directly (no FK constraint).
+ * This allows chat messages without requiring a record in public.users table.
+ * See migration: 021_fix_chat_messages_userid.sql
+ *
+ * @param customerId - Optional: UUID of the customer. Null for general/global chat mode.
+ * @param role - Required: 'user', 'assistant', or 'system'
+ * @param content - Required: The message content
+ * @param agentType - Optional: Type of agent (e.g., 'orchestrator', 'researcher')
+ * @param toolCalls - Optional: JSON array of tool calls made by the agent
+ * @param sessionId - Optional: Session ID to group related messages
  */
 router.post('/chat-message', async (req: Request, res: Response) => {
   try {
     const userId = req.headers['x-user-id'] as string;
 
     if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
+      return res.status(401).json({
+        error: 'Authentication required',
+        message: 'User ID header (x-user-id) is required to save chat messages'
+      });
     }
 
     if (!supabase) {
-      return res.status(503).json({ error: 'Database not configured' });
+      return res.status(503).json({
+        error: 'Database not configured',
+        message: 'Supabase connection is not available. Check server configuration.'
+      });
     }
 
     const {
-      customerId,
+      customerId,  // Optional - null for general mode chat (no specific customer)
       role,
       content,
       agentType,
@@ -221,29 +238,48 @@ router.post('/chat-message', async (req: Request, res: Response) => {
       sessionId
     } = req.body;
 
+    // Validate required fields
     if (!role || !content) {
       return res.status(400).json({
         error: 'Missing required fields',
-        required: ['role', 'content']
+        message: 'Both role and content are required to save a chat message',
+        required: ['role', 'content'],
+        received: { role: !!role, content: !!content }
+      });
+    }
+
+    // Validate role value
+    if (!['user', 'assistant', 'system'].includes(role)) {
+      return res.status(400).json({
+        error: 'Invalid role value',
+        message: 'Role must be one of: user, assistant, system',
+        received: role
       });
     }
 
     const { data, error } = await supabase
       .from('chat_messages')
       .insert({
-        customer_id: customerId,
-        user_id: userId,
+        customer_id: customerId || null,  // Explicitly null for general mode
+        user_id: userId,  // Stores auth.uid() directly (no FK constraint)
         role,
         content,
-        agent_type: agentType,
-        tool_calls: toolCalls,
-        session_id: sessionId,
+        agent_type: agentType || null,
+        tool_calls: toolCalls || null,
+        session_id: sessionId || null,
         created_at: new Date().toISOString()
       })
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error('Database error saving chat message:', error);
+      return res.status(500).json({
+        error: 'Database error',
+        message: error.message || 'Failed to save chat message',
+        code: error.code
+      });
+    }
 
     res.status(201).json({
       success: true,
@@ -251,7 +287,10 @@ router.post('/chat-message', async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error saving chat message:', error);
-    res.status(500).json({ error: (error as Error).message });
+    res.status(500).json({
+      error: 'Internal server error',
+      message: (error as Error).message || 'An unexpected error occurred'
+    });
   }
 });
 
