@@ -11,11 +11,15 @@ export { driveTools, driveListFiles, driveGetFile, driveCreateFolder, driveUploa
 // Slack Tools
 export { slackTools, slackSendMessage, slackListChannels, slackGetChannel, slackGetUser, slackFindUserByEmail, slackSendDM, slackReplyToThread, slackAddReaction, slackListUsers, slackCheckConnection } from './slack.js';
 
+// Meeting Intelligence Tools
+export { meetingTools, listZoomMeetings, getZoomMeeting, createZoomMeeting, getZoomRecording, getZoomTranscript, analyzeMeetingTranscript, analyzeZoomRecording, getMeetingAnalysis, listCustomerMeetingAnalyses, getCustomerRiskSummary } from './meetings.js';
+
 // Aggregate all tools
 import { gmailTools } from './gmail.js';
 import { calendarTools } from './calendar.js';
 import { driveTools } from './drive.js';
 import { slackTools } from './slack.js';
+import { meetingTools } from './meetings.js';
 import { MCPTool } from '../index.js';
 
 export const googleTools: MCPTool[] = [
@@ -28,6 +32,7 @@ export const googleTools: MCPTool[] = [
 export const allTools: MCPTool[] = [
   ...googleTools,
   ...slackTools,
+  ...meetingTools,
 ];
 
 // Tool counts by category
@@ -39,5 +44,6 @@ export function getToolStats() {
     calendar: calendarTools.length,
     drive: driveTools.length,
     slack: slackTools.length,
+    meetings: meetingTools.length,
   };
 }
