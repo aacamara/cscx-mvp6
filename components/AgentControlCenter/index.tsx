@@ -123,6 +123,47 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   }, [messages]);
 
+  // Load chat history from database on mount or customer change
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        const params = new URLSearchParams({
+          limit: '50',
+          ...(customer?.id && { customerId: customer.id })
+        });
+
+        const response = await fetch(`${API_URL}/api/chat/history?${params}`, {
+          headers: {
+            'x-user-id': DEMO_USER_ID
+          }
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.messages && data.messages.length > 0) {
+            // Convert API messages to AgentMessage format
+            const loadedMessages: AgentMessage[] = data.messages
+              .reverse() // API returns newest first, we want oldest first
+              .map((msg: any) => ({
+                isUser: msg.role === 'user',
+                agent: msg.agent_type as CSAgentType || 'onboarding',
+                message: msg.content,
+                timestamp: msg.created_at
+              }));
+            setMessages(loadedMessages);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load chat history:', error);
+      }
+    };
+
+    // Only load history if we have a customer context
+    if (customer?.id) {
+      loadChatHistory();
+    }
+  }, [customer?.id]);
+
   // Initialize with context from contract handoff
   useEffect(() => {
     if (!initialized && customer && contractData) {
@@ -135,7 +176,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
         agent: 'onboarding',
         message: initialMessage || buildContextMessage(),
       };
-      setMessages([contextSummary]);
+      setMessages(prev => prev.length === 0 ? [contextSummary] : prev);
 
       // Initialize session with full context on backend
       initializeSession();
