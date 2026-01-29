@@ -1,6 +1,6 @@
 /**
  * LandingPage - Minimalist login page for CSCX.ai
- * Black on white design with red accent
+ * White on black design with red accent
  */
 
 import React from 'react';
@@ -28,8 +28,8 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
 
         .landing-page {
           min-height: 100vh;
-          background: #ffffff;
-          color: #000000;
+          background: #000000;
+          color: #ffffff;
           font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
           display: flex;
           flex-direction: column;
@@ -83,7 +83,7 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
         }
 
         .landing-title .muted {
-          color: #555555;
+          color: #999999;
         }
 
         .landing-title .accent-dot {
@@ -92,7 +92,7 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
 
         .landing-subtitle {
           font-size: 1.25rem;
-          color: #555555;
+          color: #999999;
           line-height: 1.6;
           margin-bottom: 3rem;
           max-width: 480px;
@@ -115,8 +115,8 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
           font-size: 1rem;
           font-weight: 600;
           font-family: inherit;
-          background: #000000;
-          color: #ffffff;
+          background: #ffffff;
+          color: #000000;
           border: none;
           cursor: pointer;
           transition: all 0.2s ease;
@@ -140,7 +140,7 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
 
         .landing-note {
           font-size: 0.875rem;
-          color: #999999;
+          color: #666666;
         }
 
         .landing-note a {
@@ -154,21 +154,21 @@ export const LandingPage: React.FC<LandingPageProps> = () => {
 
         .landing-footer {
           padding: 2rem 4rem;
-          border-top: 1px solid #e5e5e5;
+          border-top: 1px solid #333333;
           display: flex;
           justify-content: space-between;
           align-items: center;
           font-size: 0.875rem;
-          color: #999999;
+          color: #666666;
         }
 
         .landing-footer a {
-          color: #555555;
+          color: #999999;
           text-decoration: none;
         }
 
         .landing-footer a:hover {
-          color: #000000;
+          color: #ffffff;
         }
 
         .footer-links {
