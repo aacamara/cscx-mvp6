@@ -5,6 +5,8 @@ Started: Wed 28 Jan 2026 23:14:39 EST
 - Agent pill selectors use #e63946 accent for active state
 - CS_AGENTS object in types/agents.ts defines all specialist agents with icon/name/color
 - Sidebar sections use consistent styling: padding: '12px', borderBottom: '1px solid #1a1a1a'
+- Compact toggle switches: 32x18px with 14px knob for tight layouts
+- Two-button toggles preferred over dropdowns for binary choices (e.g., Claude/Gemini)
 
 ---
 
@@ -18,5 +20,65 @@ Started: Wed 28 Jan 2026 23:14:39 EST
   - The AgentCard component is still imported but no longer used in the main sidebar - could be cleaned up if not used elsewhere
   - Active state uses #e63946 background with white text
   - Agent description shown below pills when an agent is selected
+
+---
+
+## 2026-01-28 23:30 - US-002: Remove System Status section
+- **What was implemented:** Removed the verbose System Status section from the sidebar
+- **Files changed:**
+  - `components/AgentControlCenter/index.tsx` (lines ~1474-1496 removed)
+- **What was removed:**
+  - AI Backend connection status indicator
+  - Agentic Mode status indicator
+  - WebSocket connection status indicator
+  - Contract data loaded indicator
+  - Google Workspace connection status
+- **Functionality preserved:**
+  - All underlying state variables (`wsConnected`, `agenticModeEnabled`, `googleConnected`, etc.) remain intact
+  - Agentic Mode indicator still shows in header when active (line ~1517)
+  - Google connection widget still in sidebar for taking actions
+- **Learnings for future iterations:**
+  - Status information was redundant - users can tell if things work by using the chat
+  - Critical status indicators should be shown inline where relevant, not in a dedicated section
+  - The header already has an "Agentic Mode" badge when enabled
+
+---
+
+## 2026-01-28 23:45 - US-003: Remove standalone Google Workspace widget from sidebar
+- **What was implemented:** Removed the Google Connection Widget from the sidebar
+- **Files changed:**
+  - `components/AgentControlCenter/index.tsx` (lines ~1474-1482 removed)
+- **What was removed:**
+  - GoogleConnectionWidget component and its container div
+  - Import statement for GoogleConnectionWidget
+  - Unused `googleConnected` state variable
+- **Functionality preserved:**
+  - Google Workspace connection is still accessible via Settings gear icon (App.tsx line 380)
+  - GoogleConnect component in Settings modal handles all connection functionality
+- **Learnings for future iterations:**
+  - When removing duplicate UI, always check App.tsx for Settings modal alternatives
+  - Clean up unused imports and state variables when removing components
+
+---
+
+## 2026-01-29 00:15 - US-004: Compact the AI Model and Knowledge Base toggles
+- **What was implemented:** Combined 3 separate sections (AI Model, Knowledge Base, AI Enhancement) into a single compact "AI Settings" section
+- **Files changed:**
+  - `components/AgentControlCenter/index.tsx` (lines ~1282-1390 → new compact layout)
+- **Visual change:** From ~110 lines across 3 sections to ~85 lines in 1 section, ~50%+ height reduction
+- **New layout:**
+  - Two-button toggle for Claude/Gemini (more compact than dropdown)
+  - Horizontal row with KB and AI+ compact switches
+  - Smaller toggle switches (32x18px vs 40x22px)
+  - Abbreviated labels: "KB" and "AI+"
+- **Functionality preserved:**
+  - `selectedModel` state still toggles between 'claude' and 'gemini'
+  - `useKnowledgeBase` toggle still works
+  - `useAIEnhancement` toggle still works
+  - All state passed to API calls unchanged
+- **Learnings for future iterations:**
+  - Two-button toggles are more compact than dropdowns for binary choices
+  - Horizontal arrangement of toggles saves significant vertical space
+  - Abbreviated labels work well when toggle meaning is clear from context
 
 ---

@@ -1278,115 +1278,112 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           )}
         </div>
 
-        {/* Model Selector */}
-        <div className="model-selector" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
-          <p className="section-label">AI Model</p>
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value as 'claude' | 'gemini')}
-            style={{
-              width: '100%',
-              padding: '8px',
-              background: '#1a1a1a',
-              border: '1px solid #333',
-              borderRadius: '6px',
-              color: '#fff',
-              fontSize: '13px',
-              marginTop: '8px',
-            }}
-          >
-            <option value="claude">Claude Sonnet 4</option>
-            <option value="gemini">Gemini 2.0 Flash</option>
-          </select>
-          <p style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
-            {selectedModel === 'claude' ? '🧠 Advanced reasoning & tools' : '⚡ Fast multimodal'}
-          </p>
-        </div>
+        {/* Compact AI Settings */}
+        <div className="ai-settings-compact" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
+          <p className="section-label" style={{ marginBottom: '8px' }}>AI Settings</p>
 
-        {/* Knowledge Base Toggle */}
-        <div className="knowledge-toggle" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
-          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-            <span style={{ fontSize: '13px', color: '#fff' }}>📚 Knowledge Base</span>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="checkbox"
-                checked={useKnowledgeBase}
-                onChange={(e) => setUseKnowledgeBase(e.target.checked)}
-                style={{ display: 'none' }}
-              />
+          {/* Model Toggle - Two buttons */}
+          <div style={{ display: 'flex', gap: '4px', marginBottom: '10px' }}>
+            <button
+              onClick={() => setSelectedModel('claude')}
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                background: selectedModel === 'claude' ? '#e63946' : '#1a1a1a',
+                border: `1px solid ${selectedModel === 'claude' ? '#e63946' : '#333'}`,
+                borderRadius: '4px',
+                color: selectedModel === 'claude' ? '#fff' : '#999',
+                fontSize: '11px',
+                fontWeight: selectedModel === 'claude' ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              🧠 Claude
+            </button>
+            <button
+              onClick={() => setSelectedModel('gemini')}
+              style={{
+                flex: 1,
+                padding: '6px 8px',
+                background: selectedModel === 'gemini' ? '#e63946' : '#1a1a1a',
+                border: `1px solid ${selectedModel === 'gemini' ? '#e63946' : '#333'}`,
+                borderRadius: '4px',
+                color: selectedModel === 'gemini' ? '#fff' : '#999',
+                fontSize: '11px',
+                fontWeight: selectedModel === 'gemini' ? 600 : 400,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              ⚡ Gemini
+            </button>
+          </div>
+
+          {/* Compact Toggles Row */}
+          <div style={{ display: 'flex', gap: '12px' }}>
+            {/* Knowledge Base Toggle */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flex: 1 }}>
               <div
                 onClick={() => setUseKnowledgeBase(!useKnowledgeBase)}
                 style={{
-                  width: '40px',
-                  height: '22px',
+                  width: '32px',
+                  height: '18px',
                   background: useKnowledgeBase ? '#e63946' : '#333',
-                  borderRadius: '11px',
+                  borderRadius: '9px',
                   position: 'relative',
                   transition: 'background 0.2s',
                   cursor: 'pointer',
+                  flexShrink: 0,
                 }}
               >
                 <div
                   style={{
-                    width: '18px',
-                    height: '18px',
+                    width: '14px',
+                    height: '14px',
                     background: '#fff',
                     borderRadius: '50%',
                     position: 'absolute',
                     top: '2px',
-                    left: useKnowledgeBase ? '20px' : '2px',
+                    left: useKnowledgeBase ? '16px' : '2px',
                     transition: 'left 0.2s',
                   }}
                 />
               </div>
-            </div>
-          </label>
-          <p style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
-            {useKnowledgeBase ? 'Using glossary, playbooks & docs' : 'Knowledge base disabled'}
-          </p>
-        </div>
+              <span style={{ fontSize: '11px', color: useKnowledgeBase ? '#fff' : '#666' }}>KB</span>
+            </label>
 
-        {/* AI Enhancement Toggle */}
-        <div className="ai-enhancement-toggle" style={{ padding: '12px', borderBottom: '1px solid #1a1a1a' }}>
-          <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
-            <span style={{ fontSize: '13px', color: '#fff' }}>🤖 AI Enhancement</span>
-            <div style={{ position: 'relative' }}>
-              <input
-                type="checkbox"
-                checked={useAIEnhancement}
-                onChange={(e) => setUseAIEnhancement(e.target.checked)}
-                style={{ display: 'none' }}
-              />
+            {/* AI Enhancement Toggle */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', flex: 1 }}>
               <div
                 onClick={() => setUseAIEnhancement(!useAIEnhancement)}
                 style={{
-                  width: '40px',
-                  height: '22px',
+                  width: '32px',
+                  height: '18px',
                   background: useAIEnhancement ? '#e63946' : '#333',
-                  borderRadius: '11px',
+                  borderRadius: '9px',
                   position: 'relative',
                   transition: 'background 0.2s',
                   cursor: 'pointer',
+                  flexShrink: 0,
                 }}
               >
                 <div
                   style={{
-                    width: '18px',
-                    height: '18px',
+                    width: '14px',
+                    height: '14px',
                     background: '#fff',
                     borderRadius: '50%',
                     position: 'absolute',
                     top: '2px',
-                    left: useAIEnhancement ? '20px' : '2px',
+                    left: useAIEnhancement ? '16px' : '2px',
                     transition: 'left 0.2s',
                   }}
                 />
               </div>
-            </div>
-          </label>
-          <p style={{ fontSize: '10px', color: '#888', marginTop: '6px' }}>
-            {useAIEnhancement ? '✨ Claude insights + Apps Script' : '⚡ Fast mode (no AI insights)'}
-          </p>
+              <span style={{ fontSize: '11px', color: useAIEnhancement ? '#fff' : '#666' }}>AI+</span>
+            </label>
+          </div>
         </div>
 
         {/* Compact Agent Selector Pills */}

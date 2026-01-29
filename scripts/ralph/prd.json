@@ -41,7 +41,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "The status info is redundant - users can tell if things work by using the chat. Keep error states visible via toast or inline message."
     },
     {
@@ -56,7 +56,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "GoogleConnect.tsx in Settings modal already handles this. Removing duplicate."
     },
     {
@@ -75,7 +75,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Use compact toggle switches. Consider a single row: [Claude|Gemini] [KB: on] [AI: on]"
     },
     {
