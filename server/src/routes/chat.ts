@@ -333,9 +333,10 @@ router.get('/history', async (req: Request, res: Response) => {
     } = req.query;
 
     // Start building the query - filter by user_id for security
+    // Include tool_calls to support attachment metadata display
     let query = supabase
       .from('chat_messages')
-      .select('id, customer_id, user_id, role, content, agent_type, session_id, created_at', { count: 'exact' })
+      .select('id, customer_id, user_id, role, content, agent_type, tool_calls, session_id, created_at', { count: 'exact' })
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 

@@ -113,7 +113,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Start simple - attach file data to message. Future: upload to storage and reference URL."
     },
     {
@@ -130,7 +130,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "Use existing Gemini document parsing or simple text extraction. Keep it simple initially."
     }
   ]

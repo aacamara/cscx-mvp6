@@ -15,7 +15,18 @@ interface ChatHistoryMessage {
   session_id: string | null;
   created_at: string;
   customer_name?: string;
+  tool_calls?: Array<{ type?: string; name?: string; [key: string]: unknown }>;
 }
+
+// Check if message has an attachment
+const hasAttachment = (message: ChatHistoryMessage): { name: string; hasContent?: boolean } | null => {
+  if (!message.tool_calls || !Array.isArray(message.tool_calls)) return null;
+  const attachment = message.tool_calls.find(tc => tc.type === 'attachment');
+  if (attachment && typeof attachment.name === 'string') {
+    return { name: attachment.name, hasContent: attachment.hasContent as boolean | undefined };
+  }
+  return null;
+};
 
 interface ChatHistoryDropdownProps {
   isOpen: boolean;
@@ -357,6 +368,43 @@ export const ChatHistoryDropdown: React.FC<ChatHistoryDropdownProps> = ({
                   {formatTime(msg.created_at)}
                 </span>
               </div>
+
+              {/* Attachment indicator */}
+              {hasAttachment(msg) && (
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  marginBottom: '6px',
+                  padding: '4px 8px',
+                  background: 'rgba(230, 57, 70, 0.1)',
+                  borderRadius: '4px',
+                  border: '1px solid rgba(230, 57, 70, 0.2)'
+                }}>
+                  <span style={{ fontSize: '12px' }}>📄</span>
+                  <span style={{
+                    fontSize: '11px',
+                    color: '#e63946',
+                    fontWeight: 500,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap'
+                  }}>
+                    {hasAttachment(msg)?.name}
+                  </span>
+                  {hasAttachment(msg)?.hasContent && (
+                    <span style={{
+                      fontSize: '9px',
+                      color: '#22c55e',
+                      background: 'rgba(34, 197, 94, 0.15)',
+                      padding: '1px 4px',
+                      borderRadius: '3px'
+                    }}>
+                      analyzed
+                    </span>
+                  )}
+                </div>
+              )}
 
               {/* Message Content */}
               <p style={{

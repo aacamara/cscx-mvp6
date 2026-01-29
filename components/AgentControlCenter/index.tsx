@@ -360,9 +360,25 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   };
 
   // Helper to save chat message to database for Agent Inbox
-  const saveChatMessage = async (role: string, content: string, agentType?: string, toolCalls?: any[]) => {
+  // Attachment metadata is stored in toolCalls field as { type: 'attachment', ...attachmentData }
+  const saveChatMessage = async (
+    role: string,
+    content: string,
+    agentType?: string,
+    toolCalls?: any[],
+    attachment?: { name: string; size: number; type: string; hasContent?: boolean }
+  ) => {
     const customerId = customer?.id;
     if (!customerId) return; // Only save if we have a customer context
+
+    // Merge attachment metadata into toolCalls array
+    let toolCallsWithAttachment = toolCalls || [];
+    if (attachment) {
+      toolCallsWithAttachment = [
+        { type: 'attachment', ...attachment },
+        ...(toolCalls || [])
+      ];
+    }
 
     try {
       await fetch(`${API_URL}/api/agent-activities/chat-message`, {
@@ -376,7 +392,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           role,
           content,
           agentType,
-          toolCalls,
+          toolCalls: toolCallsWithAttachment.length > 0 ? toolCallsWithAttachment : null,
           sessionId
         })
       });
@@ -386,9 +402,12 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   };
 
   // Send message to LangChain-powered AI backend (or agentic system)
-  const sendToAgent = async (message: string) => {
-    // Save user message to database
-    saveChatMessage('user', message);
+  const sendToAgent = async (
+    message: string,
+    attachment?: { name: string; size: number; type: string; hasContent?: boolean }
+  ) => {
+    // Save user message to database with attachment metadata
+    saveChatMessage('user', message, undefined, undefined, attachment);
     setIsProcessing(true);
 
     // Add thinking state
@@ -1179,7 +1198,38 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   };
 
-  const handleSend = () => {
+  // Read file content as text for supported file types
+  const readFileAsText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsText(file);
+    });
+  };
+
+  // Check if file is a text-based format we can read
+  const isTextBasedFile = (file: File): boolean => {
+    const textTypes = [
+      'text/plain',
+      'text/csv',
+      'application/json',
+      'text/markdown',
+      'text/html',
+      'text/xml',
+      'application/xml'
+    ];
+    const textExtensions = ['.txt', '.csv', '.json', '.md', '.html', '.xml', '.log'];
+
+    // Check MIME type
+    if (textTypes.some(t => file.type.includes(t))) return true;
+
+    // Check extension as fallback
+    const ext = '.' + file.name.split('.').pop()?.toLowerCase();
+    return textExtensions.includes(ext);
+  };
+
+  const handleSend = async () => {
     if ((!input.trim() && !selectedFile) || isProcessing) return;
 
     const userMessage = input.trim();
@@ -1190,30 +1240,63 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     // Build message with attachment info if present
     let messageToSend = userMessage;
     let messageToDisplay = userMessage;
+    let documentContent: string | null = null;
+    let attachmentMeta: { name: string; size: number; type: string; hasContent: boolean } | undefined;
 
     if (attachedFile) {
       // Add attachment indicator to display message
       const attachmentText = `📄 ${attachedFile.name}`;
       messageToDisplay = userMessage ? `${userMessage}\n\n${attachmentText}` : attachmentText;
 
-      // For the AI, include file info in the message context
-      messageToSend = userMessage
-        ? `[Attached document: ${attachedFile.name} (${(attachedFile.size / 1024).toFixed(1)} KB, type: ${attachedFile.type || 'unknown'})]\n\n${userMessage}`
-        : `[Attached document: ${attachedFile.name} (${(attachedFile.size / 1024).toFixed(1)} KB, type: ${attachedFile.type || 'unknown'})]\n\nPlease analyze this document.`;
+      // Try to read file content for text-based files
+      if (isTextBasedFile(attachedFile)) {
+        try {
+          documentContent = await readFileAsText(attachedFile);
+          // Truncate very large files to avoid overwhelming the AI context
+          const maxContentLength = 50000; // ~50KB of text
+          if (documentContent.length > maxContentLength) {
+            documentContent = documentContent.substring(0, maxContentLength) + '\n\n[Document truncated - showing first 50KB]';
+          }
+        } catch (error) {
+          console.error('Failed to read file content:', error);
+        }
+      }
+
+      // Build attachment metadata
+      attachmentMeta = {
+        name: attachedFile.name,
+        size: attachedFile.size,
+        type: attachedFile.type || 'application/octet-stream',
+        hasContent: !!documentContent
+      };
+
+      // For the AI, include file info and content in the message context
+      if (documentContent) {
+        // Include actual document content for the AI to analyze
+        messageToSend = userMessage
+          ? `[Attached document: ${attachedFile.name}]\n\n--- DOCUMENT CONTENT START ---\n${documentContent}\n--- DOCUMENT CONTENT END ---\n\nUser message: ${userMessage}`
+          : `[Attached document: ${attachedFile.name}]\n\n--- DOCUMENT CONTENT START ---\n${documentContent}\n--- DOCUMENT CONTENT END ---\n\nPlease analyze this document and provide insights.`;
+      } else {
+        // For non-text files (PDF, DOCX, XLSX), include metadata only
+        messageToSend = userMessage
+          ? `[Attached document: ${attachedFile.name} (${(attachedFile.size / 1024).toFixed(1)} KB, type: ${attachedFile.type || 'unknown'})]\n\nNote: This is a binary file format. I can see it's attached but cannot read its contents directly. Please describe what you'd like me to help with regarding this document.\n\nUser message: ${userMessage}`
+          : `[Attached document: ${attachedFile.name} (${(attachedFile.size / 1024).toFixed(1)} KB, type: ${attachedFile.type || 'unknown'})]\n\nThis is a binary file format (like PDF, DOCX, or XLSX). While I can't read the contents directly, I can help you with:\n- Discussing what you'd like to do with this document\n- Providing guidance on document analysis\n- Answering questions if you paste relevant text from it\n\nWhat would you like help with?`;
+      }
     }
 
     // Add message to UI with attachment metadata
     setMessages(prev => [...prev, {
       isUser: true,
       message: messageToDisplay,
-      attachment: attachedFile ? {
-        name: attachedFile.name,
-        size: attachedFile.size,
-        type: attachedFile.type || 'application/octet-stream',
+      attachment: attachmentMeta ? {
+        name: attachmentMeta.name,
+        size: attachmentMeta.size,
+        type: attachmentMeta.type,
       } : undefined,
     }]);
 
-    sendToAgent(messageToSend);
+    // Pass attachment metadata to sendToAgent for database persistence
+    sendToAgent(messageToSend, attachmentMeta);
   };
 
   // Calculate plan progress for sidebar
