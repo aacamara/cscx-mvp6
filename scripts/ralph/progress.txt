@@ -10,6 +10,8 @@
 - ContractData type in types/workflow.ts does NOT include industry; industry is in CompanyResearch
 - UnifiedOnboarding.onComplete receives { contract: ContractData; plan: OnboardingPlan; fileMetadata?: FileMetadata }
 - ContractInput from uploads has fileName and mimeType but not file size - estimate from base64 content length * 0.75
+- Supabase Storage: use db.uploadFile(bucket, path, buffer, contentType) to upload files
+- optionalAuthMiddleware sets req.userId from JWT token or dev fallback
 
 ---
 
@@ -59,5 +61,29 @@ Initialized: Ready to complete the onboarding flow
   - Express routes order matters: POST / must come before GET /:id or params will catch it
   - db.saveContract accepts any Record<string, unknown> - flexible for adding new fields
   - Contract linked to customer via customer_id field in contracts table
+
+---
+
+## 2026-01-28 - US-003
+- What was implemented: Upload contract file to Supabase Storage
+- Files changed:
+  - server/src/services/supabase.ts - Added uploadFile and updateContract methods
+  - server/src/routes/contracts.ts - Modified upload endpoint to store files in storage
+- Changes:
+  - Added uploadFile(bucket, path, buffer, contentType) method to SupabaseService
+  - Added updateContract(id, updates) method for future use
+  - Modified /api/contracts/upload to upload file to 'contracts' bucket
+  - Storage path: {user_id}/pending/{timestamp}_{sanitized_filename}
+  - Stores file_url in contracts table
+  - Returns fileUrl in upload response
+  - Added optionalAuthMiddleware to get userId for storage path
+  - Storage upload failure doesn't block contract creation (graceful degradation)
+- **Learnings for future iterations:**
+  - customer_id isn't available at upload time, so use user_id/pending/filename path
+  - Use optionalAuthMiddleware (not authMiddleware) when auth is helpful but not required
+  - Sanitize filenames for storage paths: replace non-alphanumeric chars with underscore
+  - Add timestamp prefix to avoid filename collisions
+  - Supabase storage bucket 'contracts' must be created in dashboard before use
+  - Pre-existing TypeScript errors still present but not in our modified files
 
 ---

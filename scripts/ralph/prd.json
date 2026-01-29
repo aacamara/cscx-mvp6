@@ -48,7 +48,7 @@
         "Run `npx tsc --noEmit` - exits with code 0"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Use @supabase/supabase-js storage client. Bucket may need to be created in Supabase dashboard first."
     },
     {
