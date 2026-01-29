@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 interface Customer {
   id: string;
@@ -28,6 +29,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   onSelectCustomer,
   onNewOnboarding
 }) => {
+  const { getAuthHeaders } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,7 +53,9 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       params.append('sortBy', sortBy);
       params.append('sortOrder', sortOrder);
 
-      const response = await fetch(`${API_BASE}/customers?${params}`);
+      const response = await fetch(`${API_BASE}/customers?${params}`, {
+        headers: getAuthHeaders()
+      });
       if (!response.ok) throw new Error('Failed to fetch customers');
 
       const data = await response.json();
@@ -63,7 +67,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, sortBy, sortOrder]);
+  }, [search, statusFilter, sortBy, sortOrder, getAuthHeaders]);
 
   useEffect(() => {
     fetchCustomers();
@@ -202,7 +206,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           </div>
         ) : customers.length === 0 ? (
           <div className="p-8 text-center text-cscx-gray-400">
-            No customers found. Start by uploading a contract!
+            No customers yet. Start by onboarding a new customer.
           </div>
         ) : (
           <div className="overflow-x-auto">
