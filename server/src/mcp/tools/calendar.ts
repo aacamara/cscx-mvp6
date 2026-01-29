@@ -5,7 +5,7 @@
 
 import { z } from 'zod';
 import { calendarService, CalendarEvent, FreeBusySlot } from '../../services/google/calendar.js';
-import { MCPTool, MCPContext, MCPResult, createMCPTool } from '../index.js';
+import type { MCPTool, MCPContext, MCPResult } from '../index.js';
 
 // ============================================
 // Input Schemas

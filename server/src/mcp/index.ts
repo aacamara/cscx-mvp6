@@ -85,15 +85,46 @@ export type MCPProvider =
 
 // ============================================
 // MCP Tool Interface (for registration)
+// Simplified flat structure for easier tool creation
 // ============================================
 
 export interface MCPTool {
-  definition: MCPToolDefinition;
+  name: string;
+  description: string;
+  category: string;
+  provider: string;
+
+  // Schema for input validation
+  inputSchema: z.ZodType<any>;
+  outputSchema?: z.ZodType<any>;
+
+  // Execution requirements
+  requiresApproval?: boolean;
+  approvalPolicy?: ApprovalPolicy;
+
+  // Rate limiting
+  rateLimit?: {
+    maxRequests: number;
+    windowMs: number;
+  };
+
+  // Execution
+  execute: (input: any, context: MCPContext) => Promise<MCPResult>;
+
+  // Optional approval description generator
+  getApprovalDescription?: (input: unknown) => string;
 
   // Health check for the tool
   healthCheck?: () => Promise<boolean>;
 
   // Cleanup/shutdown
+  shutdown?: () => Promise<void>;
+}
+
+// Full definition with all required fields
+export interface MCPToolFull {
+  definition: MCPToolDefinition;
+  healthCheck?: () => Promise<boolean>;
   shutdown?: () => Promise<void>;
 }
 
