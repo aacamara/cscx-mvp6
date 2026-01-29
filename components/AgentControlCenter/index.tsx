@@ -1471,29 +1471,6 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           </div>
         )}
 
-        {/* System Status */}
-        <div className="customer-context" style={{ marginTop: '8px', borderTop: '1px solid #1a1a1a', paddingTop: '12px' }}>
-          <p className="section-label">System Status</p>
-          <p className="customer-details" style={{ color: '#22c55e' }}>
-            ● Connected to AI Backend
-          </p>
-          <p className="customer-details" style={{ color: agenticModeEnabled ? '#e63946' : '#6b7280', marginTop: '2px' }}>
-            {agenticModeEnabled ? '⚡ Agentic Mode ACTIVE' : '○ Agentic Mode OFF'}
-          </p>
-          {wsConnected && (
-            <p className="customer-details" style={{ color: '#22c55e', marginTop: '2px' }}>
-              ● WebSocket connected
-            </p>
-          )}
-          {contractData && (
-            <p className="customer-details" style={{ color: '#3b82f6', marginTop: '2px' }}>
-              ● Contract data loaded
-            </p>
-          )}
-          <p className="customer-details" style={{ color: googleConnected ? '#22c55e' : '#f59e0b', marginTop: '2px' }}>
-            {googleConnected ? '● Google Workspace connected' : '○ Google not connected'}
-          </p>
-        </div>
 
         {/* Google Connection */}
         <div style={{ padding: '12px', borderTop: '1px solid #1a1a1a' }}>
