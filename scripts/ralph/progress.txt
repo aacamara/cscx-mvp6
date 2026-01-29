@@ -9,7 +9,67 @@ Started: Thu 29 Jan 2026 00:03:28 EST
 - For FK to Supabase auth users, reference `auth.users(id)` not `public.users(id)`
 - Use DO $$ blocks for dynamic SQL in migrations (e.g., finding and dropping constraints)
 - Pre-existing TypeScript errors exist in server/ - don't let these block unrelated work
+- Chat routes are in `server/src/routes/chat.ts` mounted at `/api/chat`
+- Use x-user-id header for auth in routes (not full auth middleware)
+- Supabase ILIKE for case-insensitive search: `.ilike('column', '%search%')`
 
+---
+
+## Wed 29 Jan 2026 - US-005
+- **What was implemented:** Customer-specific vs general chat history toggle (verified existing implementation)
+- **Files changed:**
+  - No code changes needed - functionality already complete from US-004
+- **Details:**
+  - Verified toggle "All Chats" vs "This Customer" exists in ChatHistoryDropdown.tsx (lines 233-274)
+  - Defaults correctly: `useState(!customerId)` - shows "This Customer" when customer selected
+  - API filtering works: customerId passed only when toggle is "This Customer" and customer selected
+  - Customer name badge displays on messages in "All Chats" mode (lines 343-354)
+  - Empty state with icon and helpful message present (lines 292-305)
+  - Props correctly passed from AgentControlCenter (customerId, customerName at lines 1513-1518)
+  - Frontend build succeeds
+- **Learnings for future iterations:**
+  - User stories can be fully satisfied by earlier implementations - always verify before coding
+  - ChatHistoryDropdown receives customer context via props from parent AgentControlCenter
+  - Toggle state is local to dropdown (`showAllChats`) while customer context comes from props
+---
+
+## Wed 29 Jan 2026 - US-004
+- **What was implemented:** Chat history search UI with magnifying glass icon in header
+- **Files changed:**
+  - `components/AgentControlCenter/ChatHistoryDropdown.tsx` (new)
+  - `components/AgentControlCenter/index.tsx` (modified)
+- **Details:**
+  - Created new ChatHistoryDropdown component with search input and message list
+  - Added 🔍 magnifying glass button in the AgentControlCenter header
+  - Dropdown fetches from GET /api/chat/history with debounced search
+  - Shows last 20 messages with truncated content, agent type, timestamp
+  - Customer badge shown in "All Chats" mode for customer-specific messages
+  - Toggle between "This Customer" and "All Chats" when customer is selected
+  - Closes on click outside or Escape key
+  - Styled to match dark theme (#0a0a0a, #1a1a1a, #e63946 accent)
+  - Empty state with helpful message when no history
+- **Learnings for future iterations:**
+  - Modal/dropdown styling patterns in EmailPreviewModal.tsx are good reference
+  - Use inline styles for component-specific styling (no need for CSS file)
+  - Position: relative on parent + position: absolute on dropdown for positioning
+  - Debounce search with useEffect + setTimeout pattern
+---
+
+## Wed 29 Jan 2026 - US-003
+- **What was implemented:** GET /api/chat/history endpoint for chat history with search and filtering
+- **Files changed:**
+  - `server/src/routes/chat.ts` (modified)
+- **Details:**
+  - Added GET /api/chat/history endpoint with query params: customerId, search, limit, offset
+  - User can only access their own messages (filtered by user_id = x-user-id header)
+  - Search uses case-insensitive ILIKE on content field
+  - Messages ordered by created_at DESC (newest first)
+  - Returns: id, customer_id, user_id, role, content, agent_type, session_id, created_at
+  - Includes pagination (limit max 100, default 50)
+- **Learnings for future iterations:**
+  - Supabase select() can specify columns: `.select('col1, col2', { count: 'exact' })`
+  - For ILIKE search, wrap pattern: `.ilike('content', \`%${search}%\`)`
+  - Range pagination: `.range(offset, offset + limit - 1)` (inclusive)
 ---
 
 ## Wed 29 Jan 2026 - US-002

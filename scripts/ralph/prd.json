@@ -59,7 +59,7 @@
         "Build succeeds: npm run build in server directory"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Use existing chat.ts routes file. Check if similar endpoint exists and extend it."
     },
     {
@@ -78,7 +78,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Position dropdown below the icon. Use fetch to call GET /api/chat/history"
     },
     {
@@ -95,7 +95,7 @@
         "Build succeeds: npm run build"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "Use the existing customer state from AgentControlCenter to get customerId"
     },
     {
