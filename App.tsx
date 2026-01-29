@@ -39,7 +39,7 @@ type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-cente
 // ============================================
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, loading: authLoading } = useAuth();
+  const { isAuthenticated, loading: authLoading, getAuthHeaders } = useAuth();
   const [demoMode, setDemoMode] = useState(false);
 
   // View management - Observability is the default/home view
@@ -47,6 +47,15 @@ const AppContent: React.FC = () => {
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showObservability, setShowObservability] = useState(false);
   const [observabilityTab, setObservabilityTab] = useState<'overview' | 'customers' | 'metrics'>('overview');
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+
+  // Show toast notification
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4000);
+  };
 
   // Check for auth callback route
   useEffect(() => {
@@ -124,6 +133,19 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-cscx-black text-white p-4 sm:p-8 font-sans">
+      {/* Toast Notification */}
+      {toast && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg animate-fade-in ${
+            toast.type === 'success'
+              ? 'bg-green-600/90 border border-green-500'
+              : 'bg-red-600/90 border border-red-500'
+          }`}
+        >
+          <p className="text-white text-sm">{toast.message}</p>
+        </div>
+      )}
+
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <header className="mb-8">
@@ -243,10 +265,45 @@ const AppContent: React.FC = () => {
           {view === 'onboarding' && (
             <UnifiedOnboarding
               onBack={handleBackToCustomers}
-              onComplete={(data) => {
+              onComplete={async (data) => {
                 console.log('Onboarding complete:', data);
-                setView('observability');
-                setObservabilityTab('customers');
+
+                // Save customer to database
+                const API_URL = import.meta.env.VITE_API_URL || '';
+                try {
+                  const response = await fetch(`${API_URL}/api/customers`, {
+                    method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      ...getAuthHeaders()
+                    },
+                    body: JSON.stringify({
+                      name: data.contract.company_name,
+                      arr: data.contract.arr || 0,
+                      status: 'onboarding'
+                    })
+                  });
+
+                  if (!response.ok) {
+                    throw new Error('Failed to create customer');
+                  }
+
+                  const newCustomer = await response.json();
+                  showToast('Customer created successfully', 'success');
+
+                  // Navigate to the new customer's detail view
+                  setSelectedCustomerId(newCustomer.id);
+                  setView('customer-detail');
+                } catch (error) {
+                  console.error('Error saving customer:', error);
+                  showToast(
+                    error instanceof Error ? error.message : 'Failed to create customer',
+                    'error'
+                  );
+                  // Still navigate to customers list on error
+                  setView('observability');
+                  setObservabilityTab('customers');
+                }
               }}
             />
           )}
