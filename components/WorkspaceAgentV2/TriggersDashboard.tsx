@@ -98,17 +98,14 @@ export const TriggersDashboard: React.FC = () => {
   const toggleTrigger = async (triggerId: string, enabled: boolean) => {
     setTogglingId(triggerId);
     try {
-      const response = await fetch(`${API_URL}/api/triggers/${triggerId}`, {
-        method: 'PATCH',
-        headers: {
-          ...getAuthHeaders(),
-          'Content-Type': 'application/json',
-        },
+      const action = enabled ? 'enable' : 'disable';
+      const response = await fetch(`${API_URL}/api/triggers/${triggerId}/${action}`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
         credentials: 'include',
-        body: JSON.stringify({ enabled }),
       });
       if (!response.ok) {
-        throw new Error(`Failed to update trigger: ${response.status}`);
+        throw new Error(`Failed to ${action} trigger: ${response.status}`);
       }
       // Update local state
       setTriggers((prev) =>
@@ -116,7 +113,6 @@ export const TriggersDashboard: React.FC = () => {
       );
     } catch (err) {
       console.error('Failed to toggle trigger:', err);
-      // Optionally show error toast
     } finally {
       setTogglingId(null);
     }

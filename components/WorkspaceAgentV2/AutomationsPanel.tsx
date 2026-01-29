@@ -67,17 +67,14 @@ export const AutomationsPanel: React.FC = () => {
   const toggleAutomation = async (automationId: string, enabled: boolean) => {
     setTogglingId(automationId);
     try {
-      const response = await fetch(`${API_URL}/api/automations/${automationId}`, {
-        method: 'PATCH',
-        headers: {
-          ...getAuthHeaders(),
-          'Content-Type': 'application/json',
-        },
+      const action = enabled ? 'enable' : 'disable';
+      const response = await fetch(`${API_URL}/api/automations/${automationId}/${action}`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
         credentials: 'include',
-        body: JSON.stringify({ enabled }),
       });
       if (!response.ok) {
-        throw new Error(`Failed to update automation: ${response.status}`);
+        throw new Error(`Failed to ${action} automation: ${response.status}`);
       }
       setAutomations((prev) =>
         prev.map((a) => (a.id === automationId ? { ...a, enabled } : a))
@@ -94,7 +91,7 @@ export const AutomationsPanel: React.FC = () => {
 
     setCreating(true);
     try {
-      const response = await fetch(`${API_URL}/api/automations`, {
+      const response = await fetch(`${API_URL}/api/automations/from-nl`, {
         method: 'POST',
         headers: {
           ...getAuthHeaders(),
@@ -106,7 +103,9 @@ export const AutomationsPanel: React.FC = () => {
       if (!response.ok) {
         throw new Error(`Failed to create automation: ${response.status}`);
       }
-      const newAutomation = await response.json();
+      const data = await response.json();
+      // The endpoint may return the automation directly or wrapped
+      const newAutomation = data.automation || data;
       setAutomations((prev) => [newAutomation, ...prev]);
       setNewAutomationText('');
     } catch (err) {
