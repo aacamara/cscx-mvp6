@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { WorkspacePanel } from './WorkspacePanel';
 import { WorkspaceAgent } from './WorkspaceAgent';
+import { useAuth } from '../context/AuthContext';
 
 interface Customer {
   id: string;
@@ -46,6 +47,29 @@ interface CustomerMetrics {
   };
 }
 
+interface Contract {
+  id: string;
+  fileName: string;
+  fileType: string;
+  fileSize: number;
+  fileUrl?: string;
+  companyName?: string;
+  arr?: number;
+  contractPeriod?: string;
+  status: string;
+  parsedData?: {
+    stakeholders?: Array<{
+      name: string;
+      role?: string;
+      email?: string;
+      phone?: string;
+    }>;
+    [key: string]: unknown;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface CustomerDetailProps {
   customerId: string;
   onBack: () => void;
@@ -59,16 +83,21 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
   onBack,
   onStartChat
 }) => {
+  const { getAuthHeaders } = useAuth();
   const [customer, setCustomer] = useState<Customer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'contracts' | 'contacts'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'activity' | 'contracts' | 'stakeholders'>('overview');
 
   // Metrics and activities state
   const [metrics, setMetrics] = useState<CustomerMetrics | null>(null);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [activitiesLoading, setActivitiesLoading] = useState(false);
+
+  // Contracts state
+  const [contracts, setContracts] = useState<Contract[]>([]);
+  const [contractsLoading, setContractsLoading] = useState(false);
 
   // Modal states for buttons
   const [showEditModal, setShowEditModal] = useState(false);
@@ -109,6 +138,24 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
     }
   }, [customerId]);
 
+  // Fetch customer contracts
+  const fetchContracts = useCallback(async () => {
+    setContractsLoading(true);
+    try {
+      const response = await fetch(`${API_BASE}/contracts?customerId=${customerId}`, {
+        headers: getAuthHeaders()
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setContracts(data.contracts || []);
+      }
+    } catch (err) {
+      console.error('Failed to fetch contracts:', err);
+    } finally {
+      setContractsLoading(false);
+    }
+  }, [customerId, getAuthHeaders]);
+
   useEffect(() => {
     const fetchCustomer = async () => {
       setLoading(true);
@@ -128,7 +175,8 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
     fetchCustomer();
     fetchMetrics();
     fetchActivities();
-  }, [customerId, fetchMetrics, fetchActivities]);
+    fetchContracts();
+  }, [customerId, fetchMetrics, fetchActivities, fetchContracts]);
 
   // Action handlers for buttons
   const showFeedback = (message: string) => {
@@ -231,6 +279,39 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
       milestone: '\ud83c\udfc6'
     };
     return icons[type] || '\ud83d\udccc';
+  };
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+  };
+
+  const getContractStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      active: 'bg-green-500/20 text-green-400 border-green-500/30',
+      parsed: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+      pending: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+      expired: 'bg-gray-500/20 text-gray-400 border-gray-500/30'
+    };
+    return styles[status] || styles.pending;
+  };
+
+  // Extract all stakeholders from contracts
+  const getAllStakeholders = () => {
+    const stakeholders: Array<{ name: string; role?: string; email?: string; phone?: string; source: string }> = [];
+
+    contracts.forEach(contract => {
+      if (contract.parsedData?.stakeholders) {
+        contract.parsedData.stakeholders.forEach(s => {
+          stakeholders.push({ ...s, source: contract.fileName });
+        });
+      }
+    });
+
+    return stakeholders;
   };
 
   if (loading) {
@@ -348,7 +429,7 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-cscx-gray-900 rounded-lg w-fit">
-        {(['overview', 'activity', 'contracts', 'contacts'] as const).map((tab) => (
+        {(['overview', 'activity', 'contracts', 'stakeholders'] as const).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -552,87 +633,183 @@ export const CustomerDetail: React.FC<CustomerDetailProps> = ({
 
           {activeTab === 'contracts' && (
             <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-              <h3 className="text-lg font-semibold text-white mb-4">Contract Details</h3>
-              <div className="space-y-4">
-                <div className="p-4 bg-cscx-gray-800 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white font-medium">Enterprise Plan</span>
-                    <span className="px-2 py-1 text-xs bg-green-500/20 text-green-400 rounded">Active</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-cscx-gray-400">Start Date</p>
-                      <p className="text-white">Jan 1, 2026</p>
-                    </div>
-                    <div>
-                      <p className="text-cscx-gray-400">End Date</p>
-                      <p className="text-white">{formatDate(customer.renewal_date)}</p>
-                    </div>
-                    <div>
-                      <p className="text-cscx-gray-400">Contract Value</p>
-                      <p className="text-cscx-accent font-medium">{formatCurrency(customer.arr)}</p>
-                    </div>
-                    <div>
-                      <p className="text-cscx-gray-400">Billing</p>
-                      <p className="text-white">Annual</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="p-4 border border-dashed border-cscx-gray-700 rounded-lg text-center">
-                  <p className="text-cscx-gray-400 text-sm">Upload a new contract to see detailed entitlements</p>
-                  <button
-                    onClick={() => showFeedback('Contract upload available in Onboarding flow - navigate to + New Onboarding')}
-                    className="mt-2 text-sm text-cscx-accent hover:underline"
-                  >
-                    Upload Contract
-                  </button>
-                </div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white">Contracts</h3>
+                <button
+                  onClick={() => showFeedback('Contract upload available in Onboarding flow - navigate to + New Onboarding')}
+                  className="text-sm text-cscx-accent hover:underline"
+                >
+                  + Upload Contract
+                </button>
               </div>
+              {contractsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin w-6 h-6 border-2 border-cscx-accent border-t-transparent rounded-full" />
+                  <span className="ml-2 text-cscx-gray-400">Loading contracts...</span>
+                </div>
+              ) : contracts.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-cscx-gray-400">No contracts uploaded yet</p>
+                  <p className="text-sm text-cscx-gray-500 mt-1">Upload a contract during onboarding to see details here</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {contracts.map((contract) => (
+                    <div key={contract.id} className="p-4 bg-cscx-gray-800 rounded-lg">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-cscx-gray-700 rounded-lg flex items-center justify-center text-lg">
+                            {contract.fileType?.includes('pdf') ? '\ud83d\udcc4' : '\ud83d\udcc3'}
+                          </div>
+                          <div>
+                            <p className="text-white font-medium">{contract.fileName}</p>
+                            <p className="text-xs text-cscx-gray-400">
+                              {formatFileSize(contract.fileSize)} • Uploaded {formatDate(contract.createdAt)}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getContractStatusBadge(contract.status)}`}>
+                            {contract.status}
+                          </span>
+                          {contract.fileUrl && (
+                            <a
+                              href={contract.fileUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-3 py-1 text-sm bg-cscx-gray-700 hover:bg-cscx-gray-600 text-white rounded-lg transition-colors"
+                            >
+                              Download
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                      {(contract.arr || contract.contractPeriod) && (
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm pt-3 border-t border-cscx-gray-700">
+                          {contract.arr && (
+                            <div>
+                              <p className="text-cscx-gray-400">Contract Value</p>
+                              <p className="text-cscx-accent font-medium">{formatCurrency(contract.arr)}</p>
+                            </div>
+                          )}
+                          {contract.contractPeriod && (
+                            <div>
+                              <p className="text-cscx-gray-400">Period</p>
+                              <p className="text-white">{contract.contractPeriod}</p>
+                            </div>
+                          )}
+                          {contract.companyName && (
+                            <div>
+                              <p className="text-cscx-gray-400">Company</p>
+                              <p className="text-white">{contract.companyName}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {activeTab === 'contacts' && (
+          {activeTab === 'stakeholders' && (
             <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-white">Contacts</h3>
+                <h3 className="text-lg font-semibold text-white">Stakeholders</h3>
                 <button
                   onClick={() => {
                     if (onStartChat && customer) {
                       onStartChat(customer);
-                      showFeedback('Opening AI chat to add contact...');
+                      showFeedback('Opening AI chat to add stakeholder...');
                     } else {
-                      showFeedback('Use AI Chat to add new contacts');
+                      showFeedback('Use AI Chat to add new stakeholders');
                     }
                   }}
                   className="text-sm text-cscx-accent hover:underline"
                 >
-                  + Add Contact
+                  + Add Stakeholder
                 </button>
               </div>
-              <div className="space-y-3">
-                {customer.primary_contact && (
-                  <div className="p-4 bg-cscx-gray-800 rounded-lg flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-cscx-accent rounded-full flex items-center justify-center text-white font-medium">
-                        {customer.primary_contact.name.charAt(0)}
-                      </div>
-                      <div>
-                        <p className="text-white font-medium">{customer.primary_contact.name}</p>
-                        <p className="text-sm text-cscx-gray-400">{customer.primary_contact.title}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-1 text-xs bg-cscx-accent/20 text-cscx-accent rounded">Primary</span>
-                      <a href={`mailto:${customer.primary_contact.email}`} className="text-cscx-gray-400 hover:text-white">
-                        {customer.primary_contact.email}
-                      </a>
-                    </div>
-                  </div>
-                )}
-                <div className="p-4 border border-dashed border-cscx-gray-700 rounded-lg text-center">
-                  <p className="text-cscx-gray-400 text-sm">Add more contacts to track all stakeholders</p>
+              {contractsLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin w-6 h-6 border-2 border-cscx-accent border-t-transparent rounded-full" />
+                  <span className="ml-2 text-cscx-gray-400">Loading stakeholders...</span>
                 </div>
-              </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Primary Contact */}
+                  {customer.primary_contact && (
+                    <div className="p-4 bg-cscx-gray-800 rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-cscx-accent rounded-full flex items-center justify-center text-white font-medium">
+                            {customer.primary_contact.name.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="text-white font-medium">{customer.primary_contact.name}</p>
+                            <p className="text-sm text-cscx-gray-400">{customer.primary_contact.title}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-1 text-xs bg-cscx-accent/20 text-cscx-accent rounded">Primary</span>
+                          <a href={`mailto:${customer.primary_contact.email}`} className="text-cscx-gray-400 hover:text-white text-sm">
+                            {customer.primary_contact.email}
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Stakeholders from Contracts */}
+                  {getAllStakeholders().length > 0 && (
+                    <>
+                      <div className="text-xs text-cscx-gray-500 uppercase tracking-wider mt-4 mb-2">From Contracts</div>
+                      {getAllStakeholders().map((stakeholder, index) => (
+                        <div key={`${stakeholder.name}-${index}`} className="p-4 bg-cscx-gray-800 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 bg-cscx-gray-700 rounded-full flex items-center justify-center text-white font-medium">
+                                {stakeholder.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="text-white font-medium">{stakeholder.name}</p>
+                                <p className="text-sm text-cscx-gray-400">{stakeholder.role || 'Unknown Role'}</p>
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1">
+                              {stakeholder.email && (
+                                <a href={`mailto:${stakeholder.email}`} className="text-cscx-gray-400 hover:text-white text-sm">
+                                  {stakeholder.email}
+                                </a>
+                              )}
+                              {stakeholder.phone && (
+                                <span className="text-cscx-gray-500 text-sm">{stakeholder.phone}</span>
+                              )}
+                              <span className="text-xs text-cscx-gray-600">from {stakeholder.source}</span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {/* Empty state when no stakeholders */}
+                  {!customer.primary_contact && getAllStakeholders().length === 0 && (
+                    <div className="text-center py-8">
+                      <p className="text-cscx-gray-400">No stakeholders found</p>
+                      <p className="text-sm text-cscx-gray-500 mt-1">Upload a contract to extract stakeholder information</p>
+                    </div>
+                  )}
+
+                  {/* Encourage adding more */}
+                  {(customer.primary_contact || getAllStakeholders().length > 0) && (
+                    <div className="p-4 border border-dashed border-cscx-gray-700 rounded-lg text-center">
+                      <p className="text-cscx-gray-400 text-sm">Add more stakeholders to track all key contacts</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
