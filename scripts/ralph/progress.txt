@@ -87,3 +87,28 @@ Initialized: Ready to complete the onboarding flow
   - Pre-existing TypeScript errors still present but not in our modified files
 
 ---
+
+## 2026-01-28 - US-004
+- What was implemented: Add Google Workspace connect UI
+- Files changed:
+  - components/GoogleConnect.tsx - Created new component (full settings panel)
+  - App.tsx - Added Settings button and modal
+- Changes:
+  - Created GoogleConnect component with:
+    - Connection status fetched from GET /api/google/auth/status
+    - Connect button that redirects to Google OAuth via /api/google/auth/connect
+    - Disconnect button that calls DELETE /api/google/auth/disconnect
+    - Shows connected Google email when connected
+    - Loading states and error handling
+    - Visual display of enabled features (Gmail, Calendar, Drive)
+  - Added Settings gear icon button to App.tsx header (next to user profile)
+  - Added modal wrapper for GoogleConnect component
+  - Added showSettings state for modal visibility
+- **Learnings for future iterations:**
+  - Google auth endpoints use x-user-id header for authentication
+  - AuthContext already has hasGoogleAccess from Supabase session, but backend /status gives more details
+  - UserProfile component also has Google connection UI via Supabase linkIdentity
+  - Modal pattern: use fixed inset-0 with bg-black/50 overlay
+  - Pre-existing TypeScript errors still present, build still succeeds (Vite more lenient)
+
+---
