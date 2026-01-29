@@ -308,4 +308,55 @@ export class SupabaseService {
     if (error) return [];
     return data;
   }
+
+  // Storage
+  async uploadFile(
+    bucket: string,
+    path: string,
+    file: Buffer,
+    contentType: string
+  ): Promise<{ url: string } | null> {
+    if (!this.client) {
+      console.log('Storage (no client configured): would upload to', path);
+      return null;
+    }
+
+    const { error: uploadError } = await this.ensureClient()
+      .storage
+      .from(bucket)
+      .upload(path, file, {
+        contentType,
+        upsert: true
+      });
+
+    if (uploadError) {
+      console.error('Storage upload error:', uploadError);
+      throw uploadError;
+    }
+
+    // Get public URL
+    const { data } = this.ensureClient()
+      .storage
+      .from(bucket)
+      .getPublicUrl(path);
+
+    return { url: data.publicUrl };
+  }
+
+  async updateContract(id: string, updates: Record<string, unknown>): Promise<void> {
+    if (!this.client) {
+      console.log('Update contract (no client):', id, updates);
+      return;
+    }
+
+    const { error } = await this.ensureClient()
+      .from('contracts')
+      .update(updates)
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating contract:', error);
+      throw error;
+    }
+  }
 }

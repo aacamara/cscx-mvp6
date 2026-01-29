@@ -3,6 +3,7 @@ import multer from 'multer';
 import { ContractParser } from '../services/contractParser.js';
 import { ClaudeService } from '../services/claude.js';
 import { SupabaseService } from '../services/supabase.js';
+import { optionalAuthMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const contractParser = new ContractParser();
@@ -32,7 +33,7 @@ const upload = multer({
 });
 
 // POST /api/contracts/upload - Upload and parse contract file
-router.post('/upload', upload.single('file'), async (req: Request, res: Response) => {
+router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req: Request, res: Response) => {
   try {
     const file = req.file;
 
@@ -52,11 +53,34 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       fileName: file.originalname
     });
 
+    // Upload file to Supabase Storage
+    // Use user_id/pending/filename path since customer_id isn't available yet
+    const userId = req.userId || 'anonymous';
+    const timestamp = Date.now();
+    const sanitizedFileName = file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const storagePath = `${userId}/pending/${timestamp}_${sanitizedFileName}`;
+
+    let fileUrl: string | undefined;
+    try {
+      const uploadResult = await db.uploadFile(
+        'contracts',
+        storagePath,
+        file.buffer,
+        file.mimetype
+      );
+      fileUrl = uploadResult?.url;
+      console.log(`File uploaded to storage: ${fileUrl}`);
+    } catch (storageError) {
+      // Log but don't fail the request - storage upload is optional
+      console.error('Storage upload failed (continuing without file URL):', storageError);
+    }
+
     // Save to database
     const contract = await db.saveContract({
       file_name: file.originalname,
       file_type: file.mimetype,
       file_size: file.size,
+      file_url: fileUrl,
       raw_text: result.rawText.substring(0, 50000), // Limit stored text
       company_name: result.extraction.company_name,
       arr: result.extraction.arr,
@@ -72,7 +96,8 @@ router.post('/upload', upload.single('file'), async (req: Request, res: Response
       summary: result.summary,
       research: result.research,
       plan: result.plan,
-      confidence: result.confidence
+      confidence: result.confidence,
+      fileUrl
     });
   } catch (error) {
     console.error('Contract upload error:', error);
