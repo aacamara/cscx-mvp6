@@ -1,161 +1,20 @@
+# Ralph Progress Log
+Started: Wed 28 Jan 2026 22:10:13 EST
+
 ## Codebase Patterns
-- Frontend uses AuthContext for auth state and getAuthHeaders() for API calls
-- API_URL from import.meta.env.VITE_API_URL
-- Supabase client in server/src/services/supabase.ts
-- Customer routes at server/src/routes/customers.ts
-- Contract routes at server/src/routes/contracts.ts - POST /api/contracts for creating with customer_id
-- GET /api/contracts returns camelCase keys (fileName, fileUrl, parsedData) - query param is customerId (camelCase)
-- Google auth routes at server/src/routes/google/auth.ts
-- OnboardingContext manages workflow state
-- Toast notifications use inline state pattern (useState with setTimeout for auto-dismiss)
-- ContractData type in types/workflow.ts does NOT include industry; industry is in CompanyResearch
-- UnifiedOnboarding.onComplete receives { contract: ContractData; plan: OnboardingPlan; fileMetadata?: FileMetadata }
-- ContractInput from uploads has fileName and mimeType but not file size - estimate from base64 content length * 0.75
-- Supabase Storage: use db.uploadFile(bucket, path, buffer, contentType) to upload files
-- optionalAuthMiddleware sets req.userId from JWT token or dev fallback
-- parsedData.stakeholders contains extracted stakeholder info from contract AI parsing
-
----
-
-# Onboarding Completion Progress Log
-
-Initialized: Ready to complete the onboarding flow
-
----
-
-## 2026-01-28 - US-001
-- What was implemented: Save customer on onboarding completion
-- Files changed: App.tsx
-- Changes:
-  - Added getAuthHeaders() import from useAuth hook
-  - Added toast notification state and showToast() helper function
-  - Modified onComplete handler in UnifiedOnboarding to:
-    - Call POST /api/customers with name, arr, status from contract data
-    - Include auth headers for RLS
-    - Show success toast "Customer created successfully"
-    - Navigate to customer-detail view with new customer ID
-    - Handle errors gracefully with error toast
-  - Added toast UI component (fixed position, top-right)
-- **Learnings for future iterations:**
-  - ContractData doesn't have industry field - that's in CompanyResearch
-  - Customer API accepts: name, industry (optional), arr, status, renewal_date, csm_name, primary_contact, tags
-  - Pre-existing TypeScript errors in other files (types/index.ts, AgentControlCenter, WorkspaceAgent) - not related to US-001
-  - Toast pattern: use useState + setTimeout(4000ms) for auto-dismiss
-
----
-
-## 2026-01-28 - US-002
-- What was implemented: Save contract linked to customer after onboarding completion
-- Files changed:
-  - server/src/routes/contracts.ts - Added POST /api/contracts endpoint
-  - components/UnifiedOnboarding.tsx - Added file metadata tracking
-  - App.tsx - Added contract save after customer creation
-- Changes:
-  - Added POST /api/contracts endpoint that accepts customer_id, file_name, file_type, file_size, parsed_data, status
-  - Endpoint extracts company_name, arr, contract_period from parsed_data for easier querying
-  - Added FileMetadata interface to UnifiedOnboarding to track file info through workflow
-  - Capture file metadata on upload (estimate size from base64 content)
-  - Call onComplete with contract, plan, and fileMetadata when deploying agents
-  - App.tsx now calls POST /api/contracts after successful customer creation
-  - Contract save failure is logged but doesn't block customer creation success
-- **Learnings for future iterations:**
-  - ContractInput doesn't have fileSize; estimate from base64 content length * 0.75
-  - Express routes order matters: POST / must come before GET /:id or params will catch it
-  - db.saveContract accepts any Record<string, unknown> - flexible for adding new fields
-  - Contract linked to customer via customer_id field in contracts table
-
----
-
-## 2026-01-28 - US-003
-- What was implemented: Upload contract file to Supabase Storage
-- Files changed:
-  - server/src/services/supabase.ts - Added uploadFile and updateContract methods
-  - server/src/routes/contracts.ts - Modified upload endpoint to store files in storage
-- Changes:
-  - Added uploadFile(bucket, path, buffer, contentType) method to SupabaseService
-  - Added updateContract(id, updates) method for future use
-  - Modified /api/contracts/upload to upload file to 'contracts' bucket
-  - Storage path: {user_id}/pending/{timestamp}_{sanitized_filename}
-  - Stores file_url in contracts table
-  - Returns fileUrl in upload response
-  - Added optionalAuthMiddleware to get userId for storage path
-  - Storage upload failure doesn't block contract creation (graceful degradation)
-- **Learnings for future iterations:**
-  - customer_id isn't available at upload time, so use user_id/pending/filename path
-  - Use optionalAuthMiddleware (not authMiddleware) when auth is helpful but not required
-  - Sanitize filenames for storage paths: replace non-alphanumeric chars with underscore
-  - Add timestamp prefix to avoid filename collisions
-  - Supabase storage bucket 'contracts' must be created in dashboard before use
-  - Pre-existing TypeScript errors still present but not in our modified files
-
----
-
-## 2026-01-28 - US-004
-- What was implemented: Add Google Workspace connect UI
-- Files changed:
-  - components/GoogleConnect.tsx - Created new component (full settings panel)
-  - App.tsx - Added Settings button and modal
-- Changes:
-  - Created GoogleConnect component with:
-    - Connection status fetched from GET /api/google/auth/status
-    - Connect button that redirects to Google OAuth via /api/google/auth/connect
-    - Disconnect button that calls DELETE /api/google/auth/disconnect
-    - Shows connected Google email when connected
-    - Loading states and error handling
-    - Visual display of enabled features (Gmail, Calendar, Drive)
-  - Added Settings gear icon button to App.tsx header (next to user profile)
-  - Added modal wrapper for GoogleConnect component
-  - Added showSettings state for modal visibility
-- **Learnings for future iterations:**
-  - Google auth endpoints use x-user-id header for authentication
-  - AuthContext already has hasGoogleAccess from Supabase session, but backend /status gives more details
-  - UserProfile component also has Google connection UI via Supabase linkIdentity
-  - Modal pattern: use fixed inset-0 with bg-black/50 overlay
-  - Pre-existing TypeScript errors still present, build still succeeds (Vite more lenient)
-
----
-
-## 2026-01-28 - US-005
-- What was implemented: Display saved customers in CustomerList with auth headers
-- Files changed:
-  - components/CustomerList.tsx - Added auth headers to fetch, updated empty state
-- Changes:
-  - Imported useAuth hook from AuthContext
-  - Added getAuthHeaders() to component
-  - Added headers parameter to fetch call for RLS filtering
-  - Updated useCallback dependencies to include getAuthHeaders
-  - Updated empty state message: "No customers yet. Start by onboarding a new customer."
-- **Learnings for future iterations:**
-  - CustomerList already had good structure (loading, error, empty states, sorting, filtering)
-  - Just needed auth headers for RLS to work correctly
-  - Always include getAuthHeaders in useCallback dependencies when used
-  - Pre-existing TypeScript errors don't affect build (Vite is lenient)
-
+- App.tsx uses conditional rendering based on `isAuthenticated` from `useAuth()` hook
+- Show loading spinner during `authLoading` to prevent flash of content
+- Components that need auth use the `useAuth` hook from `../context/AuthContext`
 ---
 
 ## 2026-01-28 - US-006
-- What was implemented: Show contract data in customer detail
-- Files changed:
-  - components/CustomerDetail.tsx - Added contracts fetching, updated tabs
-- Changes:
-  - Added Contract interface for typed contract data
-  - Added fetchContracts() to fetch from GET /api/contracts?customerId={id}
-  - Added contracts and contractsLoading state
-  - Updated tab type from 'contacts' to 'stakeholders'
-  - Added helper functions: formatFileSize(), getContractStatusBadge(), getAllStakeholders()
-  - Replaced mock contracts tab with real fetched contract data
-  - Show file icon based on type (PDF vs other)
-  - Display file info: name, size, upload date, status badge
-  - Added Download button linking to fileUrl when available
-  - Show extracted ARR, period, company name from contracts
-  - Stakeholders tab shows primary contact and extracted stakeholders from parsed_data
-  - Added source attribution showing which contract stakeholder came from
-  - Proper loading and empty states for both tabs
+- **What was implemented:** Integrated LandingPage component into App.tsx for unauthenticated users
+- **Files changed:**
+  - `App.tsx:15` - Added LandingPage import
+  - `App.tsx:132-134` - Changed conditional render from Login to LandingPage
+  - `components/LandingPage.tsx:9-13` - Made onLogin prop optional
 - **Learnings for future iterations:**
-  - GET /api/contracts returns transformed data with camelCase keys: fileName, fileType, fileSize, fileUrl, companyName, parsedData, createdAt
-  - Contracts API uses customerId (camelCase) as query param, not customer_id
-  - parsedData.stakeholders contains extracted stakeholder info from contract parsing
-  - CustomerDetail already had tab structure - just needed to update content and add fetch
-  - Pre-existing TypeScript errors still present but no new errors introduced
-
+  - The auth flow uses `authLoading` state to show a spinner, preventing flash of dashboard before landing page
+  - `isSupabaseConfigured()` check allows the app to work in demo mode when Supabase isn't set up
+  - LandingPage uses `signInWithGoogle` from useAuth hook directly, so the onLogin prop is unused
 ---
