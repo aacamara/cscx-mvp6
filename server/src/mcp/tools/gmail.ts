@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { gmailService, EmailThread, EmailMessage } from '../../services/google/gmail.js';
 import type { MCPTool, MCPContext, MCPResult } from '../index.js';
+import { createMCPTool } from '../registry.js';
 
 // ============================================
 // Input Schemas

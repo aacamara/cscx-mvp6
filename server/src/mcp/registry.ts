@@ -84,14 +84,25 @@ export class MCPRegistry {
   // ============================================
 
   registerTool(tool: MCPTool): void {
-    const { name } = tool.definition;
+    // Handle both formats: tools created with createMCPTool have .definition,
+    // while directly defined tools have properties at the root level
+    const definition = tool.definition || tool as unknown as MCPToolDefinition;
+    const { name } = definition;
+
+    if (!name) {
+      console.warn(`[MCPRegistry] Skipping tool with no name`);
+      return;
+    }
 
     if (this.tools.has(name)) {
       console.warn(`[MCPRegistry] Tool "${name}" is being re-registered. Overwriting.`);
     }
 
-    this.tools.set(name, tool);
-    console.log(`[MCPRegistry] Registered tool: ${name} (${tool.definition.provider})`);
+    // Normalize the tool to always have a definition property
+    const normalizedTool: MCPTool = tool.definition ? tool : { definition, healthCheck: async () => true };
+
+    this.tools.set(name, normalizedTool);
+    console.log(`[MCPRegistry] Registered tool: ${name} (${definition.provider})`);
   }
 
   registerTools(tools: MCPTool[]): void {

@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { slackService, SlackChannel, SlackUser, SlackMessage } from '../../services/slack/index.js';
 import type { MCPTool, MCPContext, MCPResult } from '../index.js';
+import { createMCPTool } from '../registry.js';
 
 // ============================================
 // Input Schemas

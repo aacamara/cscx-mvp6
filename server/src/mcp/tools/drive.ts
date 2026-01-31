@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import { driveService, DriveFile, DriveFolder } from '../../services/google/drive.js';
 import type { MCPTool, MCPContext, MCPResult } from '../index.js';
+import { createMCPTool } from '../registry.js';
 
 // ============================================
 // Input Schemas

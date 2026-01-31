@@ -17,24 +17,90 @@ import { AuthCallback } from './components/AuthCallback';
 import { UserProfile } from './components/UserProfile';
 import { UnifiedOnboarding } from './components/UnifiedOnboarding';
 import { AgentCenterView } from './components/AgentCenterView';
-import { AgentObservability } from './components/AgentObservability';
 import { KnowledgeBase } from './components/KnowledgeBase';
-import { AgentStudio } from './components/AgentStudio';
 import { Observability } from './components/Observability';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { WebSocketProvider } from './context/WebSocketContext';
 import { AgenticModeProvider } from './context/AgenticModeContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { isSupabaseConfigured } from './lib/supabase';
 import { AgenticModeToggle } from './components/AgenticModeToggle';
 import { AgentNotifications } from './components/AgentNotifications';
 import { GoogleConnect } from './components/GoogleConnect';
+import { AccessibilitySettings } from './components/Settings/AccessibilitySettings';
+import { HighContrastToggle } from './components/HighContrastToggle';
 
 // ============================================
 // CSCX.AI 10X - Simplified View Model
 // ============================================
 
 // Simplified view type - Observability is now the primary view (includes customers)
-type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-center' | 'agent-studio' | 'knowledge-base' | 'login' | 'auth-callback';
+type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-center' | 'knowledge-base' | 'login' | 'auth-callback';
+
+// Settings modal tabs
+type SettingsTab = 'integrations' | 'accessibility';
+
+// ============================================
+// Settings Modal Component
+// ============================================
+
+const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const [activeTab, setActiveTab] = useState<SettingsTab>('integrations');
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="w-full max-w-lg mx-4 bg-cscx-gray-900 rounded-xl border border-cscx-gray-800 shadow-xl hc-bg hc-border">
+        {/* Modal Header */}
+        <div className="flex items-center justify-between p-4 border-b border-cscx-gray-800 hc-border">
+          <h2 className="text-lg font-semibold hc-text">Settings</h2>
+          <button
+            onClick={onClose}
+            className="p-2 text-cscx-gray-400 hover:text-white rounded-lg transition-colors hc-text"
+            aria-label="Close settings"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex border-b border-cscx-gray-800 hc-border">
+          <button
+            onClick={() => setActiveTab('integrations')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'integrations'
+                ? 'text-cscx-accent border-b-2 border-cscx-accent'
+                : 'text-cscx-gray-400 hover:text-white hc-text'
+            }`}
+          >
+            Integrations
+          </button>
+          <button
+            onClick={() => setActiveTab('accessibility')}
+            className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'accessibility'
+                ? 'text-cscx-accent border-b-2 border-cscx-accent'
+                : 'text-cscx-gray-400 hover:text-white hc-text'
+            }`}
+          >
+            Accessibility
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <div className="p-4 max-h-[60vh] overflow-y-auto">
+          {activeTab === 'integrations' && (
+            <GoogleConnect onClose={onClose} />
+          )}
+          {activeTab === 'accessibility' && (
+            <AccessibilitySettings />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // ============================================
 // Main App Content
@@ -47,7 +113,6 @@ const AppContent: React.FC = () => {
   // View management - Observability is the default/home view
   const [view, setView] = useState<AppView>('observability');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [showObservability, setShowObservability] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [observabilityTab, setObservabilityTab] = useState<'overview' | 'customers' | 'metrics'>('overview');
 
@@ -106,8 +171,6 @@ const AppContent: React.FC = () => {
         return 'New Customer Onboarding';
       case 'agent-center':
         return 'Agent Center';
-      case 'agent-studio':
-        return 'Agent Studio';
       case 'knowledge-base':
         return 'Knowledge Base';
       default:
@@ -162,7 +225,7 @@ const AppContent: React.FC = () => {
 
             <div className="flex items-center gap-3 mt-4 sm:mt-0">
               {/* Back button for secondary views */}
-              {(view === 'onboarding' || view === 'agent-center' || view === 'agent-studio' || view === 'knowledge-base' || view === 'customer-detail') && (
+              {(view === 'onboarding' || view === 'agent-center' || view === 'knowledge-base' || view === 'customer-detail') && (
                 <button
                   onClick={handleBackToCustomers}
                   className="px-4 py-2 text-sm border border-cscx-gray-700 rounded-lg hover:bg-cscx-gray-800 hover:text-cscx-accent transition-colors"
@@ -176,6 +239,9 @@ const AppContent: React.FC = () => {
 
               {/* Agentic Mode Toggle - show when authenticated, in demo mode, or when Supabase not configured */}
               {(isAuthenticated || demoMode || !isSupabaseConfigured()) && <AgenticModeToggle />}
+
+              {/* High Contrast Toggle - PRD-273 */}
+              {(isAuthenticated || demoMode || !isSupabaseConfigured()) && <HighContrastToggle compact />}
 
               {/* Settings Button */}
               {(isAuthenticated || demoMode || !isSupabaseConfigured()) && (
@@ -228,17 +294,6 @@ const AppContent: React.FC = () => {
             </button>
 
             <button
-              onClick={() => setView('agent-studio')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
-                view === 'agent-studio'
-                  ? 'bg-cscx-accent text-white'
-                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
-              }`}
-            >
-              <span>🛠️</span> Agent Studio
-            </button>
-
-            <button
               onClick={() => setView('knowledge-base')}
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
                 view === 'knowledge-base'
@@ -247,13 +302,6 @@ const AppContent: React.FC = () => {
               }`}
             >
               <span>📚</span> Knowledge Base
-            </button>
-
-            <button
-              onClick={() => setShowObservability(true)}
-              className="px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800"
-            >
-              <span>🛰️</span> Mission Control
             </button>
           </nav>
         </header>
@@ -362,24 +410,11 @@ const AppContent: React.FC = () => {
             <KnowledgeBase />
           )}
 
-          {/* VIEW: AGENT STUDIO - Build and Test Agents */}
-          {view === 'agent-studio' && (
-            <AgentStudio />
-          )}
         </main>
-
-        {/* Mission Control Modal */}
-        {showObservability && (
-          <AgentObservability onClose={() => setShowObservability(false)} />
-        )}
 
         {/* Settings Modal */}
         {showSettings && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="w-full max-w-md mx-4">
-              <GoogleConnect onClose={() => setShowSettings(false)} />
-            </div>
-          </div>
+          <SettingsModal onClose={() => setShowSettings(false)} />
         )}
       </div>
     </div>
@@ -393,11 +428,13 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <WebSocketProvider>
-        <AgenticModeProvider>
-          <AppContent />
-        </AgenticModeProvider>
-      </WebSocketProvider>
+      <ThemeProvider>
+        <WebSocketProvider>
+          <AgenticModeProvider>
+            <AppContent />
+          </AgenticModeProvider>
+        </WebSocketProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 };

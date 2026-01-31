@@ -5,6 +5,10 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { AccountBriefing } from './AccountBriefing';
+import { HealthScorePortfolio } from './HealthScorePortfolio';
+import { isAccountBriefingCommand, extractAccountName } from '../hooks/useAccountBriefing';
+import { isRevenueAnalyticsCommand } from '../hooks/useRevenueAnalytics';
 
 const API_BASE = `${import.meta.env.VITE_API_URL || ''}/api`;
 
@@ -17,10 +21,20 @@ interface Customer {
   name: string;
   industry?: string;
   arr: number;
+  mrr?: number;
   health_score: number;
   status: 'active' | 'onboarding' | 'at_risk' | 'churned';
   renewal_date?: string;
+  contract_start?: string;
   csm_name?: string;
+  tier?: 'enterprise' | 'strategic' | 'commercial' | 'smb';
+  nps_score?: number;
+  product_adoption?: number;
+  last_activity_days?: number;
+  open_tickets?: number;
+  expansion_potential?: 'low' | 'medium' | 'high';
+  risk_level?: 'none' | 'low' | 'medium' | 'high' | 'critical';
+  contacts_count?: number;
   drive_root_id?: string;
   onboarding_sheet_id?: string;
   primary_contact?: {
@@ -117,7 +131,7 @@ interface ObservabilityProps {
   onSelectCustomer?: (customer: Customer) => void;
   onNewOnboarding?: () => void;
   initialSelectedCustomerId?: string | null;
-  initialTab?: 'overview' | 'customers' | 'metrics';
+  initialTab?: 'overview' | 'customers' | 'metrics' | 'health-portfolio' | 'engagement' | 'revenue';
 }
 
 // ============================================
@@ -138,7 +152,10 @@ export const Observability: React.FC<ObservabilityProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState('arr');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'metrics'>(initialTab || 'overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'health-portfolio'>(initialTab || 'overview');
+
+  // Engagement metrics state (PRD-157)
+  const [engagementCustomerId, setEngagementCustomerId] = useState<string | undefined>(undefined);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(initialSelectedCustomerId || null);
 
   // Agent inbox state
@@ -161,6 +178,12 @@ export const Observability: React.FC<ObservabilityProps> = ({
     avgHealth: 0,
     atRiskCount: 0
   });
+
+  // Account briefing state (PRD-056)
+  const [showBriefingModal, setShowBriefingModal] = useState(false);
+  const [briefingAccountName, setBriefingAccountName] = useState<string | undefined>(undefined);
+  const [briefingCustomerId, setBriefingCustomerId] = useState<string | undefined>(undefined);
+  const [commandInput, setCommandInput] = useState('');
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -249,22 +272,15 @@ export const Observability: React.FC<ObservabilityProps> = ({
     }
   }, []);
 
-  useEffect(() => {
-    if (selectedCustomerId && activeTab === 'metrics') {
-      fetchAgentInbox(selectedCustomerId);
-      fetchCustomerMetrics(selectedCustomerId);
-    }
-  }, [selectedCustomerId, activeTab, fetchAgentInbox, fetchCustomerMetrics]);
 
   // Get selected customer object
   const selectedCustomer = selectedCustomerId
     ? customers.find(c => c.id === selectedCustomerId)
     : null;
 
-  // Handle customer click in Customers tab -> redirect to Metrics with selection
+  // Handle customer click in Customers tab -> open customer detail
   const handleCustomerClick = (customer: Customer) => {
-    setSelectedCustomerId(customer.id);
-    setActiveTab('metrics');
+    onSelectCustomer?.(customer);
   };
 
   // Handle approval action
@@ -398,7 +414,7 @@ export const Observability: React.FC<ObservabilityProps> = ({
     <div className="space-y-6">
       {/* Tab Navigation */}
       <div className="flex gap-2 p-1 bg-cscx-gray-900 rounded-lg w-fit">
-        {(['overview', 'customers', 'metrics'] as const).map(tab => (
+        {(['overview', 'customers', 'health-portfolio'] as const).map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -408,7 +424,9 @@ export const Observability: React.FC<ObservabilityProps> = ({
                 : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
             }`}
           >
-            {tab === 'overview' ? '📊 Overview' : tab === 'customers' ? '👥 Customers' : '📈 Metrics'}
+            {tab === 'overview' ? '📊 Overview' :
+             tab === 'customers' ? '👥 Customers' :
+             '💚 Health Portfolio'}
           </button>
         ))}
       </div>
@@ -416,6 +434,73 @@ export const Observability: React.FC<ObservabilityProps> = ({
       {/* Overview Tab */}
       {activeTab === 'overview' && (
         <>
+          {/* Natural Language Command Bar (PRD-056) */}
+          <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-4">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const trimmed = commandInput.trim();
+                if (!trimmed) return;
+
+                // Check if it's an account briefing command
+                if (isAccountBriefingCommand(trimmed)) {
+                  const accountName = extractAccountName(trimmed);
+                  if (accountName) {
+                    setBriefingAccountName(accountName);
+                    setBriefingCustomerId(undefined);
+                    setShowBriefingModal(true);
+                    setCommandInput('');
+                    return;
+                  }
+                }
+
+                // Otherwise treat as customer search
+                setSearch(trimmed);
+                setActiveTab('customers');
+                setCommandInput('');
+              }}
+              className="flex gap-3"
+            >
+              <div className="flex-1 relative">
+                <input
+                  type="text"
+                  value={commandInput}
+                  onChange={(e) => setCommandInput(e.target.value)}
+                  placeholder='Try: "Tell me about Acme Corp" or search for a customer...'
+                  className="w-full px-4 py-3 pl-12 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg text-white placeholder-cscx-gray-500 focus:outline-none focus:border-cscx-accent transition-colors"
+                />
+                <svg className="absolute left-4 top-3.5 w-5 h-5 text-cscx-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                </svg>
+              </div>
+              <button
+                type="submit"
+                className="px-6 py-3 bg-cscx-accent hover:bg-red-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                Go
+              </button>
+            </form>
+            <div className="flex flex-wrap gap-2 mt-3">
+              <span className="text-xs text-cscx-gray-500">Try:</span>
+              {[
+                'Tell me about Meridian Capital',
+                'Brief me on Acme Corp',
+                'What accounts need attention?'
+              ].map((example, i) => (
+                <button
+                  key={i}
+                  onClick={() => setCommandInput(example)}
+                  className="text-xs px-2 py-1 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-cscx-gray-400 hover:text-white rounded transition-colors"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Portfolio Summary Cards */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-4">
@@ -656,35 +741,50 @@ export const Observability: React.FC<ObservabilityProps> = ({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm min-w-[1400px]">
                   <thead>
                     <tr className="bg-cscx-gray-800/50 border-b border-cscx-gray-800">
                       <th
-                        className="text-left px-4 py-3 text-cscx-gray-400 font-medium cursor-pointer hover:text-white"
+                        className="text-left px-4 py-3 text-cscx-gray-400 font-medium cursor-pointer hover:text-white whitespace-nowrap"
                         onClick={() => handleSort('name')}
                       >
                         Customer {sortBy === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}
                       </th>
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
+                        Tier
+                      </th>
                       <th
-                        className="text-left px-4 py-3 text-cscx-gray-400 font-medium cursor-pointer hover:text-white"
+                        className="text-left px-3 py-3 text-cscx-gray-400 font-medium cursor-pointer hover:text-white whitespace-nowrap"
                         onClick={() => handleSort('arr')}
                       >
                         ARR {sortBy === 'arr' && (sortOrder === 'asc' ? '↑' : '↓')}
                       </th>
                       <th
-                        className="text-left px-4 py-3 text-cscx-gray-400 font-medium cursor-pointer hover:text-white"
+                        className="text-left px-3 py-3 text-cscx-gray-400 font-medium cursor-pointer hover:text-white whitespace-nowrap"
                         onClick={() => handleSort('health_score')}
                       >
                         Health {sortBy === 'health_score' && (sortOrder === 'asc' ? '↑' : '↓')}
                       </th>
-                      <th className="text-left px-4 py-3 text-cscx-gray-400 font-medium">
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
+                        NPS
+                      </th>
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
+                        Adoption
+                      </th>
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
+                        Risk
+                      </th>
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
                         Status
                       </th>
-                      <th className="text-left px-4 py-3 text-cscx-gray-400 font-medium">
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
+                        Last Activity
+                      </th>
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
                         Renewal
                       </th>
-                      <th className="text-left px-4 py-3 text-cscx-gray-400 font-medium">
-                        Workspace
+                      <th className="text-left px-3 py-3 text-cscx-gray-400 font-medium whitespace-nowrap">
+                        CSM
                       </th>
                     </tr>
                   </thead>
@@ -695,18 +795,37 @@ export const Observability: React.FC<ObservabilityProps> = ({
                         className="hover:bg-cscx-gray-800/30 transition-colors cursor-pointer"
                         onClick={() => handleCustomerClick(customer)}
                       >
+                        {/* Customer Name + Industry */}
                         <td className="px-4 py-3">
                           <div>
                             <p className="text-white font-medium">{customer.name}</p>
-                            <p className="text-cscx-gray-500 text-xs">{customer.industry}</p>
+                            <p className="text-cscx-gray-500 text-xs">{customer.industry || 'N/A'}</p>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className="text-white font-medium">{formatCurrency(customer.arr)}</span>
+                        {/* Tier */}
+                        <td className="px-3 py-3">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                            customer.tier === 'enterprise' ? 'bg-purple-500/20 text-purple-400' :
+                            customer.tier === 'strategic' ? 'bg-blue-500/20 text-blue-400' :
+                            customer.tier === 'commercial' ? 'bg-cyan-500/20 text-cyan-400' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>
+                            {customer.tier || 'N/A'}
+                          </span>
                         </td>
-                        <td className="px-4 py-3">
+                        {/* ARR */}
+                        <td className="px-3 py-3">
+                          <div>
+                            <span className="text-white font-medium">{formatCurrency(customer.arr)}</span>
+                            {customer.mrr && (
+                              <p className="text-cscx-gray-500 text-xs">{formatCurrency(customer.mrr)}/mo</p>
+                            )}
+                          </div>
+                        </td>
+                        {/* Health Score */}
+                        <td className="px-3 py-3">
                           <div className="flex items-center gap-2">
-                            <div className={`w-10 h-2 rounded-full ${getHealthBg(customer.health_score)}`}>
+                            <div className="w-12 h-2 rounded-full bg-cscx-gray-700">
                               <div
                                 className={`h-full rounded-full ${customer.health_score >= 80 ? 'bg-green-500' : customer.health_score >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
                                 style={{ width: `${customer.health_score}%` }}
@@ -717,38 +836,69 @@ export const Observability: React.FC<ObservabilityProps> = ({
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusBadge(customer.status)}`}>
+                        {/* NPS */}
+                        <td className="px-3 py-3">
+                          <span className={`font-medium ${
+                            (customer.nps_score || 0) >= 50 ? 'text-green-400' :
+                            (customer.nps_score || 0) >= 0 ? 'text-yellow-400' :
+                            'text-red-400'
+                          }`}>
+                            {customer.nps_score !== undefined ? customer.nps_score : '-'}
+                          </span>
+                        </td>
+                        {/* Adoption */}
+                        <td className="px-3 py-3">
+                          <div className="flex items-center gap-1">
+                            <span className={`font-medium ${
+                              (customer.product_adoption || 0) >= 70 ? 'text-green-400' :
+                              (customer.product_adoption || 0) >= 50 ? 'text-yellow-400' :
+                              'text-red-400'
+                            }`}>
+                              {customer.product_adoption !== undefined ? `${customer.product_adoption}%` : '-'}
+                            </span>
+                          </div>
+                        </td>
+                        {/* Risk Level */}
+                        <td className="px-3 py-3">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded ${
+                            customer.risk_level === 'critical' ? 'bg-red-500/30 text-red-400 border border-red-500/50' :
+                            customer.risk_level === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                            customer.risk_level === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                            customer.risk_level === 'low' ? 'bg-blue-500/20 text-blue-400' :
+                            'bg-green-500/20 text-green-400'
+                          }`}>
+                            {customer.risk_level || 'none'}
+                          </span>
+                        </td>
+                        {/* Status */}
+                        <td className="px-3 py-3">
+                          <span className={`px-2 py-0.5 text-xs font-medium rounded-full border ${getStatusBadge(customer.status)}`}>
                             {customer.status.replace('_', ' ')}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-cscx-gray-300">
+                        {/* Last Activity */}
+                        <td className="px-3 py-3">
+                          <span className={`text-sm ${
+                            (customer.last_activity_days || 0) <= 3 ? 'text-green-400' :
+                            (customer.last_activity_days || 0) <= 7 ? 'text-yellow-400' :
+                            'text-red-400'
+                          }`}>
+                            {customer.last_activity_days !== undefined
+                              ? customer.last_activity_days === 0
+                                ? 'Today'
+                                : `${customer.last_activity_days}d ago`
+                              : '-'}
+                          </span>
+                        </td>
+                        {/* Renewal */}
+                        <td className="px-3 py-3 text-cscx-gray-300 whitespace-nowrap">
                           {customer.renewal_date ? new Date(customer.renewal_date).toLocaleDateString() : '-'}
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            {customer.drive_root_id && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openGoogleDrive(customer.drive_root_id); }}
-                                className="p-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 rounded text-sm"
-                                title="Open Google Drive"
-                              >
-                                📁 Drive
-                              </button>
-                            )}
-                            {customer.onboarding_sheet_id && (
-                              <button
-                                onClick={(e) => { e.stopPropagation(); openGoogleSheet(customer.onboarding_sheet_id); }}
-                                className="p-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 rounded text-sm"
-                                title="Open Tracker Sheet"
-                              >
-                                📊 Sheet
-                              </button>
-                            )}
-                            {!customer.drive_root_id && !customer.onboarding_sheet_id && (
-                              <span className="text-cscx-gray-500 text-xs">No workspace</span>
-                            )}
-                          </div>
+                        {/* CSM */}
+                        <td className="px-3 py-3">
+                          <span className="text-cscx-gray-300 text-sm">
+                            {customer.csm_name || '-'}
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -760,386 +910,53 @@ export const Observability: React.FC<ObservabilityProps> = ({
         </>
       )}
 
-      {/* Metrics Tab */}
-      {activeTab === 'metrics' && (
-        <>
-          {/* Customer Selector */}
-          <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-4">
-            <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-              <div className="flex items-center gap-3 flex-1">
-                <label className="text-sm text-cscx-gray-400 whitespace-nowrap">View metrics for:</label>
-                <select
-                  value={selectedCustomerId || ''}
-                  onChange={(e) => setSelectedCustomerId(e.target.value || null)}
-                  className="flex-1 px-4 py-2.5 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg text-white focus:outline-none focus:border-cscx-accent"
-                >
-                  <option value="">All Customers (Portfolio)</option>
-                  {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+      {/* Health Portfolio Tab (PRD-153) */}
+      {activeTab === 'health-portfolio' && (
+        <HealthScorePortfolio
+          onSelectCustomer={(customerId) => {
+            // Find customer by ID and call parent handler
+            const customer = customers.find(c => c.id === customerId);
+            if (customer) {
+              onSelectCustomer?.(customer);
+            }
+          }}
+        />
+      )}
+      {/* Account Briefing Modal (PRD-056) */}
+      {showBriefingModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl w-full max-w-6xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-cscx-gray-900 border-b border-cscx-gray-800 p-4 flex items-center justify-between z-10">
+              <div>
+                <h2 className="text-xl font-bold text-white">Account 360 Briefing</h2>
+                <p className="text-sm text-cscx-gray-400">AI-generated comprehensive account intelligence</p>
               </div>
-              {selectedCustomer && (
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-1 text-xs font-medium rounded-full border ${getStatusBadge(selectedCustomer.status)}`}>
-                    {selectedCustomer.status.replace('_', ' ')}
-                  </span>
-                  {selectedCustomer.drive_root_id && (
-                    <button
-                      onClick={() => openGoogleDrive(selectedCustomer.drive_root_id)}
-                      className="px-3 py-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 rounded text-sm flex items-center gap-1"
-                    >
-                      📁 Drive
-                    </button>
-                  )}
-                  {selectedCustomer.onboarding_sheet_id && (
-                    <button
-                      onClick={() => openGoogleSheet(selectedCustomer.onboarding_sheet_id)}
-                      className="px-3 py-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 rounded text-sm flex items-center gap-1"
-                    >
-                      📊 Sheet
-                    </button>
-                  )}
-                </div>
-              )}
+              <button
+                onClick={() => {
+                  setShowBriefingModal(false);
+                  setBriefingAccountName(undefined);
+                  setBriefingCustomerId(undefined);
+                }}
+                className="p-2 text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800 rounded-lg transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-6">
+              <AccountBriefing
+                customerId={briefingCustomerId}
+                accountName={briefingAccountName}
+                onClose={() => {
+                  setShowBriefingModal(false);
+                  setBriefingAccountName(undefined);
+                  setBriefingCustomerId(undefined);
+                }}
+              />
             </div>
           </div>
-
-          {/* Individual Customer Metrics */}
-          {selectedCustomer ? (
-            <>
-              {/* Customer Header */}
-              <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <h2 className="text-2xl font-bold text-white">{selectedCustomer.name}</h2>
-                    <p className="text-cscx-gray-400">{selectedCustomer.industry || 'Industry not specified'}</p>
-                  </div>
-                  <button
-                    onClick={() => onSelectCustomer?.(selectedCustomer)}
-                    className="px-4 py-2 bg-cscx-accent hover:bg-red-700 text-white font-medium rounded-lg transition-colors"
-                  >
-                    Open Full 360° View →
-                  </button>
-                </div>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-3 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase">ARR</p>
-                    <p className="text-xl font-bold text-cscx-accent">{formatCurrency(selectedCustomer.arr)}</p>
-                  </div>
-                  <div className="p-3 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase">MRR</p>
-                    <p className="text-xl font-bold text-white">{formatCurrency(selectedCustomer.arr / 12)}</p>
-                  </div>
-                  <div className="p-3 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase">Health Score</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <p className={`text-xl font-bold ${getHealthColor(selectedCustomer.health_score)}`}>
-                        {selectedCustomer.health_score}%
-                      </p>
-                      <div className={`flex-1 h-2 rounded-full ${getHealthBg(selectedCustomer.health_score)}`}>
-                        <div
-                          className={`h-full rounded-full ${selectedCustomer.health_score >= 80 ? 'bg-green-500' : selectedCustomer.health_score >= 60 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                          style={{ width: `${selectedCustomer.health_score}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase">Renewal Date</p>
-                    <p className="text-xl font-bold text-white">
-                      {selectedCustomer.renewal_date ? new Date(selectedCustomer.renewal_date).toLocaleDateString() : 'Not set'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Customer-Specific Metrics */}
-              <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <span>📈</span> {selectedCustomer.name} Engagement Metrics
-                </h3>
-                {metricsLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <div className="animate-spin w-6 h-6 border-2 border-cscx-accent border-t-transparent rounded-full" />
-                    <span className="ml-2 text-cscx-gray-400">Loading metrics...</span>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                    <MetricCard
-                      label="Days Since Onboard"
-                      value={customerMetrics?.daysSinceOnboard?.toString() || '0'}
-                    />
-                    <MetricCard
-                      label="Active Users"
-                      value={customerMetrics?.activeUsers?.toString() || '0'}
-                    />
-                    <MetricCard
-                      label="Feature Adoption"
-                      value={`${customerMetrics?.featureAdoption || 0}%`}
-                      highlight={customerMetrics?.featureAdoption && customerMetrics.featureAdoption >= 70 ? 'green' : undefined}
-                    />
-                    <MetricCard
-                      label="Support Tickets"
-                      value={customerMetrics?.supportTickets?.toString() || '0'}
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Contact Info */}
-              {selectedCustomer.primary_contact && (
-                <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                  <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                    <span>👤</span> Primary Contact
-                  </h3>
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-cscx-accent/20 flex items-center justify-center text-cscx-accent font-bold">
-                      {selectedCustomer.primary_contact.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-white font-medium">{selectedCustomer.primary_contact.name}</p>
-                      <p className="text-cscx-gray-400 text-sm">{selectedCustomer.primary_contact.title}</p>
-                      <p className="text-cscx-gray-500 text-sm">{selectedCustomer.primary_contact.email}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Agent Inbox */}
-              <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-                    <span>🤖</span> Agent Inbox
-                  </h3>
-                  {agentInbox && (
-                    <div className="flex items-center gap-4 text-xs">
-                      <span className="px-2 py-1 bg-cscx-accent/20 text-cscx-accent rounded">
-                        {agentInbox.summary.pendingApprovals} Pending
-                      </span>
-                      <span className="px-2 py-1 bg-green-500/20 text-green-400 rounded">
-                        {agentInbox.summary.completedToday} Today
-                      </span>
-                    </div>
-                  )}
-                </div>
-
-                {inboxLoading ? (
-                  <div className="text-center py-8 text-cscx-gray-400">
-                    <div className="animate-spin w-6 h-6 border-2 border-cscx-accent border-t-transparent rounded-full mx-auto mb-2" />
-                    Loading agent inbox...
-                  </div>
-                ) : agentInbox ? (
-                  <div className="space-y-4">
-                    {/* Pending Approvals */}
-                    {agentInbox.pendingApprovals.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-yellow-400 mb-2 flex items-center gap-2">
-                          <span>⏳</span> Pending Approvals ({agentInbox.pendingApprovals.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {agentInbox.pendingApprovals.map(approval => (
-                            <div key={approval.id} className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
-                              <div className="flex items-start justify-between">
-                                <div className="flex-1">
-                                  <p className="text-white font-medium text-sm">
-                                    {approval.actionType.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                                  </p>
-                                  <p className="text-cscx-gray-400 text-xs mt-1">
-                                    {approval.actionData.subject || approval.actionData.title || 'Action pending approval'}
-                                  </p>
-                                  <p className="text-cscx-gray-500 text-xs mt-1">
-                                    Created {new Date(approval.createdAt).toLocaleString()}
-                                  </p>
-                                </div>
-                                <div className="flex gap-2">
-                                  <button
-                                    onClick={() => handleApprovalAction(approval.id, 'approve')}
-                                    className="px-3 py-1 bg-green-500 hover:bg-green-600 text-white text-xs rounded transition-colors"
-                                  >
-                                    Approve
-                                  </button>
-                                  <button
-                                    onClick={() => handleApprovalAction(approval.id, 'reject')}
-                                    className="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-xs rounded transition-colors"
-                                  >
-                                    Reject
-                                  </button>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Recent Activities */}
-                    <div>
-                      <h4 className="text-sm font-medium text-cscx-gray-300 mb-2 flex items-center gap-2">
-                        <span>📋</span> Recent Agent Activities
-                      </h4>
-                      {agentInbox.activities.length > 0 ? (
-                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                          {agentInbox.activities.slice(0, 10).map(activity => (
-                            <div key={activity.id} className="p-3 bg-cscx-gray-800/50 rounded-lg flex items-start gap-3">
-                              <div className={`w-2 h-2 rounded-full mt-2 ${
-                                activity.status === 'completed' ? 'bg-green-500' :
-                                activity.status === 'failed' ? 'bg-red-500' :
-                                'bg-yellow-500'
-                              }`} />
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs px-2 py-0.5 bg-cscx-accent/20 text-cscx-accent rounded">
-                                    {activity.agentType}
-                                  </span>
-                                  <span className="text-white text-sm font-medium">
-                                    {activity.actionType.replace(/_/g, ' ')}
-                                  </span>
-                                </div>
-                                <p className="text-cscx-gray-500 text-xs mt-1">
-                                  {new Date(activity.startedAt).toLocaleString()}
-                                  {activity.durationMs && ` • ${(activity.durationMs / 1000).toFixed(1)}s`}
-                                </p>
-                                {activity.errorMessage && (
-                                  <p className="text-red-400 text-xs mt-1">{activity.errorMessage}</p>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-cscx-gray-500 text-center py-4">No agent activities yet</p>
-                      )}
-                    </div>
-
-                    {/* Chat History */}
-                    <div>
-                      <h4 className="text-sm font-medium text-cscx-gray-300 mb-2 flex items-center gap-2">
-                        <span>💬</span> Recent Conversations
-                      </h4>
-                      {agentInbox.chatHistory.length > 0 ? (
-                        <div className="space-y-2 max-h-64 overflow-y-auto">
-                          {agentInbox.chatHistory.slice(0, 20).map(msg => (
-                            <div key={msg.id} className={`p-3 rounded-lg ${
-                              msg.role === 'user' ? 'bg-cscx-gray-800/50 ml-8' : 'bg-cscx-accent/10 mr-8'
-                            }`}>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`text-xs font-medium ${
-                                  msg.role === 'user' ? 'text-blue-400' : 'text-cscx-accent'
-                                }`}>
-                                  {msg.role === 'user' ? 'You' : msg.agentType || 'Assistant'}
-                                </span>
-                                <span className="text-cscx-gray-600 text-xs">
-                                  {new Date(msg.createdAt).toLocaleTimeString()}
-                                </span>
-                              </div>
-                              <p className="text-cscx-gray-300 text-sm whitespace-pre-wrap">
-                                {msg.content.length > 200 ? `${msg.content.slice(0, 200)}...` : msg.content}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-cscx-gray-500 text-center py-4">No chat history yet</p>
-                      )}
-                    </div>
-
-                    {/* Completed Approvals History */}
-                    {agentInbox.completedApprovals.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-cscx-gray-300 mb-2 flex items-center gap-2">
-                          <span>✅</span> Completed Approvals
-                        </h4>
-                        <div className="space-y-2 max-h-32 overflow-y-auto">
-                          {agentInbox.completedApprovals.slice(0, 5).map(approval => (
-                            <div key={approval.id} className="p-2 bg-cscx-gray-800/30 rounded flex items-center justify-between">
-                              <span className="text-cscx-gray-400 text-xs">
-                                {approval.actionType.replace(/_/g, ' ')}
-                              </span>
-                              <span className={`text-xs px-2 py-0.5 rounded ${
-                                approval.status === 'approved' ? 'bg-green-500/20 text-green-400' :
-                                approval.status === 'rejected' ? 'bg-red-500/20 text-red-400' :
-                                'bg-blue-500/20 text-blue-400'
-                              }`}>
-                                {approval.status}
-                              </span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <p className="text-cscx-gray-500 text-center py-8">
-                    Select a customer to view their agent inbox
-                  </p>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              {/* Portfolio-Level Metrics (existing) */}
-              <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <span>💰</span> Revenue Metrics (Portfolio)
-                </h3>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <MetricCard label="MRR" value={formatCurrency(metrics?.revenue.mrr || 0)} />
-                  <MetricCard label="ARR" value={formatCurrency(metrics?.revenue.arr || 0)} />
-                  <MetricCard label="New MRR" value={formatCurrency(metrics?.revenue.newMRR || 0)} highlight="green" />
-                  <MetricCard label="Expansion MRR" value={formatCurrency(metrics?.revenue.expansionMRR || 0)} highlight="green" />
-                  <MetricCard label="Contraction MRR" value={formatCurrency(metrics?.revenue.contractionMRR || 0)} highlight="red" />
-                  <MetricCard label="Churned MRR" value={formatCurrency(metrics?.revenue.churnedMRR || 0)} highlight="red" />
-                  <MetricCard label="ARPU" value={formatCurrency(metrics?.revenue.arpu || 0)} />
-                  <MetricCard label="Customer Count" value={summary.totalCustomers.toString()} />
-                </div>
-              </div>
-
-              {/* Satisfaction Metrics */}
-              <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <span>😊</span> Satisfaction Metrics (Portfolio)
-                </h3>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  <div className="text-center p-4 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase mb-2">Net Promoter Score (NPS)</p>
-                    <p className={`text-4xl font-bold ${getBenchmarkColor('nps', metrics?.satisfaction.nps.nps || 0)}`}>
-                      {metrics?.satisfaction.nps.nps || 0}
-                    </p>
-                    <p className="text-xs text-cscx-gray-500 mt-2">
-                      {metrics?.satisfaction.nps.totalResponses || 0} responses
-                    </p>
-                  </div>
-                  <div className="text-center p-4 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase mb-2">CSAT Score</p>
-                    <p className="text-4xl font-bold text-white">
-                      {formatPercent(metrics?.satisfaction.csat || 0)}
-                    </p>
-                  </div>
-                  <div className="text-center p-4 bg-cscx-gray-800/50 rounded-lg">
-                    <p className="text-xs text-cscx-gray-400 uppercase mb-2">CES Score</p>
-                    <p className="text-4xl font-bold text-white">
-                      {(metrics?.satisfaction.ces || 0).toFixed(1)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* LTV Metrics */}
-              <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <span>📈</span> Lifetime Value Metrics
-                </h3>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <MetricCard label="Lifetime Value (LTV)" value={formatCurrency(metrics?.ltv.ltv || 0)} />
-                  <MetricCard label="CAC" value={formatCurrency(metrics?.ltv.cac || 0)} />
-                  <MetricCard label="LTV:CAC Ratio" value={`${(metrics?.ltv.ltvCacRatio || 0).toFixed(1)}:1`} />
-                  <MetricCard label="CAC Payback" value={`${Math.round(metrics?.ltv.cacPaybackMonths || 0)} mo`} />
-                </div>
-              </div>
-            </>
-          )}
-        </>
+        </div>
       )}
     </div>
   );

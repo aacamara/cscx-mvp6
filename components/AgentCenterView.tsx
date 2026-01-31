@@ -8,12 +8,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AgentControlCenter } from './AgentControlCenter';
 import { ContractUpload } from './ContractUpload';
-import { MCPToolsBrowser } from './WorkspaceAgentV2/MCPToolsBrowser';
-import { TriggersDashboard } from './WorkspaceAgentV2/TriggersDashboard';
-import { PlaybooksManager } from './WorkspaceAgentV2/PlaybooksManager';
-import { SkillsLibrary } from './WorkspaceAgentV2/SkillsLibrary';
-import { AutomationsPanel } from './WorkspaceAgentV2/AutomationsPanel';
-import { MeetingIntelligenceViewer } from './WorkspaceAgentV2/MeetingIntelligenceViewer';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -54,11 +48,9 @@ export const AgentCenterView: React.FC = () => {
   const [loadingCustomers, setLoadingCustomers] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // View mode
-  const [showCustomerSelector, setShowCustomerSelector] = useState(true);
-  const [activeAgentTab, setActiveAgentTab] = useState<
-    'chat' | 'tools' | 'triggers' | 'playbooks' | 'skills' | 'automations' | 'meetings'
-  >('chat');
+  // View mode - go directly to chat (no customer selector)
+  const [showCustomerSelector] = useState(false);
+  const [activeAgentTab] = useState<'chat'>('chat');
 
   // New onboarding from contract upload
   const [showContractUpload, setShowContractUpload] = useState(false);
@@ -139,21 +131,6 @@ export const AgentCenterView: React.FC = () => {
     };
   };
 
-  const handleSelectCustomer = (customer: Customer) => {
-    setSelectedCustomer(customer);
-    setShowCustomerSelector(false);
-  };
-
-  const handleClearCustomer = () => {
-    setSelectedCustomer(null);
-    setShowCustomerSelector(true);
-  };
-
-  const handleUseGeneralMode = () => {
-    setSelectedCustomer(null);
-    setShowCustomerSelector(false);
-  };
-
   // Handle contract upload for new onboarding
   const handleContractUpload = useCallback(async (input: ContractInput) => {
     setIsParsingContract(true);
@@ -165,7 +142,6 @@ export const AgentCenterView: React.FC = () => {
       setContractData(result.contractData as unknown as ContractExtraction);
       setOnboardingPlan(result.plan as unknown as OnboardingPlan);
       setShowContractUpload(false);
-      setShowCustomerSelector(false);
 
     } catch (e) {
       console.error('Contract parsing error:', e);
@@ -183,28 +159,11 @@ export const AgentCenterView: React.FC = () => {
     setUploadError(null);
   };
 
-  // Reset to selector
-  const handleBackToSelector = () => {
+  // Reset from contract upload
+  const handleBackFromContractUpload = () => {
     setShowContractUpload(false);
     setContractData(null);
     setOnboardingPlan(null);
-    setShowCustomerSelector(true);
-  };
-
-  const getHealthColor = (score: number) => {
-    if (score >= 80) return 'text-green-400';
-    if (score >= 60) return 'text-yellow-400';
-    return 'text-red-400';
-  };
-
-  const getStatusBadge = (status: string) => {
-    const styles: Record<string, string> = {
-      active: 'bg-green-500/20 text-green-400',
-      onboarding: 'bg-blue-500/20 text-blue-400',
-      at_risk: 'bg-red-500/20 text-red-400',
-      churned: 'bg-gray-500/20 text-gray-400'
-    };
-    return styles[status] || styles.active;
   };
 
   // Contract upload view
@@ -223,7 +182,7 @@ export const AgentCenterView: React.FC = () => {
             </p>
           </div>
           <button
-            onClick={handleBackToSelector}
+            onClick={handleBackFromContractUpload}
             className="px-4 py-2 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white text-sm rounded-lg transition-colors"
           >
             ← Back
@@ -254,251 +213,63 @@ export const AgentCenterView: React.FC = () => {
     );
   }
 
-  // Customer selector view
-  if (showCustomerSelector) {
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-white flex items-center gap-3">
-              <span className="text-3xl">🤖</span>
-              Agent Center
-            </h2>
-            <p className="text-cscx-gray-400 mt-1">
-              Select a customer for context-aware agent interactions, or use general mode
-            </p>
-          </div>
-        </div>
 
-        {/* Mode Selection */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* General Mode Card */}
-          <button
-            onClick={handleUseGeneralMode}
-            className="p-6 bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl hover:border-cscx-accent/50 transition-all text-left group"
-          >
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-cscx-gray-800 rounded-xl flex items-center justify-center text-2xl group-hover:bg-cscx-accent/20 transition-colors">
-                🌐
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold text-white">General Mode</h3>
-                <p className="text-sm text-cscx-gray-400 mt-1">
-                  Use agents for general questions, playbook lookup, and non-customer tasks.
-                </p>
-              </div>
-            </div>
-          </button>
-
-          {/* Customer Mode Card */}
-          <div className="p-6 bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center text-2xl">
-                👤
-              </div>
-              <div className="flex-1">
-                <h3 className="text-lg font-semibold text-white">Customer Context</h3>
-                <p className="text-sm text-cscx-gray-400 mt-1">
-                  Select a customer below for personalized assistance
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Customer Search */}
-        <div className="bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-4 mb-4">
-            <h3 className="text-lg font-semibold text-white">Select Customer</h3>
-            <div className="flex-1 max-w-md">
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search customers..."
-                className="w-full bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg px-4 py-2 text-white placeholder-cscx-gray-500 focus:outline-none focus:border-cscx-accent"
-              />
-            </div>
-          </div>
-
-          {/* Customer Grid */}
-          {loadingCustomers ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-2 border-cscx-accent border-t-transparent" />
-            </div>
-          ) : filteredCustomers.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-cscx-gray-400">
-                {searchQuery ? 'No customers match your search' : 'No customers found'}
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[400px] overflow-y-auto">
-              {filteredCustomers.map((customer) => (
-                <button
-                  key={customer.id}
-                  onClick={() => handleSelectCustomer(customer)}
-                  className="p-4 bg-cscx-gray-800 hover:bg-cscx-gray-700 rounded-xl text-left transition-all hover:scale-[1.02] border border-transparent hover:border-cscx-accent/30"
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-gradient-to-br from-cscx-accent to-red-700 rounded-lg flex items-center justify-center text-white font-bold">
-                        {customer.name.charAt(0)}
-                      </div>
-                      <div>
-                        <h4 className="text-white font-medium">{customer.name}</h4>
-                        <p className="text-xs text-cscx-gray-400">{customer.industry}</p>
-                      </div>
-                    </div>
-                    <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusBadge(customer.status)}`}>
-                      {customer.status.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="text-cscx-gray-400">
-                      ${(customer.arr / 1000).toFixed(0)}K ARR
-                    </span>
-                    <span className={getHealthColor(customer.health_score)}>
-                      {customer.health_score}% health
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Agent view with selected customer (or general mode or contract data)
+  // Agent chat view - direct to conversation
   return (
     <div className="space-y-4">
-      {/* Context Bar */}
-      <div className="flex items-center justify-between bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-4">
-        <div className="flex items-center gap-4">
-          {contractData ? (
-            <>
-              <div className="w-10 h-10 bg-gradient-to-br from-cscx-accent to-red-700 rounded-lg flex items-center justify-center text-white font-bold">
-                {contractData.company_name?.charAt(0) || 'N'}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-white font-medium">{contractData.company_name || 'New Customer'}</h3>
-                  <span className="px-2 py-0.5 text-xs rounded-full bg-blue-500/20 text-blue-400">
-                    onboarding
-                  </span>
-                </div>
-                <p className="text-sm text-cscx-gray-400">
-                  ${(contractData.arr || 0).toLocaleString()} ARR • {contractData.stakeholders?.length || 0} stakeholders
-                </p>
-              </div>
-            </>
-          ) : selectedCustomer ? (
-            <>
-              <div className="w-10 h-10 bg-gradient-to-br from-cscx-accent to-red-700 rounded-lg flex items-center justify-center text-white font-bold">
-                {selectedCustomer.name.charAt(0)}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-white font-medium">{selectedCustomer.name}</h3>
-                  <span className={`px-2 py-0.5 text-xs rounded-full ${getStatusBadge(selectedCustomer.status)}`}>
-                    {selectedCustomer.status.replace('_', ' ')}
-                  </span>
-                </div>
-                <p className="text-sm text-cscx-gray-400">
-                  ${selectedCustomer.arr.toLocaleString()} ARR • {selectedCustomer.health_score}% health
-                </p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="w-10 h-10 bg-cscx-gray-800 rounded-lg flex items-center justify-center text-xl">
-                🌐
-              </div>
-              <div>
-                <h3 className="text-white font-medium">General Mode</h3>
-                <p className="text-sm text-cscx-gray-400">No customer context</p>
-              </div>
-            </>
-          )}
+      {/* Header with Customer Dropdown */}
+      <div className="flex items-center gap-4 bg-cscx-gray-900 border border-cscx-gray-800 rounded-xl p-4">
+        <div className="w-10 h-10 bg-gradient-to-br from-cscx-accent to-red-700 rounded-lg flex items-center justify-center text-xl">
+          🤖
         </div>
-
-        <button
-          onClick={handleBackToSelector}
-          className="px-4 py-2 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white text-sm rounded-lg transition-colors flex items-center gap-2"
-        >
-          <span>↻</span>
-          {contractData ? 'New Session' : 'Change Customer'}
-        </button>
+        <div className="flex-1">
+          <div className="flex items-center gap-3">
+            <span className="text-white font-medium">AI Assistant</span>
+            <span className="text-cscx-gray-500">•</span>
+            <select
+              value={selectedCustomer?.id || ''}
+              onChange={(e) => {
+                const customer = customers.find(c => c.id === e.target.value);
+                setSelectedCustomer(customer || null);
+              }}
+              className="bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cscx-accent cursor-pointer min-w-[200px]"
+            >
+              <option value="">🌐 General Mode</option>
+              {loadingCustomers ? (
+                <option disabled>Loading customers...</option>
+              ) : (
+                customers.map(customer => (
+                  <option key={customer.id} value={customer.id}>
+                    {customer.name} (${Math.round(customer.arr / 1000)}K • {customer.health_score}%)
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+          <p className="text-sm text-cscx-gray-400 mt-1">
+            {selectedCustomer
+              ? `${selectedCustomer.status.replace('_', ' ')} • $${selectedCustomer.arr.toLocaleString()} ARR • ${selectedCustomer.health_score}% health`
+              : 'Select a customer for context-aware assistance'}
+          </p>
+        </div>
       </div>
 
-      {/* Agent Tabs */}
-      <div className="flex gap-2 flex-wrap">
-        {[
-          { id: 'chat' as const, label: 'Chat', icon: '💬' },
-          { id: 'tools' as const, label: 'Tools', icon: '🔧' },
-          { id: 'triggers' as const, label: 'Triggers', icon: '⚡' },
-          { id: 'playbooks' as const, label: 'Playbooks', icon: '📋' },
-          { id: 'skills' as const, label: 'Skills', icon: '🎯' },
-          { id: 'automations' as const, label: 'Automations', icon: '🤖' },
-          { id: 'meetings' as const, label: 'Meetings', icon: '📅' },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveAgentTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors flex items-center gap-2 ${
-              activeAgentTab === tab.id
-                ? 'bg-cscx-accent text-white'
-                : 'bg-cscx-gray-800 text-cscx-gray-400 hover:text-white'
-            }`}
-          >
-            <span>{tab.icon}</span> {tab.label}
-          </button>
-        ))}
+      {/* Chat */}
+      <div className="h-[calc(100vh-200px)] min-h-[600px]">
+        <AgentControlCenter
+          customer={buildCustomerContext(selectedCustomer)}
+          contractData={contractData}
+          plan={onboardingPlan}
+          embedded={false}
+          initialMessage={
+            contractData
+              ? `I've analyzed the contract for **${contractData.company_name}**.\n\n**ARR:** $${(contractData.arr || 0).toLocaleString()}\n**Stakeholders:** ${contractData.stakeholders?.length || 0}\n**Entitlements:** ${contractData.entitlements?.length || 0}\n\nI'm ready to help with onboarding. What would you like to do first?`
+              : selectedCustomer
+                ? `I'm ready to help with ${selectedCustomer.name}. Their current health score is ${selectedCustomer.health_score}% and ARR is $${selectedCustomer.arr.toLocaleString()}. What would you like me to do?`
+                : `I'm ready to help. I can assist with playbooks, best practices, customer success questions, or any tasks you need. What would you like to know?`
+          }
+        />
       </div>
-
-      {/* Tab Content */}
-      {activeAgentTab === 'chat' && (
-        <div className="h-[calc(100vh-340px)] min-h-[500px]">
-          <AgentControlCenter
-            customer={buildCustomerContext(selectedCustomer)}
-            contractData={contractData}
-            plan={onboardingPlan}
-            embedded={false}
-            initialMessage={
-              contractData
-                ? `I've analyzed the contract for **${contractData.company_name}**.\n\n**ARR:** $${(contractData.arr || 0).toLocaleString()}\n**Stakeholders:** ${contractData.stakeholders?.length || 0}\n**Entitlements:** ${contractData.entitlements?.length || 0}\n\nI'm ready to help with onboarding. What would you like to do first?`
-                : selectedCustomer
-                  ? `I'm ready to help with ${selectedCustomer.name}. Their current health score is ${selectedCustomer.health_score}% and ARR is $${selectedCustomer.arr.toLocaleString()}. What would you like me to do?`
-                  : `I'm in general mode without customer context. I can help with playbooks, best practices, or general customer success questions. What would you like to know?`
-            }
-          />
-        </div>
-      )}
-
-      {activeAgentTab === 'tools' && <MCPToolsBrowser />}
-
-      {activeAgentTab === 'triggers' && <TriggersDashboard />}
-
-      {activeAgentTab === 'playbooks' && (
-        <PlaybooksManager
-          customerId={selectedCustomer?.id}
-          customerName={selectedCustomer?.name}
-        />
-      )}
-
-      {activeAgentTab === 'skills' && (
-        <SkillsLibrary
-          customerId={selectedCustomer?.id}
-          customerName={selectedCustomer?.name}
-        />
-      )}
-
-      {activeAgentTab === 'automations' && <AutomationsPanel />}
-
-      {activeAgentTab === 'meetings' && <MeetingIntelligenceViewer />}
     </div>
   );
 };
