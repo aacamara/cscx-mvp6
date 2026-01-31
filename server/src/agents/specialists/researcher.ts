@@ -9,7 +9,10 @@ import {
   AgentContext,
   Tool,
   ToolResult
-} from '../types';
+} from '../types.js';
+
+// Import data access tools for researcher
+import { getToolsForAgent } from '../tools/index.js';
 
 // ============================================
 // Researcher Tools
@@ -286,11 +289,14 @@ const findExpansionOpportunities: Tool = {
 // Researcher Agent Definition
 // ============================================
 
+// Get data access tools for the researcher
+const researcherDataTools = getToolsForAgent('researcher');
+
 export const ResearcherAgent: Agent = {
   id: 'researcher',
   name: 'Customer Intelligence',
   role: 'Gather and synthesize customer intelligence',
-  description: 'Gathers company research, maps stakeholders, analyzes usage patterns, detects churn signals, and identifies expansion opportunities.',
+  description: 'Gathers company research, maps stakeholders, analyzes usage patterns, detects churn signals, and identifies expansion opportunities. Has access to knowledge base and metrics for data-driven insights.',
   model: 'claude-sonnet-4',
 
   tools: [
@@ -298,11 +304,19 @@ export const ResearcherAgent: Agent = {
     mapStakeholders,
     analyzeUsagePatterns,
     detectChurnSignals,
-    findExpansionOpportunities
+    findExpansionOpportunities,
+    // Data access tools for knowledge and metrics
+    ...researcherDataTools
   ],
 
   permissions: {
-    allowedTools: ['research_company', 'map_stakeholders', 'analyze_usage_patterns', 'detect_churn_signals', 'find_expansion_opportunities'],
+    allowedTools: [
+      'research_company', 'map_stakeholders', 'analyze_usage_patterns', 'detect_churn_signals', 'find_expansion_opportunities',
+      // Data access tools
+      'search_knowledge_base', 'get_playbook', 'search_similar_cases',
+      'get_engagement_metrics', 'get_risk_signals', 'get_renewal_forecast',
+      'get_customer_360'
+    ],
     allowedDirectories: ['/research', '/analytics'],
     requiresApproval: [],
     blockedActions: ['contact_customer', 'modify_data']

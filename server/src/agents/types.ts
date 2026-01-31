@@ -319,3 +319,113 @@ export interface AgentMetrics {
   errorRate: number;
   tokenUsage: number;
 }
+
+// ============================================
+// Data Access Tools (PRD: Agent Data Access Layer)
+// ============================================
+
+/**
+ * Data access tool interface for agent queries
+ * All data tools are read-only and auto-approved
+ */
+export interface DataAccessTool extends Tool {
+  category: 'knowledge' | 'customer' | 'metrics' | 'portfolio';
+  requiresApproval: false;  // Always auto-approved for read-only operations
+}
+
+/**
+ * Knowledge search result from RAG
+ */
+export interface KnowledgeSearchResult {
+  title: string;
+  content: string;
+  relevanceScore: number;
+  source: string;
+  layer: 'universal' | 'company' | 'customer';
+  category?: string;
+}
+
+/**
+ * Customer 360 profile sections
+ */
+export interface Customer360 {
+  overview: {
+    id: string;
+    name: string;
+    industry?: string;
+    arr: number;
+    mrr?: number;
+    tier?: string;
+    status: string;
+    csmName?: string;
+  };
+  health: {
+    score: number;
+    trend: 'improving' | 'stable' | 'declining';
+    components: {
+      engagement?: number;
+      adoption?: number;
+      sentiment?: number;
+      support?: number;
+    };
+  };
+  engagement: {
+    productAdoption?: number;
+    lastActivityDays?: number;
+    npsScore?: number;
+    openTickets?: number;
+  };
+  stakeholders: Array<{
+    name: string;
+    role: string;
+    email?: string;
+    isPrimary?: boolean;
+  }>;
+  risks: Array<{
+    type: string;
+    severity: string;
+    description: string;
+  }>;
+  opportunities: Array<{
+    type: string;
+    potential: string;
+    description: string;
+  }>;
+}
+
+/**
+ * Health trend data point
+ */
+export interface HealthTrendPoint {
+  date: string;
+  score: number;
+  components?: {
+    engagement?: number;
+    adoption?: number;
+    sentiment?: number;
+    support?: number;
+  };
+}
+
+/**
+ * Risk signal detected for a customer
+ */
+export interface RiskSignalData {
+  type: 'churn' | 'engagement' | 'sentiment' | 'support' | 'payment';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  description: string;
+  detectedAt: string;
+  recommendation?: string;
+}
+
+/**
+ * Renewal forecast data
+ */
+export interface RenewalForecast {
+  probability: number;
+  expansionPotential: 'high' | 'medium' | 'low' | 'none';
+  riskFactors: string[];
+  recommendedActions: string[];
+  daysUntilRenewal: number;
+  renewalDate?: string;
+}

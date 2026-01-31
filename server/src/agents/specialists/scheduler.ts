@@ -9,8 +9,11 @@ import {
   AgentContext,
   Tool,
   ToolResult
-} from '../types';
+} from '../types.js';
 import { calendarService } from '../../services/google/calendar.js';
+
+// Import data access tools for scheduler
+import { getToolsForAgent } from '../tools/index.js';
 
 // ============================================
 // Scheduler Tools
@@ -397,11 +400,14 @@ const getTodaysMeetings: Tool = {
 // Scheduler Agent Definition
 // ============================================
 
+// Get data access tools for the scheduler
+const schedulerDataTools = getToolsForAgent('scheduler');
+
 export const SchedulerAgent: Agent = {
   id: 'scheduler',
   name: 'Meeting Scheduler',
   role: 'Schedule and manage customer meetings',
-  description: 'Handles all calendar-related tasks including checking availability, proposing meeting times, booking meetings, and sending reminders.',
+  description: 'Handles all calendar-related tasks including checking availability, proposing meeting times, booking meetings, and sending reminders. Has access to customer context and health trends for meeting prep.',
   model: 'claude-haiku-4', // Fast model for scheduling
 
   tools: [
@@ -409,11 +415,17 @@ export const SchedulerAgent: Agent = {
     proposeMeeting,
     bookMeeting,
     sendReminder,
-    getTodaysMeetings
+    getTodaysMeetings,
+    // Data access tools for customer context and meeting prep
+    ...schedulerDataTools
   ],
 
   permissions: {
-    allowedTools: ['check_availability', 'propose_meeting', 'book_meeting', 'send_reminder', 'get_todays_meetings'],
+    allowedTools: [
+      'check_availability', 'propose_meeting', 'book_meeting', 'send_reminder', 'get_todays_meetings',
+      // Data access tools
+      'get_customer_360', 'get_health_trends', 'get_customer_history'
+    ],
     allowedDirectories: ['/calendars', '/meetings'],
     requiresApproval: ['propose_meeting', 'book_meeting'],
     blockedActions: ['delete_meeting', 'access_other_customers']

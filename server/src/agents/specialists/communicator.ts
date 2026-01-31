@@ -2,6 +2,8 @@
  * Communicator Agent
  * Drafts and manages customer communications
  * Integrates with Gmail
+ *
+ * PRD-029: Added escalation response drafting skill
  */
 
 import {
@@ -9,8 +11,16 @@ import {
   AgentContext,
   Tool,
   ToolResult
-} from '../types';
+} from '../types.js';
 import { gmailService } from '../../services/google/gmail.js';
+import { escalationResponseGenerator } from '../../services/escalation/responseGenerator.js';
+import {
+  EscalationType,
+  EscalationSeverity,
+} from '../../templates/emails/escalation-response.js';
+
+// Import data access tools for communicator
+import { getToolsForAgent } from '../tools/index.js';
 
 // ============================================
 // Communicator Tools
@@ -351,6 +361,329 @@ const getEmailHistory: Tool = {
   }
 };
 
+// ============================================
+// Escalation Response Tool (PRD-029)
+// ============================================
+
+const draftEscalationResponse: Tool = {
+  name: 'draft_escalation_response',
+  description: 'Draft an escalation response email for urgent customer issues. Generates context-aware, empathetic responses with action items and timelines.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      riskSignalId: {
+        type: 'string',
+        description: 'Optional risk signal ID to pull context from'
+      },
+      escalationType: {
+        type: 'string',
+        enum: ['technical', 'billing', 'service', 'executive_complaint', 'support_escalation'],
+        description: 'Type of escalation'
+      },
+      severity: {
+        type: 'string',
+        enum: ['low', 'medium', 'high', 'critical'],
+        description: 'Severity of the escalation'
+      },
+      issueDescription: {
+        type: 'string',
+        description: 'Description of the issue being escalated'
+      },
+      toEmail: {
+        type: 'string',
+        description: 'Recipient email address'
+      },
+      toName: {
+        type: 'string',
+        description: 'Recipient name'
+      },
+      immediateActions: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'List of immediate actions being taken'
+      },
+      timeline: {
+        type: 'object',
+        properties: {
+          rootCauseAnalysis: { type: 'string' },
+          interimSolution: { type: 'string' },
+          permanentFix: { type: 'string' }
+        },
+        description: 'Timeline for resolution milestones'
+      },
+      supportEngineer: {
+        type: 'object',
+        properties: {
+          name: { type: 'string' },
+          directLine: { type: 'string' },
+          email: { type: 'string' }
+        },
+        description: 'Assigned support engineer details'
+      },
+      urgency: {
+        type: 'string',
+        enum: ['normal', 'expedited', 'immediate'],
+        description: 'Urgency level for approval workflow'
+      }
+    },
+    required: ['escalationType', 'issueDescription']
+  },
+  requiresApproval: true, // Always review escalation responses
+  execute: async (input: {
+    riskSignalId?: string;
+    escalationType: EscalationType;
+    severity?: EscalationSeverity;
+    issueDescription: string;
+    toEmail?: string;
+    toName?: string;
+    immediateActions?: string[];
+    timeline?: {
+      rootCauseAnalysis?: string;
+      interimSolution?: string;
+      permanentFix?: string;
+    };
+    supportEngineer?: {
+      name: string;
+      directLine?: string;
+      email?: string;
+    };
+    urgency?: 'normal' | 'expedited' | 'immediate';
+  }, context: AgentContext): Promise<ToolResult> => {
+    console.log(`[Communicator] Drafting escalation response for ${context.customer.name}`);
+
+    try {
+      // Generate escalation response using the service
+      const response = await escalationResponseGenerator.generateResponse(
+        context.customer.id,
+        input.riskSignalId || null,
+        context.customer.csmName || 'Your CSM',
+        undefined, // csmPhone
+        undefined, // csmEmail
+        {
+          escalationType: input.escalationType,
+          severity: input.severity || 'high',
+          issueDescription: input.issueDescription,
+          contactName: input.toName || context.customer.primaryContact?.name || 'Customer',
+          immediateActions: input.immediateActions,
+          timeline: input.timeline,
+          supportEngineer: input.supportEngineer,
+        }
+      );
+
+      if (!response) {
+        return {
+          success: false,
+          error: 'Failed to generate escalation response'
+        };
+      }
+
+      // Save draft to database
+      const draftId = await escalationResponseGenerator.saveResponseDraft({
+        riskSignalId: input.riskSignalId || 'manual',
+        customerId: context.customer.id,
+        toEmail: input.toEmail || context.customer.primaryContact?.email || '',
+        toName: input.toName || context.customer.primaryContact?.name,
+        draftSubject: response.draft.subject,
+        draftBody: response.draft.body,
+        suggestedCCs: response.draft.suggestedCCs,
+        escalationType: input.escalationType,
+        severity: input.severity || 'high',
+        templateUsed: response.metadata.templateUsed,
+        confidenceScore: response.metadata.confidenceScore,
+      });
+
+      return {
+        success: true,
+        data: {
+          draftId: draftId || `draft_esc_${Date.now()}`,
+          subject: response.draft.subject,
+          body: response.draft.body,
+          htmlBody: response.htmlBody,
+          suggestedCCs: response.draft.suggestedCCs,
+          escalationDetails: {
+            type: input.escalationType,
+            severity: input.severity || 'high',
+            customer: {
+              name: context.customer.name,
+              arr: context.customer.arr,
+              healthScore: context.customer.healthScore,
+            },
+            slaStatus: response.metadata.slaStatus,
+            suggestedUrgency: response.metadata.suggestedUrgency,
+          },
+          status: 'pending_approval',
+          urgency: input.urgency || response.metadata.suggestedUrgency,
+          generatedAt: response.metadata.generatedAt,
+          confidenceScore: response.metadata.confidenceScore,
+        }
+      };
+    } catch (error) {
+      console.error('[Communicator] Error drafting escalation response:', error);
+      return {
+        success: false,
+        error: `Failed to draft escalation response: ${(error as Error).message}`
+      };
+    }
+  }
+};
+
+const sendEscalationResponse: Tool = {
+  name: 'send_escalation_response',
+  description: 'Send an approved escalation response email with expedited or immediate urgency',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      responseId: {
+        type: 'string',
+        description: 'Escalation response draft ID'
+      },
+      to: {
+        type: 'string',
+        description: 'Recipient email'
+      },
+      subject: {
+        type: 'string',
+        description: 'Email subject'
+      },
+      body: {
+        type: 'string',
+        description: 'Email body (HTML)'
+      },
+      cc: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'CC recipients'
+      },
+      urgency: {
+        type: 'string',
+        enum: ['normal', 'expedited', 'immediate'],
+        description: 'Urgency level'
+      }
+    },
+    required: ['to', 'subject', 'body']
+  },
+  requiresApproval: true, // NEVER auto-send escalation responses
+  execute: async (input: {
+    responseId?: string;
+    to: string;
+    subject: string;
+    body: string;
+    cc?: string[];
+    urgency?: string;
+  }, context: AgentContext): Promise<ToolResult> => {
+    console.log(`[Communicator] Sending escalation response to ${input.to}`);
+
+    try {
+      const userId = context.userId;
+      if (!userId) {
+        throw new Error('User ID required for Gmail access');
+      }
+
+      // Send the email using Gmail API
+      const messageId = await gmailService.sendEmail(userId, {
+        to: [input.to],
+        cc: input.cc,
+        subject: input.subject,
+        bodyHtml: input.body,
+        saveToDb: true,
+        customerId: context.customer.id,
+      });
+
+      // Update response tracking if we have a responseId
+      if (input.responseId) {
+        await escalationResponseGenerator.markResponseSent(
+          input.responseId,
+          messageId,
+          userId
+        );
+      }
+
+      return {
+        success: true,
+        data: {
+          messageId,
+          to: input.to,
+          subject: input.subject,
+          cc: input.cc || [],
+          status: 'sent',
+          sentAt: new Date().toISOString(),
+          urgency: input.urgency || 'normal',
+          responseTimeTracked: !!input.responseId,
+        }
+      };
+    } catch (error) {
+      console.error('[Communicator] Error sending escalation response:', error);
+      return {
+        success: false,
+        error: `Failed to send escalation response: ${(error as Error).message}`
+      };
+    }
+  }
+};
+
+const getEscalationContext: Tool = {
+  name: 'get_escalation_context',
+  description: 'Get full context for an escalation including customer history, risk signals, and recent communications',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      riskSignalId: {
+        type: 'string',
+        description: 'Risk signal ID to get context for'
+      }
+    },
+    required: ['riskSignalId']
+  },
+  requiresApproval: false,
+  execute: async (input: {
+    riskSignalId: string;
+  }, context: AgentContext): Promise<ToolResult> => {
+    console.log(`[Communicator] Getting escalation context for signal: ${input.riskSignalId}`);
+
+    try {
+      const escalationDetails = await escalationResponseGenerator.getEscalationContext(
+        input.riskSignalId
+      );
+
+      if (!escalationDetails) {
+        return {
+          success: false,
+          error: 'Escalation context not found'
+        };
+      }
+
+      return {
+        success: true,
+        data: {
+          riskSignal: {
+            id: escalationDetails.riskSignal.id,
+            type: escalationDetails.escalationType,
+            severity: escalationDetails.severity,
+            description: escalationDetails.issueDescription,
+            detectedAt: escalationDetails.riskSignal.detected_at,
+            duration: escalationDetails.issueDuration,
+          },
+          customer: {
+            id: escalationDetails.customer.id,
+            name: escalationDetails.customer.name,
+            arr: escalationDetails.customer.arr,
+            healthScore: escalationDetails.customer.health_score,
+            healthTrend: escalationDetails.healthTrend,
+          },
+          reportedBy: escalationDetails.reportedBy,
+          recentCommunications: escalationDetails.recentCommunications,
+        }
+      };
+    } catch (error) {
+      console.error('[Communicator] Error getting escalation context:', error);
+      return {
+        success: false,
+        error: `Failed to get escalation context: ${(error as Error).message}`
+      };
+    }
+  }
+};
+
 const searchEmails: Tool = {
   name: 'search_emails',
   description: 'Search emails by keyword or filter',
@@ -451,11 +784,14 @@ const searchEmails: Tool = {
 // Communicator Agent Definition
 // ============================================
 
+// Get data access tools for the communicator
+const communicatorDataTools = getToolsForAgent('communicator');
+
 export const CommunicatorAgent: Agent = {
   id: 'communicator',
   name: 'Customer Communicator',
   role: 'Draft and manage customer communications',
-  description: 'Handles all email-related tasks including drafting personalized emails, managing sequences, and tracking email history.',
+  description: 'Handles all email-related tasks including drafting personalized emails, managing sequences, and tracking email history. Has access to customer context and risk signals for informed communication.',
   model: 'claude-sonnet-4', // Needs good writing
 
   tools: [
@@ -463,13 +799,24 @@ export const CommunicatorAgent: Agent = {
     sendEmail,
     createSequence,
     getEmailHistory,
-    searchEmails
+    searchEmails,
+    // Escalation tools
+    draftEscalationResponse,
+    sendEscalationResponse,
+    getEscalationContext,
+    // Data access tools for customer context
+    ...communicatorDataTools
   ],
 
   permissions: {
-    allowedTools: ['draft_email', 'send_email', 'create_sequence', 'get_email_history', 'search_emails'],
+    allowedTools: [
+      'draft_email', 'send_email', 'create_sequence', 'get_email_history', 'search_emails',
+      'draft_escalation_response', 'send_escalation_response', 'get_escalation_context',
+      // Data access tools
+      'get_customer_360', 'get_customer_history', 'get_risk_signals'
+    ],
     allowedDirectories: ['/emails', '/templates'],
-    requiresApproval: ['draft_email', 'send_email', 'create_sequence'],
+    requiresApproval: ['draft_email', 'send_email', 'create_sequence', 'draft_escalation_response', 'send_escalation_response'],
     blockedActions: ['delete_emails', 'access_other_customers']
   },
 

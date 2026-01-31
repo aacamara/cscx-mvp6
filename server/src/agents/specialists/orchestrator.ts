@@ -12,7 +12,10 @@ import {
   TaskLedger,
   TaskStep,
   Approval
-} from '../types';
+} from '../types.js';
+
+// Import data access tools
+import { dataAccessTools, getToolsForAgent } from '../tools/index.js';
 
 // ============================================
 // Orchestrator Tools
@@ -110,7 +113,6 @@ const requestHumanApproval: Tool = {
   },
   // This tool ALWAYS requires approval - it's the explicit approval request
   requiresApproval: true,
-  riskLevel: 'critical',
   execute: async (input: {
     action: string;
     reason: string;
@@ -239,22 +241,34 @@ const checkCustomerHealth: Tool = {
 // Orchestrator Agent Definition
 // ============================================
 
+// Get all data access tools for the orchestrator
+const orchestratorDataTools = getToolsForAgent('orchestrator');
+
 export const OrchestratorAgent: Agent = {
   id: 'orchestrator',
   name: 'CS Orchestrator',
   role: 'Coordinate all customer success activities',
-  description: 'The main orchestrator that coordinates specialized agents, manages the task ledger, and ensures customer success workflows execute properly.',
+  description: 'The main orchestrator that coordinates specialized agents, manages the task ledger, and ensures customer success workflows execute properly. Has access to all data sources for informed decision-making.',
   model: 'claude-sonnet-4',
 
   tools: [
     delegateToAgent,
     requestHumanApproval,
     updateTaskLedger,
-    checkCustomerHealth
+    checkCustomerHealth,
+    // Data access tools for querying knowledge base, customer data, and metrics
+    ...orchestratorDataTools
   ],
 
   permissions: {
-    allowedTools: ['delegate_to_agent', 'request_human_approval', 'update_task_ledger', 'check_customer_health'],
+    allowedTools: [
+      'delegate_to_agent', 'request_human_approval', 'update_task_ledger', 'check_customer_health',
+      // Data access tools (all read-only, auto-approved)
+      'search_knowledge_base', 'get_playbook', 'search_similar_cases',
+      'get_customer_360', 'get_health_trends', 'get_customer_history',
+      'get_engagement_metrics', 'get_risk_signals', 'get_renewal_forecast',
+      'get_portfolio_insights', 'compare_to_cohort'
+    ],
     allowedDirectories: ['/customers', '/plans', '/tasks'],
     requiresApproval: [],
     blockedActions: ['send_email', 'book_meeting', 'create_document'] // Orchestrator delegates, doesn't execute
@@ -302,12 +316,27 @@ Your Role: Coordinate agents, request approvals for sensitive actions, keep the 
 - update_task_ledger: Manage the execution plan
 - check_customer_health: Get customer health and risk signals
 
+## Data Access Tools (Use these to gather information before making decisions!)
+- search_knowledge_base: Find playbooks, best practices, templates
+- get_playbook: Get specific CS playbook for a situation
+- search_similar_cases: Find historical cases similar to current situation
+- get_customer_360: Get complete customer profile with all data
+- get_health_trends: See health score changes over time
+- get_customer_history: View interaction timeline (meetings, emails, tickets)
+- get_engagement_metrics: Check product adoption and usage
+- get_risk_signals: Identify churn indicators and risks
+- get_renewal_forecast: Get renewal probability and recommendations
+- get_portfolio_insights: Cross-customer analysis
+- compare_to_cohort: Benchmark against similar customers
+
 ## Rules
 1. NEVER execute customer-facing actions directly (emails, meetings, etc.)
 2. ALWAYS delegate to the appropriate specialist agent
 3. Request human approval for anything that affects the customer externally
 4. Keep the CSM informed of progress and decisions
-5. Monitor for risks and escalate proactively`;
+5. Monitor for risks and escalate proactively
+6. ALWAYS query data before making recommendations - use data access tools!
+7. Cite your data sources in responses (e.g., "Based on health trend data...")`;
 
   const phasePrompts: Record<string, string> = {
     'upload': 'The CSM is uploading a contract. Help them understand what you will extract and prepare for review.',
