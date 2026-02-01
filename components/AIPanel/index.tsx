@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext';
 import { PendingApprovals } from '../PendingApprovals';
 import { OnboardingPhase } from '../../types/workflow';
 import { StreamEvent } from '../../types/streaming';
+import { CADGPlanCard, CADGPlanMetadata } from './CADGPlanCard';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -26,6 +27,7 @@ interface Message {
   isStreaming?: boolean;
   stoppedByUser?: boolean;
   isRetrying?: boolean;
+  cadgPlan?: CADGPlanMetadata;
   metadata?: {
     phase?: OnboardingPhase;
     toolsUsed?: string[];
@@ -399,7 +401,33 @@ export const AIPanel: React.FC<AIPanelProps> = ({
               break;
 
             case 'done':
-              // Stream completed
+              // Stream completed - check for CADG plan metadata
+              if (event.content) {
+                try {
+                  const doneData = JSON.parse(event.content);
+                  if (doneData.isGenerative && doneData.plan) {
+                    // This is a CADG plan response - store the metadata
+                    setMessages(prev => prev.map(m =>
+                      m.id === streamingMessageId
+                        ? {
+                            ...m,
+                            cadgPlan: {
+                              isGenerative: doneData.isGenerative,
+                              taskType: doneData.taskType,
+                              confidence: doneData.confidence,
+                              requiresApproval: doneData.requiresApproval,
+                              plan: doneData.plan,
+                              capability: doneData.capability,
+                              methodology: doneData.methodology,
+                            }
+                          }
+                        : m
+                    ));
+                  }
+                } catch {
+                  // Not JSON or not CADG - ignore
+                }
+              }
               break;
 
             case 'error':
@@ -572,41 +600,57 @@ export const AIPanel: React.FC<AIPanelProps> = ({
             key={message.id}
             className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
           >
-            <div
-              className={`max-w-[90%] rounded-xl px-3 py-2 ${
-                message.role === 'user'
-                  ? 'bg-cscx-accent text-white'
-                  : message.role === 'system'
-                  ? 'bg-yellow-900/30 border border-yellow-600/50 text-yellow-200'
-                  : 'bg-cscx-gray-800 text-white'
-              }`}
-            >
-              {message.isThinking && !message.content ? (
-                <div className="flex items-center gap-2">
-                  <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
-                  <span className="text-sm">Thinking...</span>
-                </div>
-              ) : (
-                <>
-                  {message.agentType && message.role === 'assistant' && (
-                    <div className="text-xs text-cscx-gray-400 mb-1 capitalize">
-                      {message.agentType} Agent
-                    </div>
-                  )}
-                  <div className="whitespace-pre-wrap text-sm leading-relaxed">
-                    {message.content}
-                    {message.isStreaming && (
-                      <span className="inline-block w-2 h-4 ml-0.5 bg-white animate-pulse" />
-                    )}
+            {/* CADG Plan Card */}
+            {message.cadgPlan && !message.isStreaming ? (
+              <div className="max-w-[95%] w-full">
+                <CADGPlanCard
+                  metadata={message.cadgPlan}
+                  onApproved={(artifactId) => {
+                    console.log('Artifact generated:', artifactId);
+                    setRefreshApprovals(prev => prev + 1);
+                  }}
+                  onRejected={() => {
+                    console.log('Plan rejected');
+                  }}
+                />
+              </div>
+            ) : (
+              <div
+                className={`max-w-[90%] rounded-xl px-3 py-2 ${
+                  message.role === 'user'
+                    ? 'bg-cscx-accent text-white'
+                    : message.role === 'system'
+                    ? 'bg-yellow-900/30 border border-yellow-600/50 text-yellow-200'
+                    : 'bg-cscx-gray-800 text-white'
+                }`}
+              >
+                {message.isThinking && !message.content ? (
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-3 w-3 border-2 border-white border-t-transparent" />
+                    <span className="text-sm">Thinking...</span>
                   </div>
-                  {message.stoppedByUser && (
-                    <div className="text-xs text-yellow-400 mt-1 italic">
-                      Response stopped
+                ) : (
+                  <>
+                    {message.agentType && message.role === 'assistant' && (
+                      <div className="text-xs text-cscx-gray-400 mb-1 capitalize">
+                        {message.agentType} Agent
+                      </div>
+                    )}
+                    <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                      {message.content}
+                      {message.isStreaming && (
+                        <span className="inline-block w-2 h-4 ml-0.5 bg-white animate-pulse" />
+                      )}
                     </div>
-                  )}
-                </>
-              )}
-            </div>
+                    {message.stoppedByUser && (
+                      <div className="text-xs text-yellow-400 mt-1 italic">
+                        Response stopped
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         ))}
         <div ref={messagesEndRef} />

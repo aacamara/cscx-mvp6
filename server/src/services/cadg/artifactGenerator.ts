@@ -21,6 +21,11 @@ import { createClient } from '@supabase/supabase-js';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 
+// Google Workspace services
+import { qbrSlidesService } from '../google/qbrSlides.js';
+import { sheetsService } from '../google/sheets.js';
+import { driveService } from '../google/drive.js';
+
 // Initialize clients
 const anthropic = new Anthropic({
   apiKey: config.anthropicApiKey,
@@ -42,24 +47,55 @@ export async function generate(params: {
   const { plan, context, userId, customerId } = params;
   const startTime = Date.now();
 
-  // Generate content for each section
-  const sectionContents = await generateSections(plan, context);
-
-  // Assemble the final content
-  const content = assemblContent(plan, sectionContents);
-
-  // Generate markdown preview
-  const preview = generatePreview(plan, sectionContents);
-
-  // Calculate content hash for deduplication
-  const contentHash = createHash('sha256').update(content).digest('hex');
-
   // Track sources used
   const sourcesUsed = extractSourcesUsed(context);
 
+  // For QBR generation, create real Google Slides and Sheets
+  if (plan.taskType === 'qbr_generation' && customerId) {
+    try {
+      const qbrResult = await generateQBRWithGoogleWorkspace(userId, customerId, context);
+
+      const generationDurationMs = Date.now() - startTime;
+
+      const artifact: GeneratedArtifact = {
+        artifactId: uuidv4(),
+        type: 'slides',
+        content: qbrResult.slidesContent,
+        preview: qbrResult.preview,
+        storage: {
+          driveFileId: qbrResult.slidesId,
+          driveUrl: qbrResult.slidesUrl,
+          additionalFiles: qbrResult.sheetsId ? [{
+            type: 'sheets',
+            fileId: qbrResult.sheetsId,
+            url: qbrResult.sheetsUrl!,
+            title: 'QBR Supporting Data'
+          }] : undefined,
+        },
+        metadata: {
+          generatedAt: new Date(),
+          planId: plan.planId,
+          customerId: customerId || '',
+          sourcesUsed,
+          generationDurationMs,
+        },
+      };
+
+      await saveArtifact(artifact, userId, customerId);
+      return artifact;
+    } catch (error) {
+      console.error('[artifactGenerator] Google Workspace generation failed, falling back to markdown:', error);
+      // Fall through to markdown generation
+    }
+  }
+
+  // Default: Generate markdown content
+  const sectionContents = await generateSections(plan, context);
+  const content = assemblContent(plan, sectionContents);
+  const preview = generatePreview(plan, sectionContents);
+  const contentHash = createHash('sha256').update(content).digest('hex');
   const generationDurationMs = Date.now() - startTime;
 
-  // Create artifact object
   const artifact: GeneratedArtifact = {
     artifactId: uuidv4(),
     type: plan.structure.outputFormat,
@@ -75,10 +111,119 @@ export async function generate(params: {
     },
   };
 
-  // Save to database
   await saveArtifact(artifact, userId, customerId);
-
   return artifact;
+}
+
+/**
+ * Generate QBR with real Google Slides and Sheets
+ */
+async function generateQBRWithGoogleWorkspace(
+  userId: string,
+  customerId: string,
+  context: AggregatedContext
+): Promise<{
+  slidesId: string;
+  slidesUrl: string;
+  slidesContent: string;
+  sheetsId?: string;
+  sheetsUrl?: string;
+  preview: string;
+}> {
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Customer';
+
+  // Determine quarter
+  const now = new Date();
+  const quarter = `Q${Math.ceil((now.getMonth() + 1) / 3)}`;
+  const year = now.getFullYear();
+
+  console.log(`[artifactGenerator] Generating QBR for ${customerName} - ${quarter} ${year}`);
+
+  // 1. Generate Google Slides QBR
+  const slidesResult = await qbrSlidesService.generateQBRPresentation(
+    userId,
+    customerId,
+    quarter,
+    year
+  );
+
+  // 2. Create supporting Google Sheets with metrics data
+  let sheetsId: string | undefined;
+  let sheetsUrl: string | undefined;
+
+  try {
+    // Get customer folder for organization
+    const customerFolder = await driveService.getOrCreateCustomerFolder(userId, customerId, customerName);
+
+    // Create metrics sheet
+    const metricsSheet = await sheetsService.createSpreadsheet(userId, {
+      title: `${customerName} - ${quarter} ${year} QBR Metrics`,
+      folderId: customerFolder.id,
+      template: { type: 'qbr_metrics' },
+    });
+
+    // Populate with actual data
+    if (metricsSheet && context.platformData.healthTrends.length > 0) {
+      const healthData = context.platformData.healthTrends.map(h => [
+        h.date,
+        h.score,
+        h.category || '',
+        h.trend || '',
+      ]);
+
+      await sheetsService.updateValues(userId, metricsSheet.id, {
+        range: 'Health Trends!A2',
+        values: healthData,
+      });
+    }
+
+    // Add engagement metrics
+    if (metricsSheet && context.platformData.engagementMetrics) {
+      const e = context.platformData.engagementMetrics;
+      await sheetsService.updateValues(userId, metricsSheet.id, {
+        range: 'Engagement!A2',
+        values: [[
+          customerName,
+          e.featureAdoption,
+          e.loginFrequency,
+          e.lastActivityDays,
+          new Date().toISOString().split('T')[0],
+        ]],
+      });
+    }
+
+    sheetsId = metricsSheet?.id;
+    sheetsUrl = metricsSheet?.webViewLink;
+  } catch (error) {
+    console.warn('[artifactGenerator] Failed to create supporting sheets:', error);
+    // Continue without sheets
+  }
+
+  // Build preview content
+  const preview = `## 📊 QBR Generated Successfully!
+
+**${customerName} - ${quarter} ${year} Quarterly Business Review**
+
+### Generated Documents:
+- 📽️ **Presentation:** [Open in Google Slides](${slidesResult.presentationUrl})
+${sheetsUrl ? `- 📈 **Supporting Data:** [Open in Google Sheets](${sheetsUrl})` : ''}
+
+### Data Sources Used:
+${context.platformData.customer360 ? '✓ Customer 360 Profile\n' : ''}${context.platformData.healthTrends.length > 0 ? `✓ Health Score History (${context.platformData.healthTrends.length} data points)\n` : ''}${context.platformData.engagementMetrics ? '✓ Engagement Metrics\n' : ''}${context.platformData.riskSignals.length > 0 ? `✓ Risk Signals (${context.platformData.riskSignals.length} active)\n` : ''}${context.platformData.renewalForecast ? '✓ Renewal Forecast\n' : ''}${context.platformData.interactionHistory.length > 0 ? `✓ Interaction History (${context.platformData.interactionHistory.length} records)\n` : ''}
+### Quick Stats:
+- **Health Score:** ${customer?.healthScore ?? 'N/A'}%
+- **ARR:** $${customer?.arr ? (customer.arr / 1000).toFixed(0) + 'K' : 'N/A'}
+- **NPS:** ${customer?.npsScore ?? 'N/A'}`;
+
+  return {
+    slidesId: slidesResult.presentationId,
+    slidesUrl: slidesResult.presentationUrl,
+    slidesContent: `QBR Presentation for ${customerName} - ${quarter} ${year}`,
+    sheetsId,
+    sheetsUrl,
+    preview,
+  };
 }
 
 /**
