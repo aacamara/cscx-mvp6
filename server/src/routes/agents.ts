@@ -11,6 +11,7 @@ import { gmailService } from '../services/google/gmail.js';
 import { approvalService } from '../services/approval.js';
 import { skillExecutor, getAvailableSkills, SKILLS, SkillContext } from '../agents/skills/index.js';
 import { config } from '../config/index.js';
+import { cadgService } from '../services/cadg/index.js';
 
 const router = Router();
 
@@ -313,6 +314,93 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       return;
     }
 
+    // Get effective user ID for CADG
+    const effectiveUserId = getEffectiveUserId(req);
+
+    // Check if this is a generative request using CADG
+    const cadgClassification = await cadgService.classify(message, {
+      customerId: customerId || session.customerId,
+      userId: effectiveUserId || undefined,
+    });
+
+    // If this is a generative request with high confidence, create a CADG plan
+    if (cadgClassification.isGenerative && cadgClassification.classification.confidence >= 0.7) {
+      console.log(`[Stream][CADG] Detected generative request: ${cadgClassification.classification.taskType}`);
+
+      // Send thinking event
+      sendSSEEvent(res, {
+        type: 'thinking',
+        content: `Analyzing request and creating execution plan for ${cadgClassification.classification.taskType.replace(/_/g, ' ')}...`
+      });
+
+      const planResult = await cadgService.createPlan({
+        userQuery: message,
+        customerId: customerId || session.customerId || null,
+        userId: effectiveUserId || 'anonymous',
+        taskType: cadgClassification.classification.taskType,
+      });
+
+      if (planResult.success && planResult.plan) {
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const planContent = `I've analyzed your request and created an execution plan for generating a ${cadgClassification.classification.taskType.replace(/_/g, ' ')}. Please review the plan and approve it to proceed with generation.`;
+
+        // Stream the response as tokens
+        for (const char of planContent) {
+          if (clientDisconnected) break;
+          sendSSEEvent(res, { type: 'token', content: char });
+        }
+
+        // Add a system message about the plan
+        const planMessage: AgentMessage = {
+          id: messageId,
+          sessionId,
+          agentId: 'cadg',
+          role: 'agent',
+          content: planContent,
+          requiresApproval: true,
+          timestamp: new Date()
+        };
+        session.messages.push(planMessage);
+
+        // Send done event with plan metadata
+        sendSSEEvent(res, {
+          type: 'done',
+          content: JSON.stringify({
+            id: messageId,
+            sessionId,
+            agentId: 'cadg',
+            requiresApproval: true,
+            isGenerative: true,
+            taskType: cadgClassification.classification.taskType,
+            confidence: cadgClassification.classification.confidence,
+            plan: {
+              planId: planResult.plan.planId,
+              taskType: planResult.plan.taskType,
+              structure: planResult.plan.structure,
+              inputs: planResult.plan.inputs,
+              destination: planResult.plan.destination,
+            },
+            capability: cadgClassification.capability?.capability ? {
+              id: cadgClassification.capability.capability.id,
+              name: cadgClassification.capability.capability.name,
+              description: cadgClassification.capability.capability.description,
+            } : null,
+            methodology: cadgClassification.capability?.methodology ? {
+              id: cadgClassification.capability.methodology.id,
+              name: cadgClassification.capability.methodology.name,
+              steps: cadgClassification.capability.methodology.steps?.length || 0,
+            } : null,
+          })
+        });
+
+        res.end();
+        return;
+      }
+
+      // If plan creation failed, fall back to regular agent
+      console.log(`[Stream][CADG] Plan creation failed, falling back to regular agent: ${planResult.error}`);
+    }
+
     // Generate unique message ID
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
@@ -580,7 +668,79 @@ router.post('/chat', async (req: Request, res: Response) => {
 
     console.log(`Processing message for ${session.context.name}: "${message.substring(0, 50)}..."`);
 
-    // Execute agent
+    // Get effective user ID for CADG
+    const effectiveUserId = getEffectiveUserId(req);
+
+    // Check if this is a generative request using CADG
+    const cadgClassification = await cadgService.classify(message, {
+      customerId: customerId || session.customerId,
+      userId: effectiveUserId || undefined,
+    });
+
+    // If this is a generative request with high confidence, create a CADG plan
+    if (cadgClassification.isGenerative && cadgClassification.classification.confidence >= 0.7) {
+      console.log(`[CADG] Detected generative request: ${cadgClassification.classification.taskType}`);
+
+      const planResult = await cadgService.createPlan({
+        userQuery: message,
+        customerId: customerId || session.customerId || null,
+        userId: effectiveUserId || 'anonymous',
+        taskType: cadgClassification.classification.taskType,
+      });
+
+      if (planResult.success && planResult.plan) {
+        // Return plan for HITL approval
+        const messageId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+        // Add a system message about the plan
+        const planMessage: AgentMessage = {
+          id: messageId,
+          sessionId,
+          agentId: 'cadg',
+          role: 'agent',
+          content: `I've analyzed your request and created an execution plan for generating a ${cadgClassification.classification.taskType.replace(/_/g, ' ')}. Please review the plan and approve it to proceed with generation.`,
+          requiresApproval: true,
+          timestamp: new Date()
+        };
+        session.messages.push(planMessage);
+
+        return res.json({
+          id: messageId,
+          sessionId,
+          agentId: 'cadg',
+          message: planMessage.content,
+          metadata: {
+            isGenerative: true,
+            taskType: cadgClassification.classification.taskType,
+            confidence: cadgClassification.classification.confidence,
+            requiresApproval: true,
+            plan: {
+              planId: planResult.plan.planId,
+              taskType: planResult.plan.taskType,
+              structure: planResult.plan.structure,
+              inputs: planResult.plan.inputs,
+              destination: planResult.plan.destination,
+            },
+            capability: cadgClassification.capability?.capability ? {
+              id: cadgClassification.capability.capability.id,
+              name: cadgClassification.capability.capability.name,
+              description: cadgClassification.capability.capability.description,
+            } : null,
+            methodology: cadgClassification.capability?.methodology ? {
+              id: cadgClassification.capability.methodology.id,
+              name: cadgClassification.capability.methodology.name,
+              steps: cadgClassification.capability.methodology.steps?.length || 0,
+            } : null,
+          },
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // If plan creation failed, fall back to regular agent
+      console.log(`[CADG] Plan creation failed, falling back to regular agent: ${planResult.error}`);
+    }
+
+    // Execute regular agent for non-generative requests
     const result = await onboardingAgent.execute({
       sessionId,
       message,

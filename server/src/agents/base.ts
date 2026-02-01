@@ -21,7 +21,7 @@ export interface ToolEvent {
   duration?: number; // milliseconds
 }
 
-export type AgentId = 'onboarding' | 'meeting' | 'training' | 'intelligence';
+export type AgentId = 'onboarding' | 'meeting' | 'training' | 'intelligence' | 'cadg';
 
 export interface Tool {
   name: string;
