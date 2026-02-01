@@ -77,6 +77,7 @@ import executiveSummaryRoutes from './routes/executive-summary.js'; // PRD-179: 
 import { activityFeedRoutes } from './routes/activity-feed.js'; // PRD-172: Activity Feed Analysis
 import { taskRoutes } from './routes/tasks.js'; // PRD-234: Natural Language Task Creation
 import templateLibraryRoutes from './routes/template-library.js'; // PRD-256: Team Meeting Prep / Template Library
+import emailRoutes from './routes/email.js'; // PRD: Email Integration & Summarization
 import journeyOptimizationRoutes from './routes/journey-optimization.js'; // PRD-237: Customer Journey Optimization
 import teamPerformanceRoutes from './routes/team-performance.js'; // PRD-178: Team Performance Dashboard
 import locationRemindersRoutes from './routes/location-reminders.js'; // PRD-268: Location-Based Reminders
@@ -373,6 +374,7 @@ app.use('/api/readiness', readinessRoutes); // Account readiness assessment (PRD
 app.use('/api/mentorship', mentorshipRoutes); // PRD-255: Mentor Assignment
 app.use('/api/peer-review', peerReviewRoutes); // PRD-253: Peer Review Workflow
 app.use('/api/cadg', cadgRoutes); // CADG: Context-Aware Agentic Document Generation
+app.use('/api/email', emailRoutes); // Email Integration & Summarization
 
 // Error handler
 app.use(errorHandler);
