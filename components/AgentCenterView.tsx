@@ -36,11 +36,26 @@ interface Customer {
 }
 
 // ============================================
+// Props
+// ============================================
+
+interface AgentCenterViewProps {
+  /** If true, automatically show contract upload for new onboarding */
+  startOnboarding?: boolean;
+  /** Callback when onboarding mode has been started (to reset parent state) */
+  onOnboardingStarted?: () => void;
+}
+
+// ============================================
 // Component
 // ============================================
 
-export const AgentCenterView: React.FC = () => {
-  const { getAuthHeaders } = useAuth();
+export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
+  startOnboarding = false,
+  onOnboardingStarted
+}) => {
+  const { getAuthHeaders, isDesignPartner } = useAuth();
+  const [showMockOnboarding, setShowMockOnboarding] = useState(false);
 
   // Customer selection
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -63,6 +78,18 @@ export const AgentCenterView: React.FC = () => {
   useEffect(() => {
     fetchCustomers();
   }, []);
+
+  // Auto-trigger onboarding mode when startOnboarding prop is true
+  useEffect(() => {
+    if (startOnboarding) {
+      setShowContractUpload(true);
+      setContractData(null);
+      setOnboardingPlan(null);
+      setUploadError(null);
+      // Notify parent that onboarding has started
+      onOnboardingStarted?.();
+    }
+  }, [startOnboarding, onOnboardingStarted]);
 
   const fetchCustomers = async () => {
     setLoadingCustomers(true);
@@ -254,6 +281,27 @@ export const AgentCenterView: React.FC = () => {
         </div>
       </div>
 
+      {/* Design Partner Quick Actions */}
+      {isDesignPartner && !showMockOnboarding && !contractData && (
+        <div className="bg-gradient-to-r from-cscx-accent/20 to-purple-900/20 border border-cscx-accent/30 rounded-xl p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🚀</span>
+              <div>
+                <p className="text-white font-medium">Try Mock Onboarding</p>
+                <p className="text-gray-400 text-sm">Experience the AI-powered customer onboarding flow with simulated data</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowMockOnboarding(true)}
+              className="bg-cscx-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            >
+              Start Demo
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Chat */}
       <div className="h-[calc(100vh-200px)] min-h-[600px]">
         <AgentControlCenter
@@ -262,11 +310,13 @@ export const AgentCenterView: React.FC = () => {
           plan={onboardingPlan}
           embedded={false}
           initialMessage={
-            contractData
-              ? `I've analyzed the contract for **${contractData.company_name}**.\n\n**ARR:** $${(contractData.arr || 0).toLocaleString()}\n**Stakeholders:** ${contractData.stakeholders?.length || 0}\n**Entitlements:** ${contractData.entitlements?.length || 0}\n\nI'm ready to help with onboarding. What would you like to do first?`
-              : selectedCustomer
-                ? `I'm ready to help with ${selectedCustomer.name}. Their current health score is ${selectedCustomer.health_score}% and ARR is $${selectedCustomer.arr.toLocaleString()}. What would you like me to do?`
-                : `I'm ready to help. I can assist with playbooks, best practices, customer success questions, or any tasks you need. What would you like to know?`
+            showMockOnboarding
+              ? `🎭 **[DEMO MODE]** Welcome to the mock onboarding experience!\n\nI'll guide you through what a typical customer onboarding looks like in CSCX.AI.\n\n**Simulated Customer:** Acme Corp\n**ARR:** $250,000\n**Industry:** Technology\n\nLet me show you how I can help:\n1. 📧 **Draft welcome emails** - I'll create personalized onboarding sequences\n2. 📅 **Schedule kickoff meetings** - I'll propose optimal meeting times\n3. 📄 **Generate documents** - Success plans, QBR decks, and more\n\n*Note: All actions are simulated - no real emails will be sent.*\n\nWhat would you like to explore first?`
+              : contractData
+                ? `I've analyzed the contract for **${contractData.company_name}**.\n\n**ARR:** $${(contractData.arr || 0).toLocaleString()}\n**Stakeholders:** ${contractData.stakeholders?.length || 0}\n**Entitlements:** ${contractData.entitlements?.length || 0}\n\nI'm ready to help with onboarding. What would you like to do first?`
+                : selectedCustomer
+                  ? `I'm ready to help with ${selectedCustomer.name}. Their current health score is ${selectedCustomer.health_score}% and ARR is $${selectedCustomer.arr.toLocaleString()}. What would you like me to do?`
+                  : `I'm ready to help. I can assist with playbooks, best practices, customer success questions, or any tasks you need. What would you like to know?`
           }
         />
       </div>

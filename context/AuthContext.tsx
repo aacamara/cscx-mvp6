@@ -11,6 +11,9 @@ import { supabase, isSupabaseConfigured } from '../lib/supabase';
 // Demo user ID with connected Google account (for development/demo mode)
 const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
 
+// Admin emails with full platform access
+const ADMIN_EMAILS = ['azizcamara2@gmail.com'];
+
 // Google Workspace scopes needed for full integration
 const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.readonly',
@@ -34,6 +37,8 @@ export interface AuthContextType {
   session: Session | null;
   loading: boolean;
   isAuthenticated: boolean;
+  isAdmin: boolean;
+  isDesignPartner: boolean;
   googleTokens: GoogleTokens | null;
   hasGoogleAccess: boolean;
   userId: string; // Always available - uses demo ID when not authenticated
@@ -189,6 +194,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Get the current user ID (authenticated user or demo user)
   const userId = user?.id || DEMO_USER_ID;
 
+  // Role detection based on email
+  const userEmail = user?.email?.toLowerCase() || '';
+  const isAdmin = ADMIN_EMAILS.includes(userEmail);
+  const isDesignPartner = !!user && !isAdmin;
+
   // Get auth headers for API requests
   const getAuthHeaders = useCallback((): Record<string, string> => {
     const headers: Record<string, string> = {};
@@ -198,6 +208,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     // Always include user ID - use demo ID if not authenticated
     headers['x-user-id'] = user?.id || DEMO_USER_ID;
+    // Include user email for role-based filtering
+    if (user?.email) {
+      headers['x-user-email'] = user.email;
+    }
 
     return headers;
   }, [session, user]);
@@ -207,6 +221,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     session,
     loading,
     isAuthenticated: !!user,
+    isAdmin,
+    isDesignPartner,
     googleTokens,
     hasGoogleAccess: !!googleTokens?.accessToken,
     userId,

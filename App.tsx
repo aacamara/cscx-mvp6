@@ -32,6 +32,7 @@ import { HighContrastToggle } from './components/HighContrastToggle';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SupportTickets } from './components/SupportTickets';
 import { AgentActionsView } from './components/AgentActionsView';
+import { DesignPartnerWelcome } from './components/DesignPartnerWelcome';
 
 // ============================================
 // CSCX.AI 10X - Simplified View Model
@@ -110,7 +111,7 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 // ============================================
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, loading: authLoading, getAuthHeaders } = useAuth();
+  const { isAuthenticated, isAdmin, isDesignPartner, loading: authLoading, getAuthHeaders } = useAuth();
   const [demoMode, setDemoMode] = useState(false);
 
   // View management - Observability is the default/home view
@@ -206,6 +207,9 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-cscx-black text-white p-4 sm:p-8 font-sans">
+      {/* Design Partner Welcome Modal */}
+      <DesignPartnerWelcome isDesignPartner={isDesignPartner} />
+
       {/* Toast Notification */}
       {toast && (
         <div
@@ -311,38 +315,43 @@ const AppContent: React.FC = () => {
               <span>📚</span> Knowledge Base
             </button>
 
-            <button
-              onClick={() => setView('agent-actions')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
-                view === 'agent-actions'
-                  ? 'bg-cscx-accent text-white'
-                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
-              }`}
-            >
-              <span>📥</span> Actions
-            </button>
+            {/* Admin-only navigation items */}
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => setView('agent-actions')}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                    view === 'agent-actions'
+                      ? 'bg-cscx-accent text-white'
+                      : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+                  }`}
+                >
+                  <span>📥</span> Actions
+                </button>
 
-            <button
-              onClick={() => setView('support')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
-                view === 'support'
-                  ? 'bg-cscx-accent text-white'
-                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
-              }`}
-            >
-              <span>🎫</span> Support
-            </button>
+                <button
+                  onClick={() => setView('support')}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                    view === 'support'
+                      ? 'bg-cscx-accent text-white'
+                      : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+                  }`}
+                >
+                  <span>🎫</span> Support
+                </button>
 
-            <button
-              onClick={() => setView('admin')}
-              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
-                view === 'admin'
-                  ? 'bg-cscx-accent text-white'
-                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
-              }`}
-            >
-              <span>⚙️</span> Admin
-            </button>
+                <button
+                  onClick={() => setView('admin')}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                    view === 'admin'
+                      ? 'bg-cscx-accent text-white'
+                      : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+                  }`}
+                >
+                  <span>⚙️</span> Admin
+                </button>
+              </>
+            )}
           </nav>
         </header>
 

@@ -11,7 +11,7 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = () => {
-  const { signInWithGoogle, isLoading } = useAuth();
+  const { signInWithGoogle, loading: isLoading } = useAuth();
 
   const handleGoogleSignIn = async () => {
     try {
