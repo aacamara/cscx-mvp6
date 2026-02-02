@@ -5,8 +5,36 @@
 
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { CADGEmailPreview, EmailData, CustomerData } from './CADGEmailPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
+
+// ============================================
+// Artifact Response Types
+// ============================================
+interface ArtifactResponse {
+  success: boolean;
+  artifactId: string;
+  status: string;
+  preview: string;
+  storage: {
+    driveFileId?: string;
+    driveUrl?: string;
+    additionalFiles?: Array<{
+      type: string;
+      fileId: string;
+      url: string;
+      title: string;
+    }>;
+  };
+  metadata: {
+    generationDurationMs: number;
+    sourcesUsed: string[];
+  };
+  isTemplate?: boolean;
+  templateFolderId?: string;
+  message?: string;
+}
 
 // ============================================
 // Types
@@ -56,6 +84,7 @@ export interface CADGPlanMetadata {
   plan: CADGPlan;
   capability: CADGCapability | null;
   methodology: CADGMethodology | null;
+  customerId?: string | null;  // When null or undefined, it's template mode
 }
 
 interface CADGPlanCardProps {
@@ -79,8 +108,23 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected' | 'generating' | 'complete' | 'error'>('pending');
   const [error, setError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([0]));
+  const [artifact, setArtifact] = useState<ArtifactResponse | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
-  const { plan, capability, methodology, taskType, confidence } = metadata;
+  // Email preview state for HITL workflow
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [emailPreviewData, setEmailPreviewData] = useState<{
+    email: EmailData;
+    customer: CustomerData;
+    planId: string;
+  } | null>(null);
+
+  const { plan, capability, methodology, taskType, confidence, customerId } = metadata;
+
+  // Detect template mode (no customer selected)
+  const isTemplateMode = !customerId;
 
   const toggleSection = (index: number) => {
     setExpandedSections(prev => {
@@ -115,6 +159,32 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
       }
 
       const data = await response.json();
+
+      // Check if this is an email preview (HITL workflow)
+      if (data.isPreview && data.preview) {
+        setEmailPreviewData({
+          email: {
+            to: data.preview.to || [],
+            cc: data.preview.cc || [],
+            subject: data.preview.subject || '',
+            body: data.preview.body || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowEmailPreview(true);
+        setStatus('pending'); // Keep in pending until email is sent
+        setIsApproving(false);
+        return;
+      }
+
+      // Regular artifact response
+      setArtifact(data as ArtifactResponse);
       setStatus('complete');
       onApproved?.(data.artifactId);
     } catch (err) {
@@ -122,6 +192,123 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
       setStatus('error');
     } finally {
       setIsApproving(false);
+    }
+  };
+
+  // Handle sending email from preview
+  const handleEmailSend = async (email: EmailData) => {
+    if (!emailPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/email/send`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: emailPreviewData.planId,
+        to: email.to,
+        cc: email.cc,
+        subject: email.subject,
+        body: email.body,
+        customerId: emailPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to send email');
+    }
+
+    // Success - close preview and update status
+    setShowEmailPreview(false);
+    setEmailPreviewData(null);
+    setStatus('complete');
+    onApproved?.('email-sent');
+  };
+
+  // Handle canceling email preview
+  const handleEmailCancel = () => {
+    setShowEmailPreview(false);
+    setEmailPreviewData(null);
+    setStatus('pending');
+  };
+
+  const handleDownload = async (format: string) => {
+    if (!artifact) return;
+
+    setIsDownloading(true);
+    setDownloadError(null);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/cadg/artifact/${artifact.artifactId}/download?format=${format}`,
+        {
+          method: 'GET',
+          headers: {
+            ...getAuthHeaders(),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error?.message || 'Download failed');
+      }
+
+      // Get the blob and trigger download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${formatTaskType(taskType)}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
+  const handleExportSources = async () => {
+    if (!artifact) return;
+
+    setIsExporting(true);
+    setDownloadError(null);
+
+    try {
+      const response = await fetch(
+        `${API_URL}/api/cadg/artifact/${artifact.artifactId}/export-sources`,
+        {
+          method: 'GET',
+          headers: {
+            ...getAuthHeaders(),
+          },
+        }
+      );
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error?.message || 'Export failed');
+      }
+
+      // Get the blob and trigger download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `data-sources-${artifact.artifactId.slice(0, 8)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Export failed');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -157,16 +344,222 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     return type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
 
+  // Helper to get icon for artifact type
+  const getArtifactIcon = (type: string) => {
+    switch (type) {
+      case 'slides': return '📽️';
+      case 'sheets': return '📊';
+      case 'docs': return '📄';
+      default: return '📎';
+    }
+  };
+
+  // Helper to format source names
+  const formatSourceName = (source: string) => {
+    return source.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  // Helper to format duration
+  const formatDuration = (ms: number) => {
+    if (ms < 1000) return `${ms}ms`;
+    const seconds = (ms / 1000).toFixed(1);
+    return `${seconds}s`;
+  };
+
+  // Email preview for HITL workflow
+  if (showEmailPreview && emailPreviewData) {
+    return (
+      <CADGEmailPreview
+        email={emailPreviewData.email}
+        customer={emailPreviewData.customer}
+        onSend={handleEmailSend}
+        onCancel={handleEmailCancel}
+      />
+    );
+  }
+
   // Status-based rendering
+  if (status === 'complete' && artifact) {
+    return (
+      <div className={`${isTemplateMode ? 'bg-blue-900/30 border-blue-600/50' : 'bg-green-900/30 border-green-600/50'} border rounded-xl overflow-hidden`}>
+        {/* Header */}
+        <div className={`p-4 border-b ${isTemplateMode ? 'border-blue-600/30' : 'border-green-600/30'}`}>
+          <div className={`flex items-center gap-2 ${isTemplateMode ? 'text-blue-400' : 'text-green-400'}`}>
+            <span className="text-xl">{isTemplateMode ? '📋' : '✅'}</span>
+            <span className="font-medium">
+              {isTemplateMode ? 'Template Generated Successfully!' : 'Document Generated Successfully!'}
+            </span>
+          </div>
+          <p className={`${isTemplateMode ? 'text-blue-300/80' : 'text-green-300/80'} text-sm mt-1`}>
+            {formatTaskType(taskType)} • Generated in {formatDuration(artifact.metadata.generationDurationMs)}
+          </p>
+        </div>
+
+        {/* Document Links */}
+        {artifact.storage.driveUrl && (
+          <div className="p-4 border-b border-cscx-gray-700/50">
+            <h4 className="text-xs font-medium text-cscx-gray-400 uppercase tracking-wider mb-3">
+              Generated Documents
+            </h4>
+            <div className="space-y-2">
+              {/* Primary document */}
+              <a
+                href={artifact.storage.driveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-2 bg-cscx-gray-800/50 rounded-lg hover:bg-cscx-gray-800 transition-colors group"
+              >
+                <span className="text-lg">{getArtifactIcon('slides')}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm text-white group-hover:text-cscx-accent transition-colors truncate">
+                    {formatTaskType(taskType)} Presentation
+                  </p>
+                  <p className="text-xs text-cscx-gray-500">Open in Google Slides</p>
+                </div>
+                <span className="text-cscx-gray-500 text-xs">↗</span>
+              </a>
+
+              {/* Additional files */}
+              {artifact.storage.additionalFiles?.map((file, idx) => (
+                <a
+                  key={idx}
+                  href={file.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-2 bg-cscx-gray-800/50 rounded-lg hover:bg-cscx-gray-800 transition-colors group"
+                >
+                  <span className="text-lg">{getArtifactIcon(file.type)}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-white group-hover:text-cscx-accent transition-colors truncate">
+                      {file.title}
+                    </p>
+                    <p className="text-xs text-cscx-gray-500">Open in Google {file.type === 'sheets' ? 'Sheets' : 'Drive'}</p>
+                  </div>
+                  <span className="text-cscx-gray-500 text-xs">↗</span>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Data Sources Used */}
+        {artifact.metadata.sourcesUsed.length > 0 && (
+          <div className="p-4 border-b border-cscx-gray-700/50">
+            <h4 className="text-xs font-medium text-cscx-gray-400 uppercase tracking-wider mb-3">
+              Data Sources Used
+            </h4>
+            <div className="flex flex-wrap gap-2">
+              {artifact.metadata.sourcesUsed.map((source, idx) => (
+                <span
+                  key={idx}
+                  className="text-xs bg-cscx-gray-800 text-cscx-gray-300 px-2 py-1 rounded-full flex items-center gap-1"
+                >
+                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                  {formatSourceName(source)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Template Mode Info */}
+        {isTemplateMode && (
+          <div className="p-4 border-b border-cscx-gray-700/50">
+            <div className="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3 text-blue-300 text-sm flex items-start gap-2">
+              <span className="text-blue-400 mt-0.5">ℹ️</span>
+              <div>
+                <p className="font-medium">Template Mode</p>
+                <p className="text-blue-300/70 text-xs mt-1">
+                  Replace placeholder data from "ACME Corporation" before using with a real customer.
+                </p>
+                {artifact.templateFolderId && (
+                  <p className="text-blue-300/60 text-xs mt-1">
+                    Saved to: CSCX Templates folder
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Action Buttons */}
+        <div className="p-4 border-b border-cscx-gray-700/50">
+          <div className="flex flex-wrap gap-2">
+            {/* Download buttons */}
+            {artifact.storage.driveFileId && (
+              <>
+                <button
+                  onClick={() => handleDownload('pdf')}
+                  disabled={isDownloading}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {isDownloading ? (
+                    <div className="animate-spin rounded-full h-3 w-3 border border-white border-t-transparent" />
+                  ) : (
+                    <span>⬇</span>
+                  )}
+                  Download PDF
+                </button>
+                <button
+                  onClick={() => handleDownload('pptx')}
+                  disabled={isDownloading}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                >
+                  <span>📽️</span>
+                  PPTX
+                </button>
+              </>
+            )}
+
+            {/* Export Data Sources */}
+            <button
+              onClick={handleExportSources}
+              disabled={isExporting}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-900/30 hover:bg-blue-900/50 text-blue-300 text-sm rounded-lg transition-colors disabled:opacity-50"
+            >
+              {isExporting ? (
+                <div className="animate-spin rounded-full h-3 w-3 border border-blue-300 border-t-transparent" />
+              ) : (
+                <span>📊</span>
+              )}
+              Export Data Sources (CSV)
+            </button>
+          </div>
+
+          {/* Download Error */}
+          {downloadError && (
+            <div className="mt-2 text-xs text-red-400">
+              {downloadError}
+            </div>
+          )}
+        </div>
+
+        {/* Generation Stats */}
+        <div className="p-4 bg-cscx-gray-900/30">
+          <div className="flex items-center justify-between text-xs text-cscx-gray-500">
+            <span>Artifact ID: {artifact.artifactId.slice(0, 8)}...</span>
+            <span>Generated just now</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Fallback for complete status without artifact data
   if (status === 'complete') {
     return (
-      <div className="bg-green-900/30 border border-green-600/50 rounded-xl p-4">
-        <div className="flex items-center gap-2 text-green-400">
-          <span className="text-xl">✅</span>
-          <span className="font-medium">Document Generated Successfully!</span>
+      <div className={`${isTemplateMode ? 'bg-blue-900/30 border-blue-600/50' : 'bg-green-900/30 border-green-600/50'} border rounded-xl p-4`}>
+        <div className={`flex items-center gap-2 ${isTemplateMode ? 'text-blue-400' : 'text-green-400'}`}>
+          <span className="text-xl">{isTemplateMode ? '📋' : '✅'}</span>
+          <span className="font-medium">
+            {isTemplateMode ? 'Template Generated Successfully!' : 'Document Generated Successfully!'}
+          </span>
         </div>
-        <p className="text-green-300/80 text-sm mt-2">
-          Your {formatTaskType(taskType)} has been created and saved to {plan.destination.primary}.
+        <p className={`${isTemplateMode ? 'text-blue-300/80' : 'text-green-300/80'} text-sm mt-2`}>
+          {isTemplateMode
+            ? `Your ${formatTaskType(taskType)} template has been created with sample data. Replace placeholder values before using.`
+            : `Your ${formatTaskType(taskType)} has been created and saved to ${plan.destination.primary}.`
+          }
         </p>
       </div>
     );
@@ -189,12 +582,17 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   return (
     <div className="bg-cscx-gray-800 border border-cscx-gray-700 rounded-xl overflow-hidden">
       {/* Header */}
-      <div className="bg-gradient-to-r from-cscx-accent/20 to-transparent p-4 border-b border-cscx-gray-700">
+      <div className={`bg-gradient-to-r ${isTemplateMode ? 'from-blue-600/20' : 'from-cscx-accent/20'} to-transparent p-4 border-b border-cscx-gray-700`}>
         <div className="flex items-start justify-between">
           <div>
             <div className="flex items-center gap-2">
-              <span className="text-2xl">📋</span>
+              <span className="text-2xl">{isTemplateMode ? '📋' : '📊'}</span>
               <h3 className="text-white font-semibold">Execution Plan</h3>
+              {isTemplateMode && (
+                <span className="text-xs bg-blue-600/30 text-blue-400 px-2 py-0.5 rounded-full font-medium">
+                  Template Mode
+                </span>
+              )}
             </div>
             <p className="text-cscx-gray-400 text-sm mt-1">
               {formatTaskType(taskType)}
@@ -307,6 +705,22 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         </div>
       )}
 
+      {/* Template Mode Info */}
+      {status === 'pending' && isTemplateMode && (
+        <div className="px-4 pb-3">
+          <div className="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3 text-blue-300 text-sm flex items-start gap-2">
+            <span className="text-blue-400 mt-0.5">ℹ️</span>
+            <div>
+              <p className="font-medium">No customer selected</p>
+              <p className="text-blue-300/70 text-xs mt-1">
+                This will generate a template with sample data from "ACME Corporation".
+                Replace placeholder values before using with a real customer.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Action Buttons */}
       {status === 'pending' && (
         <div className="px-4 pb-4 flex gap-3">
@@ -320,17 +734,17 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
           <button
             onClick={handleApprove}
             disabled={isApproving || isRejecting}
-            className="flex-1 px-4 py-2.5 bg-cscx-accent hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className={`flex-1 px-4 py-2.5 ${isTemplateMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-cscx-accent hover:bg-red-700'} text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
           >
             {isApproving ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
-                Generating...
+                {isTemplateMode ? 'Generating Template...' : 'Generating...'}
               </>
             ) : (
               <>
-                <span>✓</span>
-                Approve & Generate
+                <span>{isTemplateMode ? '📋' : '✓'}</span>
+                {isTemplateMode ? 'Generate Template' : 'Approve & Generate'}
               </>
             )}
           </button>

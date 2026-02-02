@@ -457,6 +457,32 @@ function estimateLength(taskType: TaskType, sections: PlanSection[]): string {
   return estimates[taskType];
 }
 
+/**
+ * Generate a suggestion using Claude
+ */
+async function generateSuggestion(prompt: string): Promise<string> {
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    // Extract text from response
+    const textBlock = response.content.find((block) => block.type === 'text');
+    return textBlock?.text || 'No suggestion available.';
+  } catch (error) {
+    console.error('[ReasoningEngine] Generate suggestion error:', error);
+    throw error;
+  }
+}
+
 export const reasoningEngine = {
   createPlan,
+  generateSuggestion,
 };

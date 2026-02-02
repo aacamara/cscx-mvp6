@@ -18,6 +18,7 @@ import { planService } from '../services/cadg/planService.js';
 import { artifactGenerator } from '../services/cadg/artifactGenerator.js';
 import { capabilityMatcher } from '../services/cadg/capabilityMatcher.js';
 import { PlanModification } from '../services/cadg/types.js';
+import { driveService } from '../services/google/drive.js';
 
 const router = Router();
 
@@ -179,6 +180,9 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       finalPlan = planService.applyModifications(planRow.plan_json, modifications);
     }
 
+    // Detect template mode (no customer selected)
+    const isTemplateMode = !planRow.customer_id;
+
     // Re-aggregate context for execution
     const context = await contextAggregator.aggregateContext({
       taskType: finalPlan.taskType,
@@ -187,18 +191,56 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       userId,
     });
 
-    // Generate the artifact
+    // Check if this is an email artifact - return preview instead of sending
+    const isEmailArtifact = finalPlan.taskType === 'email_drafting' ||
+                            planRow.user_query?.toLowerCase().includes('email');
+
+    if (isEmailArtifact) {
+      // Generate email content but don't send - return preview for HITL
+      const emailPreview = await artifactGenerator.generateEmailPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms send
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isPreview: true,
+        preview: {
+          to: emailPreview.to,
+          cc: emailPreview.cc,
+          subject: emailPreview.subject,
+          body: emailPreview.body,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
+    // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
       context,
       userId,
       customerId: planRow.customer_id,
+      isTemplate: isTemplateMode,
     });
 
     // Update plan to completed
     await planService.updatePlanStatus(planId, 'completed');
 
-    res.json({
+    // Build response with template mode info
+    const response: Record<string, any> = {
       success: true,
       artifactId: artifact.artifactId,
       status: 'completed',
@@ -208,7 +250,16 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
         generationDurationMs: artifact.metadata.generationDurationMs,
         sourcesUsed: artifact.metadata.sourcesUsed,
       },
-    });
+    };
+
+    // Add template-specific fields
+    if (isTemplateMode || (artifact as any).isTemplate) {
+      response.isTemplate = true;
+      response.templateFolderId = (artifact as any).templateFolderId;
+      response.message = 'Template generated successfully. Replace placeholder data before using.';
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('[CADG] Plan approval error:', error);
 
@@ -299,6 +350,181 @@ router.get('/artifact/:artifactId', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/cadg/artifact/:artifactId/download
+ * Download artifact in specified format
+ */
+router.get('/artifact/:artifactId/download', async (req: Request, res: Response) => {
+  try {
+    const { artifactId } = req.params;
+    const { format } = req.query as { format?: string };
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Get the artifact
+    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId);
+
+    if (!success || !artifact) {
+      return res.status(404).json({
+        success: false,
+        error: error || 'Artifact not found',
+      });
+    }
+
+    if (!artifact.drive_file_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Artifact has no associated Drive file',
+      });
+    }
+
+    // Determine export format based on artifact type and requested format
+    const exportFormats: Record<string, Record<string, string>> = {
+      slides: {
+        pdf: 'application/pdf',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      },
+      sheets: {
+        pdf: 'application/pdf',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        csv: 'text/csv',
+      },
+      docs: {
+        pdf: 'application/pdf',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      },
+    };
+
+    const artifactType = artifact.artifact_type || 'docs';
+    const formatOptions = exportFormats[artifactType] || exportFormats.docs;
+    const requestedFormat = format || 'pdf';
+    const mimeType = formatOptions[requestedFormat] || 'application/pdf';
+
+    // Export the file
+    const fileBuffer = await driveService.exportFile(userId, artifact.drive_file_id, mimeType);
+
+    // Determine filename
+    const extension = requestedFormat;
+    const filename = `${artifact.title || 'artifact'}.${extension}`;
+
+    // Set headers and send file
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', fileBuffer.length);
+    res.send(fileBuffer);
+  } catch (error) {
+    console.error('[CADG] Download error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to download artifact',
+    });
+  }
+});
+
+/**
+ * GET /api/cadg/artifact/:artifactId/export-sources
+ * Export data sources used in artifact generation as CSV
+ */
+router.get('/artifact/:artifactId/export-sources', async (req: Request, res: Response) => {
+  try {
+    const { artifactId } = req.params;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Get the artifact
+    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId);
+
+    if (!success || !artifact) {
+      return res.status(404).json({
+        success: false,
+        error: error || 'Artifact not found',
+      });
+    }
+
+    // Get the plan to access context data
+    const planResult = await planService.getPlan(artifact.plan_id);
+
+    if (!planResult.success || !planResult.plan) {
+      return res.status(404).json({
+        success: false,
+        error: 'Associated plan not found',
+      });
+    }
+
+    // Build CSV content from sources used
+    const sources = artifact.sources_used || [];
+    const csvRows: string[] = [
+      'Source Type,Category,Description,Value',
+    ];
+
+    // Add rows for each source type
+    for (const source of sources) {
+      switch (source) {
+        case 'customer_360':
+          csvRows.push(`Customer 360,Profile,Customer health and status data,Included`);
+          break;
+        case 'health_trends':
+          csvRows.push(`Health Trends,Metrics,Historical health score data,Included`);
+          break;
+        case 'engagement_metrics':
+          csvRows.push(`Engagement,Metrics,Feature adoption and usage data,Included`);
+          break;
+        case 'risk_signals':
+          csvRows.push(`Risk Signals,Alerts,Active risk indicators,Included`);
+          break;
+        case 'renewal_forecast':
+          csvRows.push(`Renewal Forecast,Prediction,Renewal probability and timeline,Included`);
+          break;
+        case 'customer_history':
+          csvRows.push(`Interaction History,Timeline,Recent customer touchpoints,Included`);
+          break;
+        case 'knowledge_base':
+          csvRows.push(`Knowledge Base,Content,Relevant playbooks and guides,Included`);
+          break;
+        case 'template_data':
+          csvRows.push(`Template Data,Sample,Placeholder data for template,Included`);
+          break;
+        default:
+          csvRows.push(`${source},Other,Additional data source,Included`);
+      }
+    }
+
+    // Add metadata
+    csvRows.push('');
+    csvRows.push('Metadata,Value');
+    csvRows.push(`Artifact ID,${artifactId}`);
+    csvRows.push(`Generated At,${artifact.created_at}`);
+    csvRows.push(`Generation Duration,${artifact.generation_duration_ms}ms`);
+    csvRows.push(`Artifact Type,${artifact.artifact_type}`);
+
+    const csvContent = csvRows.join('\n');
+
+    // Send CSV
+    const filename = `data-sources-${artifactId.slice(0, 8)}.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(csvContent);
+  } catch (error) {
+    console.error('[CADG] Export sources error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to export data sources',
+    });
+  }
+});
+
+/**
  * GET /api/cadg/plans
  * Get user's plans
  */
@@ -371,6 +597,171 @@ router.get('/capabilities', async (_req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to get capabilities',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/email/suggest
+ * Get AI suggestions to improve email draft
+ */
+router.post('/email/suggest', async (req: Request, res: Response) => {
+  try {
+    const { subject, body, customerId } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!body) {
+      return res.status(400).json({
+        success: false,
+        error: 'Email body is required',
+      });
+    }
+
+    // Get customer context if available
+    let customerContext = '';
+    if (customerId) {
+      try {
+        const context = await contextAggregator.aggregateContext({
+          taskType: 'email_drafting',
+          customerId,
+          userQuery: 'get customer context for email',
+          userId,
+        });
+
+        if (context.platformData.customer360) {
+          const c = context.platformData.customer360;
+          customerContext = `
+Customer: ${c.name || 'Unknown'}
+Health Score: ${c.healthScore || 'N/A'}
+Status: ${c.status || 'N/A'}
+ARR: ${c.arr ? `$${c.arr.toLocaleString()}` : 'N/A'}
+Renewal Date: ${c.renewalDate || 'N/A'}
+`;
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not fetch customer context:', err);
+      }
+    }
+
+    // Call Claude for suggestions
+    const prompt = `You are a customer success expert. Review this email and suggest ONE specific improvement. Be concise (2-3 sentences max).
+
+${customerContext ? `Customer Context:\n${customerContext}\n` : ''}
+Subject: ${subject || '(no subject)'}
+
+Email Body:
+${body}
+
+Provide a specific, actionable suggestion to make this email more effective. Focus on tone, clarity, personalization, or call-to-action. Do not rewrite the entire email, just suggest one improvement.`;
+
+    // Use the reasoning engine's Claude integration
+    const suggestion = await reasoningEngine.generateSuggestion(prompt);
+
+    res.json({
+      success: true,
+      suggestion,
+    });
+  } catch (error) {
+    console.error('[CADG] Email suggest error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get suggestion',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/email/send
+ * Send finalized email after user review
+ */
+router.post('/email/send', async (req: Request, res: Response) => {
+  try {
+    const { planId, to, cc, subject, body, customerId } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!to || !Array.isArray(to) || to.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Recipients (to) are required',
+      });
+    }
+
+    if (!subject || !body) {
+      return res.status(400).json({
+        success: false,
+        error: 'Subject and body are required',
+      });
+    }
+
+    // Import gmail service dynamically to avoid circular dependencies
+    const { gmailService } = await import('../services/google/gmail.js');
+
+    // Send the email
+    const messageId = await gmailService.sendEmail(userId, {
+      to,
+      cc: cc || [],
+      subject,
+      bodyHtml: body.replace(/\n/g, '<br>'),
+      bodyText: body,
+      saveToDb: true,
+      customerId,
+    });
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'email_sent',
+            description: `Email sent: ${subject}`,
+            metadata: {
+              recipients: to,
+              cc: cc || [],
+              subject,
+              gmailMessageId: messageId,
+              sentVia: 'cadg_email_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log email activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      messageId,
+      sentAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Email send error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to send email',
     });
   }
 });
