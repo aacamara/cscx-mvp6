@@ -29,13 +29,16 @@ import { AgentNotifications } from './components/AgentNotifications';
 import { GoogleConnect } from './components/GoogleConnect';
 import { AccessibilitySettings } from './components/Settings/AccessibilitySettings';
 import { HighContrastToggle } from './components/HighContrastToggle';
+import { AdminDashboard } from './components/AdminDashboard';
+import { SupportTickets } from './components/SupportTickets';
+import { AgentActionsView } from './components/AgentActionsView';
 
 // ============================================
 // CSCX.AI 10X - Simplified View Model
 // ============================================
 
 // Simplified view type - Observability is now the primary view (includes customers)
-type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-center' | 'knowledge-base' | 'login' | 'auth-callback';
+type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-center' | 'knowledge-base' | 'admin' | 'support' | 'agent-actions' | 'login' | 'auth-callback';
 
 // Settings modal tabs
 type SettingsTab = 'integrations' | 'accessibility';
@@ -114,7 +117,8 @@ const AppContent: React.FC = () => {
   const [view, setView] = useState<AppView>('observability');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [observabilityTab, setObservabilityTab] = useState<'overview' | 'customers' | 'metrics'>('overview');
+  const [observabilityTab, setObservabilityTab] = useState<'overview' | 'customers' | 'health-portfolio'>('overview');
+  const [agentCenterOnboardingMode, setAgentCenterOnboardingMode] = useState(false);
 
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -137,10 +141,13 @@ const AppContent: React.FC = () => {
 
   // Navigation handlers
   const handleNewOnboarding = () => {
-    setView('onboarding');
+    // Navigate to Agent Center with onboarding mode enabled
+    setAgentCenterOnboardingMode(true);
+    setView('agent-center');
   };
 
   const handleOpenAgentCenter = () => {
+    setAgentCenterOnboardingMode(false); // Reset onboarding mode when navigating directly
     setView('agent-center');
   };
 
@@ -192,9 +199,9 @@ const AppContent: React.FC = () => {
     return <AuthCallback />;
   }
 
-  // Show landing page if not authenticated
+  // Show login page with invite code if not authenticated
   if (!isAuthenticated && !demoMode && isSupabaseConfigured()) {
-    return <LandingPage />;
+    return <Login onDemoMode={() => setDemoMode(true)} />;
   }
 
   return (
@@ -303,6 +310,39 @@ const AppContent: React.FC = () => {
             >
               <span>📚</span> Knowledge Base
             </button>
+
+            <button
+              onClick={() => setView('agent-actions')}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                view === 'agent-actions'
+                  ? 'bg-cscx-accent text-white'
+                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+              }`}
+            >
+              <span>📥</span> Actions
+            </button>
+
+            <button
+              onClick={() => setView('support')}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                view === 'support'
+                  ? 'bg-cscx-accent text-white'
+                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+              }`}
+            >
+              <span>🎫</span> Support
+            </button>
+
+            <button
+              onClick={() => setView('admin')}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                view === 'admin'
+                  ? 'bg-cscx-accent text-white'
+                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+              }`}
+            >
+              <span>⚙️</span> Admin
+            </button>
           </nav>
         </header>
 
@@ -402,12 +442,36 @@ const AppContent: React.FC = () => {
 
           {/* VIEW: AGENT CENTER - Standalone Agent Access */}
           {view === 'agent-center' && (
-            <AgentCenterView />
+            <AgentCenterView
+              startOnboarding={agentCenterOnboardingMode}
+              onOnboardingStarted={() => setAgentCenterOnboardingMode(false)}
+            />
           )}
 
           {/* VIEW: KNOWLEDGE BASE - Unified Knowledge Management */}
           {view === 'knowledge-base' && (
             <KnowledgeBase />
+          )}
+
+          {/* VIEW: ADMIN DASHBOARD - Platform Metrics for Admins (PRD-5) */}
+          {view === 'admin' && (
+            <div className="max-w-6xl mx-auto px-4 py-6">
+              <AdminDashboard onClose={() => setView('observability')} />
+            </div>
+          )}
+
+          {/* VIEW: SUPPORT TICKETS - Support Ticket Management (PRD-4) */}
+          {view === 'support' && (
+            <div className="max-w-6xl mx-auto px-4 py-6">
+              <SupportTickets onClose={() => setView('observability')} />
+            </div>
+          )}
+
+          {/* VIEW: AGENT ACTIONS - Agent Inbox for HITL Approval (PRD-3) */}
+          {view === 'agent-actions' && (
+            <div className="max-w-6xl mx-auto px-4 py-6">
+              <AgentActionsView onClose={() => setView('observability')} />
+            </div>
           )}
 
         </main>

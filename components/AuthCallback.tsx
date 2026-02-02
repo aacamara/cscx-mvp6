@@ -6,9 +6,80 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
+
+// Admin emails get auto-provisioned with admin role
+const ADMIN_EMAILS = ['azizcamara2@gmail.com'];
+const DEFAULT_WORKSPACE_ID = 'a0000000-0000-0000-0000-000000000001';
+
 interface AuthCallbackProps {
   onSuccess?: () => void;
   onError?: (error: string) => void;
+}
+
+async function handleUserSetup(session: { user: { id: string; email?: string }; access_token: string }) {
+  const pendingInvite = localStorage.getItem('pendingInvite');
+  const isAdminAttempt = localStorage.getItem('adminLoginAttempt');
+  const userEmail = session.user.email?.toLowerCase() || '';
+
+  // Clean up localStorage flags
+  localStorage.removeItem('adminLoginAttempt');
+
+  // Check if admin email
+  const isAdmin = ADMIN_EMAILS.includes(userEmail);
+
+  if (isAdmin) {
+    // Auto-provision admin
+    try {
+      await fetch(`${API_BASE}/auth/provision-admin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          userId: session.user.id,
+          email: userEmail,
+          workspaceId: DEFAULT_WORKSPACE_ID,
+        }),
+      });
+    } catch (err) {
+      console.error('Failed to provision admin:', err);
+    }
+    return;
+  }
+
+  // Non-admin: must have pending invite
+  if (!pendingInvite) {
+    console.warn('Non-admin user without invite code');
+    return;
+  }
+
+  try {
+    const invite = JSON.parse(pendingInvite);
+
+    // Call backend to redeem invite and set up user
+    const response = await fetch(`${API_BASE}/auth/redeem-invite`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        inviteId: invite.inviteId,
+        workspaceId: invite.workspaceId,
+        userId: session.user.id,
+        email: session.user.email,
+      }),
+    });
+
+    if (response.ok) {
+      localStorage.removeItem('pendingInvite');
+    }
+  } catch (err) {
+    console.error('Failed to redeem invite:', err);
+  }
 }
 
 export function AuthCallback({ onSuccess, onError }: AuthCallbackProps) {
@@ -34,6 +105,9 @@ export function AuthCallback({ onSuccess, onError }: AuthCallbackProps) {
         }
 
         if (data.session) {
+          // Handle user setup (admin or invite redemption)
+          await handleUserSetup(data.session);
+
           setStatus('success');
           setMessage('Successfully signed in! Redirecting...');
 
@@ -50,9 +124,13 @@ export function AuthCallback({ onSuccess, onError }: AuthCallbackProps) {
             onError?.('Authentication timed out');
           }, 10000);
 
-          const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+          const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
             if (event === 'SIGNED_IN' && session) {
               clearTimeout(timeout);
+
+              // Handle user setup (admin or invite redemption)
+              await handleUserSetup(session);
+
               setStatus('success');
               setMessage('Successfully signed in! Redirecting...');
 
