@@ -10,6 +10,7 @@ import path from 'path';
 
 import { agentRoutes } from './routes/agents.js';
 import { contractRoutes } from './routes/contracts.js';
+import { entitlementRoutes } from './routes/entitlements.js';
 import { customerRoutes } from './routes/customers.js';
 import { meetingRoutes } from './routes/meetings.js';
 import { langchainRoutes } from './routes/langchain.js';
@@ -279,6 +280,7 @@ app.get('/health/circuits', (req, res) => {
 // API Routes
 app.use('/api/agents', agentRoutes);
 app.use('/api/contracts', contractRoutes);
+app.use('/api/entitlements', entitlementRoutes); // PRD-0: Contract entitlements HITL review
 app.use('/api/customers', customerRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/ai', langchainRoutes); // LangChain-powered AI agents

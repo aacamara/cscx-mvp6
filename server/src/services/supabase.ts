@@ -359,4 +359,215 @@ export class SupabaseService {
       throw error;
     }
   }
+
+  // Entitlements
+  async saveEntitlement(entitlement: Record<string, unknown>): Promise<{ id: string }> {
+    if (!this.client) {
+      return { id: `entitlement_${Date.now()}` };
+    }
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlements')
+      .insert(entitlement)
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getEntitlementsByContract(contractId: string): Promise<Array<Record<string, unknown>>> {
+    if (!this.client) return [];
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlements')
+      .select('*')
+      .eq('contract_id', contractId);
+
+    if (error) return [];
+    return data;
+  }
+
+  async getEntitlementsByCustomer(customerId: string): Promise<Array<Record<string, unknown>>> {
+    if (!this.client) return [];
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlements')
+      .select('*, contracts(*)')
+      .eq('customer_id', customerId);
+
+    if (error) return [];
+    return data;
+  }
+
+  // PRD-0: Enhanced Entitlements Methods
+
+  async listEntitlements(options?: {
+    customerId?: string;
+    contractId?: string;
+    status?: string;
+    isActive?: boolean;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ entitlements: Array<Record<string, unknown>>; total: number }> {
+    if (!this.client) {
+      return { entitlements: [], total: 0 };
+    }
+
+    let query = this.ensureClient()
+      .from('entitlements')
+      .select('*, contracts(file_name, status), customers(name)', { count: 'exact' });
+
+    if (options?.customerId) {
+      query = query.eq('customer_id', options.customerId);
+    }
+    if (options?.contractId) {
+      query = query.eq('contract_id', options.contractId);
+    }
+    if (options?.status) {
+      query = query.eq('status', options.status);
+    }
+    if (options?.isActive !== undefined) {
+      query = query.eq('is_active', options.isActive);
+    }
+
+    query = query.order('created_at', { ascending: false });
+
+    if (options?.limit) {
+      query = query.limit(options.limit);
+    }
+    if (options?.offset) {
+      query = query.range(options.offset, options.offset + (options?.limit || 20) - 1);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      console.error('Error listing entitlements:', error);
+      return { entitlements: [], total: 0 };
+    }
+
+    return { entitlements: data || [], total: count || 0 };
+  }
+
+  async getEntitlement(id: string): Promise<Record<string, unknown> | null> {
+    if (!this.client) return null;
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlements')
+      .select('*, contracts(file_name, file_url, status, parsed_data), customers(name)')
+      .eq('id', id)
+      .single();
+
+    if (error) return null;
+    return data;
+  }
+
+  async updateEntitlement(id: string, updates: Record<string, unknown>): Promise<void> {
+    if (!this.client) {
+      console.log('Update entitlement (no client):', id, updates);
+      return;
+    }
+
+    const { error } = await this.ensureClient()
+      .from('entitlements')
+      .update(updates)
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error updating entitlement:', error);
+      throw error;
+    }
+  }
+
+  async saveEntitlementEdit(edit: {
+    entitlement_id: string;
+    field_name: string;
+    old_value: string | null;
+    new_value: string | null;
+    edited_by?: string;
+  }): Promise<{ id: string }> {
+    if (!this.client) {
+      return { id: `edit_${Date.now()}` };
+    }
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlement_edits')
+      .insert(edit)
+      .select('id')
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getEntitlementEdits(entitlementId: string): Promise<Array<Record<string, unknown>>> {
+    if (!this.client) return [];
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlement_edits')
+      .select('*')
+      .eq('entitlement_id', entitlementId)
+      .order('edited_at', { ascending: false });
+
+    if (error) return [];
+    return data;
+  }
+
+  async finalizeEntitlement(id: string, userId?: string): Promise<Record<string, unknown>> {
+    if (!this.client) {
+      return { id, version: 1, status: 'finalized', is_active: true };
+    }
+
+    // Get current entitlement to get version
+    const current = await this.getEntitlement(id);
+    if (!current) {
+      throw new Error('Entitlement not found');
+    }
+
+    const currentVersion = (current.version as number) || 1;
+
+    // Deactivate any previously active version for same contract + same SKU
+    if (current.contract_id && current.sku) {
+      await this.ensureClient()
+        .from('entitlements')
+        .update({ is_active: false })
+        .eq('contract_id', current.contract_id)
+        .eq('sku', current.sku)
+        .eq('is_active', true)
+        .neq('id', id);
+    }
+
+    // Update the entitlement
+    const updates: Record<string, unknown> = {
+      status: 'finalized',
+      is_active: true,
+      version: currentVersion + 1,
+      finalized_at: new Date().toISOString()
+    };
+
+    if (userId) {
+      updates.finalized_by = userId;
+    }
+
+    const { data, error } = await this.ensureClient()
+      .from('entitlements')
+      .update(updates)
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) throw error;
+    return data;
+  }
+
+  async getEntitlementVersionHistory(entitlementId: string): Promise<{
+    entitlement: Record<string, unknown> | null;
+    edits: Array<Record<string, unknown>>;
+  }> {
+    const entitlement = await this.getEntitlement(entitlementId);
+    const edits = await this.getEntitlementEdits(entitlementId);
+
+    return { entitlement, edits };
+  }
 }

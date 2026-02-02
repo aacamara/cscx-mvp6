@@ -10,6 +10,105 @@ const contractParser = new ContractParser();
 const claude = new ClaudeService();
 const db = new SupabaseService();
 
+// Helper: Extract start date from contract extraction
+function extractStartDate(extraction: Record<string, any>): string | null {
+  // Try direct start_date field
+  if (extraction.start_date) {
+    return normalizeDate(extraction.start_date);
+  }
+
+  // Try parsing from contract_period (e.g., "Jan 1, 2025 - Dec 31, 2025")
+  if (extraction.contract_period) {
+    const period = extraction.contract_period;
+    const dateMatch = period.match(/(\w+\s+\d{1,2},?\s+\d{4})/);
+    if (dateMatch) {
+      return normalizeDate(dateMatch[1]);
+    }
+  }
+
+  // Try from first entitlement
+  if (extraction.entitlements?.length > 0) {
+    const firstEntitlement = extraction.entitlements[0];
+    if (firstEntitlement.start_date) {
+      return normalizeDate(firstEntitlement.start_date);
+    }
+  }
+
+  return null;
+}
+
+// Helper: Extract end date from contract extraction
+function extractEndDate(extraction: Record<string, any>): string | null {
+  // Try direct end_date field
+  if (extraction.end_date) {
+    return normalizeDate(extraction.end_date);
+  }
+
+  // Try parsing from contract_period (e.g., "Jan 1, 2025 - Dec 31, 2025")
+  if (extraction.contract_period) {
+    const period = extraction.contract_period;
+    const dateMatches = period.match(/(\w+\s+\d{1,2},?\s+\d{4})/g);
+    if (dateMatches && dateMatches.length >= 2) {
+      return normalizeDate(dateMatches[1]);
+    }
+  }
+
+  // Try from first entitlement
+  if (extraction.entitlements?.length > 0) {
+    const firstEntitlement = extraction.entitlements[0];
+    if (firstEntitlement.end_date) {
+      return normalizeDate(firstEntitlement.end_date);
+    }
+  }
+
+  return null;
+}
+
+// Helper: Normalize date string to ISO format
+function normalizeDate(dateStr: string): string | null {
+  try {
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+}
+
+// Helper: Save entitlements to database
+async function saveEntitlements(
+  dbService: SupabaseService,
+  contractId: string,
+  customerId: string | null,
+  entitlements: Array<{
+    type?: string;
+    description: string;
+    quantity?: string | number;
+    start_date?: string;
+    end_date?: string;
+  }>
+): Promise<void> {
+  for (const entitlement of entitlements) {
+    try {
+      await dbService.saveEntitlement({
+        contract_id: contractId,
+        customer_id: customerId,
+        name: entitlement.type || 'Entitlement',
+        description: entitlement.description,
+        quantity: typeof entitlement.quantity === 'string'
+          ? parseInt(entitlement.quantity) || null
+          : entitlement.quantity || null,
+        start_date: entitlement.start_date ? normalizeDate(entitlement.start_date) : null,
+        end_date: entitlement.end_date ? normalizeDate(entitlement.end_date) : null
+      });
+    } catch (err) {
+      console.error('[Contracts] Failed to save entitlement:', err);
+    }
+  }
+}
+
 // Configure multer for file uploads (memory storage for processing)
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -75,7 +174,13 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
       console.error('Storage upload failed (continuing without file URL):', storageError);
     }
 
+    // Extract dates from parsed data
+    const startDate = extractStartDate(result.extraction);
+    const endDate = extractEndDate(result.extraction);
+    const totalValue = result.extraction.arr || 0;
+
     // Save to database
+    console.log('[Contracts] Saving contract with dates:', { startDate, endDate, totalValue });
     const contract = await db.saveContract({
       file_name: file.originalname,
       file_type: file.mimetype,
@@ -87,8 +192,17 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
       contract_period: result.extraction.contract_period,
       parsed_data: result.extraction,
       confidence: result.confidence,
-      status: 'active'
+      status: 'active',
+      start_date: startDate,
+      end_date: endDate,
+      total_value: totalValue
     });
+
+    // Save entitlements (line items) if present
+    if (result.extraction.entitlements && result.extraction.entitlements.length > 0) {
+      console.log(`[Contracts] Saving ${result.extraction.entitlements.length} entitlements`);
+      await saveEntitlements(db, contract.id, null, result.extraction.entitlements);
+    }
 
     res.json({
       id: contract.id,
@@ -110,14 +224,64 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
   }
 });
 
-// POST /api/contracts/parse - Parse contract from text/base64
-router.post('/parse', async (req: Request, res: Response) => {
+// POST /api/contracts/parse - Parse contract from text/base64/gdoc
+router.post('/parse', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    const { type, content, mimeType, fileName } = req.body;
+    const { type, content, mimeType, fileName, google_doc_url } = req.body;
+    const userId = req.userId;
+
+    // Handle Google Doc URL
+    if (google_doc_url) {
+      if (!userId) {
+        return res.status(401).json({
+          error: { code: 'AUTH_REQUIRED', message: 'Authentication required to access Google Docs' }
+        });
+      }
+
+      console.log(`Parsing Google Doc: ${google_doc_url}`);
+
+      const result = await contractParser.parse({
+        type: 'gdoc',
+        content: google_doc_url,
+        userId
+      });
+
+      // Save to database
+      const contract = await db.saveContract({
+        file_name: fileName || 'Google Doc Contract',
+        file_type: 'gdoc',
+        google_doc_url,
+        raw_text: result.rawText.substring(0, 50000),
+        company_name: result.extraction.company_name,
+        arr: result.extraction.arr,
+        contract_period: result.extraction.contract_period,
+        parsed_data: { ...result.extraction, confidence: result.confidence },
+        status: 'parsed',
+        parsed_at: new Date().toISOString(),
+        start_date: extractStartDate(result.extraction),
+        end_date: extractEndDate(result.extraction),
+        total_value: result.extraction.arr || 0
+      });
+
+      // Save entitlements
+      if (result.extraction.entitlements?.length > 0) {
+        console.log(`[Contracts] Saving ${result.extraction.entitlements.length} entitlements from Google Doc`);
+        await saveEntitlements(db, contract.id, null, result.extraction.entitlements);
+      }
+
+      return res.json({
+        id: contract.id,
+        contractData: result.extraction,
+        summary: result.summary,
+        research: result.research,
+        plan: result.plan,
+        confidence: result.confidence
+      });
+    }
 
     if (!content) {
       return res.status(400).json({
-        error: { code: 'VALIDATION_ERROR', message: 'Content is required' }
+        error: { code: 'VALIDATION_ERROR', message: 'Content or google_doc_url is required' }
       });
     }
 
@@ -131,7 +295,13 @@ router.post('/parse', async (req: Request, res: Response) => {
       fileName
     });
 
+    // Extract dates from parsed data
+    const startDate = extractStartDate(result.extraction);
+    const endDate = extractEndDate(result.extraction);
+    const totalValue = result.extraction.arr || 0;
+
     // Save to database (confidence stored in parsed_data)
+    console.log('[Contracts] Saving parsed contract with dates:', { startDate, endDate, totalValue });
     const contract = await db.saveContract({
       file_name: fileName,
       raw_text: type === 'text' ? content.substring(0, 50000) : null,
@@ -139,8 +309,17 @@ router.post('/parse', async (req: Request, res: Response) => {
       arr: result.extraction.arr,
       contract_term: result.extraction.contract_period,
       parsed_data: { ...result.extraction, confidence: result.confidence },
-      status: 'active'
+      status: 'active',
+      start_date: startDate,
+      end_date: endDate,
+      total_value: totalValue
     });
+
+    // Save entitlements (line items) if present
+    if (result.extraction.entitlements && result.extraction.entitlements.length > 0) {
+      console.log(`[Contracts] Saving ${result.extraction.entitlements.length} entitlements`);
+      await saveEntitlements(db, contract.id, null, result.extraction.entitlements);
+    }
 
     res.json({
       id: contract.id,
@@ -209,6 +388,12 @@ router.post('/', async (req: Request, res: Response) => {
     const arr = parsed_data?.arr;
     const contractPeriod = parsed_data?.contract_period;
 
+    // Extract dates
+    const startDate = parsed_data ? extractStartDate(parsed_data) : null;
+    const endDate = parsed_data ? extractEndDate(parsed_data) : null;
+    const totalValue = arr || 0;
+
+    console.log('[Contracts] Creating contract with dates:', { startDate, endDate, totalValue });
     const contract = await db.saveContract({
       customer_id,
       file_name: file_name || 'Unknown',
@@ -218,8 +403,17 @@ router.post('/', async (req: Request, res: Response) => {
       arr,
       contract_period: contractPeriod,
       parsed_data,
-      status
+      status,
+      start_date: startDate,
+      end_date: endDate,
+      total_value: totalValue
     });
+
+    // Save entitlements if present
+    if (parsed_data?.entitlements && parsed_data.entitlements.length > 0) {
+      console.log(`[Contracts] Saving ${parsed_data.entitlements.length} entitlements`);
+      await saveEntitlements(db, contract.id, customer_id, parsed_data.entitlements);
+    }
 
     res.status(201).json(contract);
   } catch (error) {

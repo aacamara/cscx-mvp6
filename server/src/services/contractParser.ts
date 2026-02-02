@@ -1,5 +1,6 @@
 import { ClaudeService, ContractExtraction, CompanyResearch, OnboardingPlan } from './claude.js';
 import { GeminiService } from './gemini.js';
+import { docsService } from './google/docs.js';
 
 // Types for file handling
 export interface ParsedContract {
@@ -9,13 +10,15 @@ export interface ParsedContract {
   plan: OnboardingPlan;
   rawText: string;
   confidence: number;
+  extractionMethod?: 'pdf' | 'docx' | 'text' | 'gdoc' | 'gemini_multimodal';
 }
 
 export interface ContractInput {
-  type: 'text' | 'file';
-  content: string; // raw text or base64 string
+  type: 'text' | 'file' | 'gdoc';
+  content: string; // raw text, base64 string, or Google Doc URL/ID
   mimeType?: string;
   fileName?: string;
+  userId?: string; // Required for Google Docs API access
 }
 
 export class ContractParser {
@@ -158,6 +161,11 @@ export class ContractParser {
       return input.content;
     }
 
+    // Handle Google Docs
+    if (input.type === 'gdoc') {
+      return this.extractFromGoogleDoc(input.content, input.userId);
+    }
+
     // Handle file input (base64 encoded)
     const mimeType = input.mimeType || 'application/octet-stream';
     const base64Data = input.content;
@@ -180,6 +188,67 @@ export class ContractParser {
 
     // For other types, try to read as text
     return buffer.toString('utf-8');
+  }
+
+  /**
+   * Extract text from a Google Doc
+   */
+  private async extractFromGoogleDoc(docIdOrUrl: string, userId?: string): Promise<string> {
+    if (!userId) {
+      throw new Error('User ID is required to access Google Docs');
+    }
+
+    // Extract document ID from URL if needed
+    const docId = this.extractGoogleDocId(docIdOrUrl);
+    if (!docId) {
+      throw new Error('Invalid Google Docs URL or ID');
+    }
+
+    try {
+      console.log(`📄 Extracting text from Google Doc: ${docId}`);
+      const doc = await docsService.getDocument(userId, docId);
+
+      if (!doc.content || doc.content.trim().length < 50) {
+        throw new Error('Google Doc appears to be empty or has insufficient content');
+      }
+
+      console.log(`✅ Extracted ${doc.content.length} characters from Google Doc`);
+      return doc.content;
+    } catch (error) {
+      console.error('Google Docs extraction error:', error);
+      if (error instanceof Error) {
+        if (error.message.includes('permission') || error.message.includes('access')) {
+          throw new Error('Access denied to Google Doc. Please ensure the document is shared with the appropriate permissions.');
+        }
+      }
+      throw new Error('Failed to extract text from Google Doc. Please check the URL and try again.');
+    }
+  }
+
+  /**
+   * Extract Google Doc ID from URL or return ID if already an ID
+   */
+  private extractGoogleDocId(input: string): string | null {
+    // If it's already just an ID (no slashes or dots)
+    if (/^[a-zA-Z0-9_-]+$/.test(input) && input.length > 20) {
+      return input;
+    }
+
+    // Try to extract from various Google Docs URL formats
+    const patterns = [
+      /docs\.google\.com\/document\/d\/([a-zA-Z0-9_-]+)/,
+      /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/,
+      /drive\.google\.com\/open\?id=([a-zA-Z0-9_-]+)/,
+    ];
+
+    for (const pattern of patterns) {
+      const match = input.match(pattern);
+      if (match && match[1]) {
+        return match[1];
+      }
+    }
+
+    return null;
   }
 
   /**
