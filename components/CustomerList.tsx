@@ -16,6 +16,8 @@ interface Customer {
     title?: string;
   };
   tags?: string[];
+  is_demo?: boolean;
+  owner_id?: string | null;
 }
 
 interface CustomerListProps {
@@ -29,7 +31,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   onSelectCustomer,
   onNewOnboarding
 }) => {
-  const { getAuthHeaders } = useAuth();
+  const { getAuthHeaders, isDesignPartner, userId } = useAuth();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -43,6 +45,10 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     avgHealth: 0,
     atRiskCount: 0
   });
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<string | null>(null);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -122,6 +128,73 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     }
   };
 
+  // Download CSV template
+  const handleDownloadTemplate = () => {
+    window.location.href = `${API_BASE}/customers/template`;
+  };
+
+  // Handle CSV file import
+  const handleImportCSV = async (csvContent: string) => {
+    setImportLoading(true);
+    setImportError(null);
+    setImportSuccess(null);
+
+    try {
+      const response = await fetch(`${API_BASE}/customers/import-csv`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ csvData: csvContent })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || 'Import failed');
+      }
+
+      if (result.imported > 0) {
+        setImportSuccess(`Imported ${result.imported} customer${result.imported > 1 ? 's' : ''}`);
+        fetchCustomers(); // Refresh list
+      }
+
+      if (result.errors?.length > 0) {
+        setImportError(`${result.errors.length} row(s) had errors`);
+      }
+
+      // Close modal after short delay on success
+      if (result.imported > 0 && !result.errors?.length) {
+        setTimeout(() => setShowImportModal(false), 1500);
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'Import failed');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  // Get ownership badge for customer
+  const getOwnershipBadge = (customer: Customer) => {
+    if (!isDesignPartner) return null;
+    if (customer.is_demo) {
+      return (
+        <span className="px-2 py-0.5 text-xs font-medium rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">
+          DEMO
+        </span>
+      );
+    }
+    if (customer.owner_id === userId) {
+      return (
+        <span className="px-2 py-0.5 text-xs font-medium rounded bg-blue-500/20 text-blue-400 border border-blue-500/30">
+          YOUR DATA
+        </span>
+      );
+    }
+    return null;
+  };
+
   const SortIcon = ({ field }: { field: string }) => {
     if (sortBy !== field) return <span className="text-gray-600 ml-1">&#8597;</span>;
     return <span className="text-cscx-accent ml-1">{sortOrder === 'asc' ? '\u2191' : '\u2193'}</span>;
@@ -176,6 +249,29 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           <option value="at_risk">At Risk</option>
           <option value="churned">Churned</option>
         </select>
+        {/* Design Partner Import Actions */}
+        {isDesignPartner && (
+          <>
+            <button
+              onClick={handleDownloadTemplate}
+              className="px-4 py-2.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2 border border-cscx-gray-700"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Template
+            </button>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+              </svg>
+              Import CSV
+            </button>
+          </>
+        )}
         {onNewOnboarding && (
           <button
             onClick={onNewOnboarding}
@@ -256,9 +352,12 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                     onClick={() => onSelectCustomer?.(customer)}
                   >
                     <td className="px-4 py-3">
-                      <div>
-                        <p className="text-white font-medium">{customer.name}</p>
-                        <p className="text-cscx-gray-500 text-xs">{customer.industry}</p>
+                      <div className="flex items-center gap-2">
+                        <div>
+                          <p className="text-white font-medium">{customer.name}</p>
+                          <p className="text-cscx-gray-500 text-xs">{customer.industry}</p>
+                        </div>
+                        {getOwnershipBadge(customer)}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -304,6 +403,248 @@ export const CustomerList: React.FC<CustomerListProps> = ({
             </table>
           </div>
         )}
+      </div>
+
+      {/* CSV Import Modal */}
+      {showImportModal && (
+        <CSVImportModal
+          isOpen={showImportModal}
+          onClose={() => {
+            setShowImportModal(false);
+            setImportError(null);
+            setImportSuccess(null);
+          }}
+          onImport={handleImportCSV}
+          loading={importLoading}
+          error={importError}
+          success={importSuccess}
+          onDownloadTemplate={handleDownloadTemplate}
+        />
+      )}
+    </div>
+  );
+};
+
+// CSV Import Modal Component
+interface CSVImportModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onImport: (csvContent: string) => void;
+  loading: boolean;
+  error: string | null;
+  success: string | null;
+  onDownloadTemplate: () => void;
+}
+
+const CSVImportModal: React.FC<CSVImportModalProps> = ({
+  isOpen,
+  onClose,
+  onImport,
+  loading,
+  error,
+  success,
+  onDownloadTemplate
+}) => {
+  const [csvContent, setCSVContent] = useState('');
+  const [previewRows, setPreviewRows] = useState<string[][]>([]);
+  const [fileName, setFileName] = useState('');
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  if (!isOpen) return null;
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.csv')) {
+      alert('Please select a CSV file');
+      return;
+    }
+
+    setFileName(file.name);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      setCSVContent(content);
+
+      // Parse preview
+      const lines = content.trim().split('\n').slice(0, 6);
+      const parsed = lines.map(line => {
+        const result: string[] = [];
+        let current = '';
+        let inQuotes = false;
+        for (const char of line) {
+          if (char === '"') inQuotes = !inQuotes;
+          else if (char === ',' && !inQuotes) {
+            result.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        result.push(current.trim());
+        return result;
+      });
+      setPreviewRows(parsed);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) {
+      const input = fileInputRef.current;
+      if (input) {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        input.files = dt.files;
+        handleFileSelect({ target: input } as React.ChangeEvent<HTMLInputElement>);
+      }
+    }
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-cscx-gray-900 rounded-xl border border-cscx-gray-800 max-w-2xl w-full p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-bold text-white">Import Customers from CSV</h2>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-white transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* File Drop Zone */}
+        {!csvContent && (
+          <div
+            onDrop={handleDrop}
+            onDragOver={handleDragOver}
+            className="border-2 border-dashed border-cscx-gray-700 rounded-lg p-8 text-center hover:border-cscx-accent transition-colors cursor-pointer"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+            <svg className="w-12 h-12 text-cscx-gray-500 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            </svg>
+            <p className="text-white font-medium mb-2">Drop CSV file here or click to browse</p>
+            <p className="text-cscx-gray-500 text-sm">Supports .csv files up to 5MB</p>
+          </div>
+        )}
+
+        {/* Preview */}
+        {csvContent && previewRows.length > 0 && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-white font-medium">
+                Preview: {fileName} ({previewRows.length - 1} rows)
+              </p>
+              <button
+                onClick={() => {
+                  setCSVContent('');
+                  setPreviewRows([]);
+                  setFileName('');
+                }}
+                className="text-sm text-cscx-gray-400 hover:text-white"
+              >
+                Change file
+              </button>
+            </div>
+            <div className="overflow-x-auto bg-cscx-gray-800 rounded-lg">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-cscx-gray-700">
+                    {previewRows[0]?.map((header, i) => (
+                      <th key={i} className="px-3 py-2 text-left text-cscx-gray-400 font-medium">
+                        {header}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.slice(1, 6).map((row, rowIdx) => (
+                    <tr key={rowIdx} className="border-b border-cscx-gray-700/50">
+                      {row.map((cell, cellIdx) => (
+                        <td key={cellIdx} className="px-3 py-2 text-white">
+                          {cell || '-'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {previewRows.length > 6 && (
+              <p className="text-cscx-gray-500 text-sm mt-2">
+                ...and {previewRows.length - 6} more rows
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Template Link */}
+        <div className="mb-6">
+          <p className="text-cscx-gray-400 text-sm">
+            Need the template?{' '}
+            <button
+              onClick={onDownloadTemplate}
+              className="text-cscx-accent hover:underline"
+            >
+              Download it here
+            </button>
+          </p>
+        </div>
+
+        {/* Status Messages */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+        )}
+        {success && (
+          <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+            <p className="text-green-400 text-sm">{success}</p>
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={() => onImport(csvContent)}
+            disabled={!csvContent || loading}
+            className="px-4 py-2 bg-cscx-accent hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+          >
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                Importing...
+              </>
+            ) : (
+              `Import ${previewRows.length > 1 ? previewRows.length - 1 : 0} Customers`
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

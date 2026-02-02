@@ -8,6 +8,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AgentControlCenter } from './AgentControlCenter';
 import { ContractUpload } from './ContractUpload';
+import { ExtractionPreview } from './ContractUpload/ExtractionPreview';
 import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
@@ -54,8 +55,11 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
   startOnboarding = false,
   onOnboardingStarted
 }) => {
-  const { getAuthHeaders, isDesignPartner } = useAuth();
+  const { getAuthHeaders, isDesignPartner, userId } = useAuth();
   const [showMockOnboarding, setShowMockOnboarding] = useState(false);
+  const [showExtractionPreview, setShowExtractionPreview] = useState(false);
+  const [pendingExtraction, setPendingExtraction] = useState<ContractExtraction | null>(null);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
 
   // Customer selection
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -165,10 +169,20 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
 
     try {
       const result = await parseContractFull(input);
+      const extraction = result.contractData as unknown as ContractExtraction;
 
-      setContractData(result.contractData as unknown as ContractExtraction);
-      setOnboardingPlan(result.plan as unknown as OnboardingPlan);
-      setShowContractUpload(false);
+      // For design partners, show preview step before creating customer
+      if (isDesignPartner) {
+        setPendingExtraction(extraction);
+        setOnboardingPlan(result.plan as unknown as OnboardingPlan);
+        setShowContractUpload(false);
+        setShowExtractionPreview(true);
+      } else {
+        // Admins go directly to chat
+        setContractData(extraction);
+        setOnboardingPlan(result.plan as unknown as OnboardingPlan);
+        setShowContractUpload(false);
+      }
 
     } catch (e) {
       console.error('Contract parsing error:', e);
@@ -176,6 +190,49 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
     } finally {
       setIsParsingContract(false);
     }
+  }, [isDesignPartner]);
+
+  // Handle confirmed extraction - create customer with owner_id
+  const handleConfirmExtraction = useCallback(async (data: ContractExtraction) => {
+    setIsCreatingCustomer(true);
+
+    try {
+      // Create customer with owner_id for design partners
+      const response = await fetch(`${API_URL}/api/customers/from-contract`, {
+        method: 'POST',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          contractData: data,
+          ownerId: isDesignPartner ? userId : null
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create customer');
+      }
+
+      // Move to chat with the confirmed data
+      setContractData(data);
+      setShowExtractionPreview(false);
+      setPendingExtraction(null);
+
+    } catch (e) {
+      console.error('Customer creation error:', e);
+      setUploadError(e instanceof Error ? e.message : 'Failed to create customer');
+    } finally {
+      setIsCreatingCustomer(false);
+    }
+  }, [getAuthHeaders, isDesignPartner, userId]);
+
+  // Cancel extraction preview
+  const handleCancelExtraction = useCallback(() => {
+    setShowExtractionPreview(false);
+    setPendingExtraction(null);
+    setOnboardingPlan(null);
+    setShowContractUpload(true);
   }, []);
 
   // Start new onboarding from contract
@@ -237,6 +294,18 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
           )}
         </div>
       </div>
+    );
+  }
+
+  // Extraction preview view (design partners only)
+  if (showExtractionPreview && pendingExtraction) {
+    return (
+      <ExtractionPreview
+        extraction={pendingExtraction}
+        onConfirm={handleConfirmExtraction}
+        onCancel={handleCancelExtraction}
+        loading={isCreatingCustomer}
+      />
     );
   }
 

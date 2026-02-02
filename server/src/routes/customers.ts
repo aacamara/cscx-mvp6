@@ -649,6 +649,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Check if user is admin (from x-user-email header or default to non-admin)
     const userEmail = (req.headers['x-user-email'] as string || '').toLowerCase();
+    const userId = req.headers['x-user-id'] as string || '';
     const isAdmin = ADMIN_EMAILS.includes(userEmail);
 
     // Try Supabase first
@@ -656,8 +657,10 @@ router.get('/', async (req: Request, res: Response) => {
       try {
         let query = supabase.from('customers').select('*');
 
-        // Design partners only see demo customers
-        if (!isAdmin) {
+        // Design partners see: demo customers OR their own uploaded customers
+        if (!isAdmin && userId) {
+          query = query.or(`is_demo.eq.true,owner_id.eq.${userId}`);
+        } else if (!isAdmin) {
           query = query.eq('is_demo', true);
         }
 
@@ -707,6 +710,8 @@ router.get('/', async (req: Request, res: Response) => {
           csm_name: null,
           primary_contact: null,
           tags: [],
+          is_demo: c.is_demo || false,
+          owner_id: c.owner_id || null,
           created_at: c.created_at,
           updated_at: c.updated_at
         }));
@@ -1364,128 +1369,180 @@ router.post('/from-contract', async (req: Request, res: Response) => {
 });
 
 /**
- * POST /api/customers/import
- * Import customers from Google Sheets
- * PRD-1 US-005: Customer import from Sheets
+ * POST /api/customers/import-csv
+ * Import customers from CSV file upload
+ * Design Partner Self-Service: CSV bulk import
  */
-router.post('/import', async (req: Request, res: Response) => {
+router.post('/import-csv', async (req: Request, res: Response) => {
   try {
-    const { sheetsUrl, columnMapping, workspaceId } = req.body;
+    const { csvData } = req.body; // CSV content as string from frontend
+    const userId = req.headers['x-user-id'] as string;
+    const userEmail = (req.headers['x-user-email'] as string || '').toLowerCase();
+    const isAdmin = ADMIN_EMAILS.includes(userEmail);
 
-    if (!sheetsUrl) {
+    if (!csvData) {
       return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Google Sheets URL is required'
-        }
+        error: { code: 'VALIDATION_ERROR', message: 'CSV data is required' }
       });
     }
 
-    // Extract spreadsheet ID from URL
-    const spreadsheetIdMatch = sheetsUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-    if (!spreadsheetIdMatch) {
+    // Parse CSV
+    const lines = csvData.trim().split('\n');
+    if (lines.length < 2) {
       return res.status(400).json({
-        error: {
-          code: 'VALIDATION_ERROR',
-          message: 'Invalid Google Sheets URL format'
-        }
+        error: { code: 'VALIDATION_ERROR', message: 'CSV must have header row and at least one data row' }
       });
     }
 
-    const spreadsheetId = spreadsheetIdMatch[1];
+    // Parse header row
+    const headers = parseCSVRow(lines[0]);
+    const requiredFields = ['name', 'arr'];
+    const numericFields = ['arr', 'health_score'];
+    const validStages = ['active', 'onboarding', 'at_risk', 'churned', 'expanding'];
 
-    // Default column mapping if not provided
-    const mapping = columnMapping || {
-      name: 0,          // Column A
-      industry: 1,      // Column B
-      arr: 2,           // Column C
-      email: 3,         // Column D
-      contactName: 4,   // Column E
-      contactTitle: 5   // Column F
-    };
-
-    // For MVP, simulate sheet data parsing
-    // In production, this would use the Google Sheets API via sheetsService
-    const importResults = {
-      success: 0,
-      failed: 0,
-      errors: [] as { row: number; reason: string }[]
-    };
-
-    // If we have Supabase and real sheet access, process actual data
-    if (supabase) {
-      // Simulate imported rows for now (in production, fetch from Sheets API)
-      const mockSheetData = [
-        { name: 'Imported Company 1', industry: 'Technology', arr: 50000 },
-        { name: 'Imported Company 2', industry: 'Healthcare', arr: 75000 },
-        { name: 'Imported Company 3', industry: 'Finance', arr: 120000 }
-      ];
-
-      for (let i = 0; i < mockSheetData.length; i++) {
-        const row = mockSheetData[i];
-        try {
-          const { error } = await supabase
-            .from('customers')
-            .insert({
-              name: row.name,
-              industry: row.industry,
-              arr: row.arr,
-              health_score: 70,
-              stage: 'onboarding',
-              workspace_id: workspaceId
-            });
-
-          if (error) {
-            importResults.failed++;
-            importResults.errors.push({ row: i + 2, reason: error.message });
-          } else {
-            importResults.success++;
-          }
-        } catch (err) {
-          importResults.failed++;
-          importResults.errors.push({ row: i + 2, reason: 'Database error' });
-        }
+    // Validate headers contain required fields
+    for (const field of requiredFields) {
+      if (!headers.includes(field)) {
+        return res.status(400).json({
+          error: { code: 'VALIDATION_ERROR', message: `Missing required column: ${field}` }
+        });
       }
-    } else {
-      // Fallback to in-memory store for demo
-      const mockImports = [
-        { name: 'Sheet Import Co', industry: 'Technology', arr: 65000 },
-        { name: 'Data Dynamics', industry: 'Analytics', arr: 42000 }
-      ];
+    }
 
-      for (const data of mockImports) {
+    const results: { imported: number; errors: { row: number; field: string; message: string }[] } = {
+      imported: 0,
+      errors: []
+    };
+
+    // Process data rows
+    for (let i = 1; i < lines.length; i++) {
+      const values = parseCSVRow(lines[i]);
+      const rowData: Record<string, string> = {};
+
+      // Map values to headers
+      headers.forEach((header, idx) => {
+        rowData[header] = values[idx] || '';
+      });
+
+      // Validate required fields
+      if (!rowData.name?.trim()) {
+        results.errors.push({ row: i + 1, field: 'name', message: 'Name is required' });
+        continue;
+      }
+
+      // Validate and parse numeric fields
+      const arr = parseInt(rowData.arr);
+      if (isNaN(arr) || arr < 0) {
+        results.errors.push({ row: i + 1, field: 'arr', message: 'ARR must be a positive number' });
+        continue;
+      }
+
+      let healthScore = rowData.health_score ? parseInt(rowData.health_score) : 70;
+      if (isNaN(healthScore) || healthScore < 0 || healthScore > 100) {
+        healthScore = 70; // Default if invalid
+      }
+
+      // Validate stage enum
+      let stage = rowData.stage?.toLowerCase() || 'onboarding';
+      if (!validStages.includes(stage)) {
+        stage = 'onboarding'; // Default if invalid
+      }
+
+      // Create customer
+      if (supabase) {
+        const { error } = await supabase.from('customers').insert({
+          name: rowData.name.trim(),
+          industry: rowData.industry?.trim() || null,
+          arr,
+          health_score: healthScore,
+          stage,
+          is_demo: false,
+          owner_id: isAdmin ? null : userId // Design partners own their imports
+        });
+
+        if (error) {
+          results.errors.push({ row: i + 1, field: 'database', message: error.message });
+        } else {
+          results.imported++;
+        }
+      } else {
+        // Fallback to in-memory
         const customer: Customer = {
           id: uuidv4(),
-          name: data.name,
-          industry: data.industry,
-          arr: data.arr,
-          health_score: 70,
-          status: 'onboarding',
-          tags: ['Imported', 'From Sheets'],
+          name: rowData.name.trim(),
+          industry: rowData.industry?.trim(),
+          arr,
+          health_score: healthScore,
+          status: stage as Customer['status'],
+          primary_contact: rowData.primary_contact_name ? {
+            name: rowData.primary_contact_name,
+            email: rowData.primary_contact_email || '',
+            title: rowData.primary_contact_title
+          } : undefined,
+          tags: ['Imported'],
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         };
         customers.set(customer.id, customer);
-        importResults.success++;
+        results.imported++;
       }
     }
 
-    res.json({
-      message: 'Import completed',
-      spreadsheetId,
-      summary: {
-        total: importResults.success + importResults.failed,
-        success: importResults.success,
-        failed: importResults.failed
-      },
-      errors: importResults.errors.length > 0 ? importResults.errors : undefined
-    });
+    res.json(results);
   } catch (error) {
-    console.error('Import customers error:', error);
+    console.error('Import CSV error:', error);
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to import customers' }
     });
   }
+});
+
+// Helper function to parse CSV row (handles quoted values)
+function parseCSVRow(row: string): string[] {
+  const result: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < row.length; i++) {
+    const char = row[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      result.push(current.trim());
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
+// GET /api/customers/template - Download CSV template for bulk import
+router.get('/template', (_req: Request, res: Response) => {
+  const headers = [
+    'name',
+    'industry',
+    'arr',
+    'health_score',
+    'stage',
+    'renewal_date',
+    'csm_name',
+    'primary_contact_name',
+    'primary_contact_email',
+    'primary_contact_title'
+  ].join(',');
+
+  const exampleRows = [
+    '"Acme Corp","Technology",250000,85,"active","2026-12-31","Jane Smith","John Doe","john@acme.com","VP Engineering"',
+    '"Example Inc","SaaS",150000,70,"onboarding","2027-06-30","","Sarah Connor","sarah@example.com","CTO"'
+  ];
+
+  const csvContent = [headers, ...exampleRows].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="cscx-customer-template.csv"');
+  res.send(csvContent);
 });
 
 export { router as customerRoutes };
