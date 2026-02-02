@@ -994,8 +994,290 @@ Best regards`,
   }
 }
 
+/**
+ * Document preview result for HITL review
+ */
+interface DocumentPreviewResult {
+  title: string;
+  sections: Array<{
+    id: string;
+    title: string;
+    content: string;
+  }>;
+}
+
+/**
+ * Generate document preview for HITL review (don't create in Google Docs yet)
+ */
+async function generateDocumentPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<DocumentPreviewResult> {
+  const { plan, context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+  const renewalDate = customer?.renewalDate || 'upcoming';
+  const arr = customer?.arr;
+
+  // Determine document type from plan
+  const userQuery = plan.structure?.sections?.[0]?.description || 'general document';
+  const documentType = userQuery.toLowerCase().includes('success plan') ? 'Success Plan'
+    : userQuery.toLowerCase().includes('account plan') ? 'Account Plan'
+    : userQuery.toLowerCase().includes('onboarding') ? 'Onboarding Plan'
+    : 'Customer Document';
+
+  // Build prompt for document generation
+  const prompt = `You are a customer success manager creating a ${documentType}. Generate a structured document based on this context:
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+Renewal Date: ${renewalDate}
+${arr ? `ARR: $${arr.toLocaleString()}` : ''}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Document Type: ${documentType}
+
+Generate the document with these sections. For each section, provide:
+1. A clear section title
+2. Detailed content (2-4 paragraphs)
+
+Required Sections:
+${documentType === 'Success Plan' ? `
+- Executive Summary
+- Goals & Objectives
+- Success Metrics & KPIs
+- Timeline & Milestones
+- Resources & Support
+- Risk Mitigation` : documentType === 'Account Plan' ? `
+- Executive Summary
+- Account Overview
+- Strategic Goals
+- Engagement Strategy
+- Growth Opportunities
+- Action Items` : documentType === 'Onboarding Plan' ? `
+- Welcome & Overview
+- Onboarding Timeline
+- Key Milestones
+- Training Requirements
+- Success Criteria
+- Next Steps` : `
+- Overview
+- Objectives
+- Key Considerations
+- Action Items
+- Next Steps`}
+
+Format your response as:
+SECTION: [section title]
+CONTENT:
+[section content]
+
+SECTION: [next section title]
+CONTENT:
+[next section content]
+
+(Continue for all sections)`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 4000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const documentContent = textBlock?.text || '';
+
+    // Parse sections
+    const sectionMatches = documentContent.matchAll(/SECTION:\s*(.+?)(?:\n|$)[\s\S]*?CONTENT:\s*([\s\S]*?)(?=SECTION:|$)/gi);
+    const sections: DocumentPreviewResult['sections'] = [];
+
+    let index = 0;
+    for (const match of sectionMatches) {
+      sections.push({
+        id: `section-${index + 1}`,
+        title: match[1]?.trim() || `Section ${index + 1}`,
+        content: match[2]?.trim() || '',
+      });
+      index++;
+    }
+
+    // If no sections parsed, create default sections
+    if (sections.length === 0) {
+      sections.push({
+        id: 'section-1',
+        title: 'Overview',
+        content: documentContent || 'Document content will be generated here.',
+      });
+    }
+
+    return {
+      title: `${documentType} - ${customerName}`,
+      sections,
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Document preview generation error:', error);
+
+    // Return fallback document
+    return {
+      title: `${documentType} - ${customerName}`,
+      sections: [
+        {
+          id: 'section-1',
+          title: 'Executive Summary',
+          content: `This ${documentType.toLowerCase()} outlines our partnership with ${customerName} and the key initiatives for success.`,
+        },
+        {
+          id: 'section-2',
+          title: 'Goals & Objectives',
+          content: `Primary goals for ${customerName}:\n\n1. Drive adoption and engagement\n2. Ensure successful product implementation\n3. Maximize value realization`,
+        },
+        {
+          id: 'section-3',
+          title: 'Action Items',
+          content: `Key action items:\n\n1. Schedule regular check-ins\n2. Review success metrics monthly\n3. Address any blockers proactively`,
+        },
+      ],
+    };
+  }
+}
+
+/**
+ * Meeting prep preview result for HITL review
+ */
+interface MeetingPrepPreviewResult {
+  title: string;
+  attendees: string[];
+  agenda: Array<{ id: string; topic: string }>;
+  talkingPoints: Array<{ id: string; point: string }>;
+  risks: Array<{ id: string; risk: string }>;
+}
+
+/**
+ * Generate meeting prep preview for HITL review
+ */
+async function generateMeetingPrepPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<MeetingPrepPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+  const renewalDate = customer?.renewalDate || 'upcoming';
+
+  // Get recent interactions for context
+  const recentInteractions = context.platformData.interactionHistory?.slice(0, 3) || [];
+
+  // Build prompt for meeting prep generation
+  const prompt = `You are a customer success manager preparing for a meeting. Generate a comprehensive meeting prep brief.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+Renewal Date: ${renewalDate}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Recent Interactions:
+${recentInteractions.map((i: any) => `- ${i.type}: ${i.summary || i.description || 'Interaction'}`).join('\n') || 'No recent interactions'}
+
+Generate a meeting prep with:
+1. A descriptive meeting title
+2. 3-5 agenda items (key topics to cover)
+3. 3-5 talking points (key messages/questions)
+4. 1-3 risks or concerns to address
+
+Format your response as JSON:
+{
+  "title": "Meeting title",
+  "agenda": ["Topic 1", "Topic 2", "Topic 3"],
+  "talkingPoints": ["Point 1", "Point 2", "Point 3"],
+  "risks": ["Risk 1", "Risk 2"]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const prepContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: { title?: string; agenda?: string[]; talkingPoints?: string[]; risks?: string[] } = {};
+    try {
+      const jsonMatch = prepContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    return {
+      title: parsed.title || `Meeting with ${customerName}`,
+      attendees: isTemplate ? ['contact@example.com'] : [],
+      agenda: (parsed.agenda || ['Review progress', 'Discuss priorities', 'Next steps']).map((topic, i) => ({
+        id: `agenda-${i + 1}`,
+        topic,
+      })),
+      talkingPoints: (parsed.talkingPoints || ['Check in on satisfaction', 'Review key metrics', 'Identify blockers']).map((point, i) => ({
+        id: `tp-${i + 1}`,
+        point,
+      })),
+      risks: (parsed.risks || []).map((risk, i) => ({
+        id: `risk-${i + 1}`,
+        risk,
+      })),
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Meeting prep preview generation error:', error);
+
+    // Return fallback meeting prep
+    return {
+      title: `Meeting with ${customerName}`,
+      attendees: isTemplate ? ['contact@example.com'] : [],
+      agenda: [
+        { id: 'agenda-1', topic: 'Review current status' },
+        { id: 'agenda-2', topic: 'Discuss priorities' },
+        { id: 'agenda-3', topic: 'Plan next steps' },
+      ],
+      talkingPoints: [
+        { id: 'tp-1', point: 'Check in on overall satisfaction' },
+        { id: 'tp-2', point: 'Review key success metrics' },
+        { id: 'tp-3', point: 'Identify any blockers or concerns' },
+      ],
+      risks: [],
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
   generateEmailPreview,
+  generateDocumentPreview,
+  generateMeetingPrepPreview,
 };

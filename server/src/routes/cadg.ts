@@ -227,6 +227,81 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a document artifact - return preview instead of creating
+    const isDocumentArtifact = finalPlan.taskType === 'document_creation' ||
+                               planRow.user_query?.toLowerCase().includes('document') ||
+                               planRow.user_query?.toLowerCase().includes('success plan') ||
+                               planRow.user_query?.toLowerCase().includes('account plan');
+
+    if (isDocumentArtifact) {
+      // Generate document content but don't create - return preview for HITL
+      const documentPreview = await artifactGenerator.generateDocumentPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isDocumentPreview: true,
+        preview: {
+          title: documentPreview.title,
+          sections: documentPreview.sections,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
+    // Check if this is a meeting prep artifact - return preview instead of markdown
+    const isMeetingPrepArtifact = finalPlan.taskType === 'meeting_prep' ||
+                                  planRow.user_query?.toLowerCase().includes('meeting prep') ||
+                                  planRow.user_query?.toLowerCase().includes('prep for meeting') ||
+                                  planRow.user_query?.toLowerCase().includes('prepare for meeting');
+
+    if (isMeetingPrepArtifact) {
+      // Generate meeting prep content but don't finalize - return preview for HITL
+      const meetingPrepPreview = await artifactGenerator.generateMeetingPrepPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isMeetingPrepPreview: true,
+        preview: {
+          title: meetingPrepPreview.title,
+          attendees: meetingPrepPreview.attendees,
+          agenda: meetingPrepPreview.agenda,
+          talkingPoints: meetingPrepPreview.talkingPoints,
+          risks: meetingPrepPreview.risks,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -762,6 +837,365 @@ router.post('/email/send', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to send email',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/document/suggest
+ * Get AI suggestions to improve document section
+ */
+router.post('/document/suggest', async (req: Request, res: Response) => {
+  try {
+    const { sectionTitle, sectionContent, documentTitle, customerId } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!sectionContent) {
+      return res.status(400).json({
+        success: false,
+        error: 'Section content is required',
+      });
+    }
+
+    // Get customer context if available
+    let customerContext = '';
+    if (customerId) {
+      try {
+        const context = await contextAggregator.aggregateContext({
+          taskType: 'document_creation',
+          customerId,
+          userQuery: 'get customer context for document',
+          userId,
+        });
+
+        if (context.platformData.customer360) {
+          const c = context.platformData.customer360;
+          customerContext = `
+Customer: ${c.name || 'Unknown'}
+Health Score: ${c.healthScore || 'N/A'}
+Status: ${c.status || 'N/A'}
+ARR: ${c.arr ? `$${c.arr.toLocaleString()}` : 'N/A'}
+Renewal Date: ${c.renewalDate || 'N/A'}
+`;
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not fetch customer context:', err);
+      }
+    }
+
+    // Call Claude for suggestions
+    const prompt = `You are a customer success expert. Review this document section and suggest ONE specific improvement. Be concise (2-3 sentences max).
+
+${customerContext ? `Customer Context:\n${customerContext}\n` : ''}
+Document: ${documentTitle || '(untitled)'}
+Section: ${sectionTitle || '(untitled section)'}
+
+Section Content:
+${sectionContent}
+
+Provide a specific, actionable suggestion to make this section more effective. Focus on clarity, completeness, actionable insights, or professional tone. Do not rewrite the entire section, just suggest one improvement.`;
+
+    // Use the reasoning engine's Claude integration
+    const suggestion = await reasoningEngine.generateSuggestion(prompt);
+
+    res.json({
+      success: true,
+      suggestion,
+    });
+  } catch (error) {
+    console.error('[CADG] Document suggest error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get suggestion',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/document/save
+ * Save finalized document after user review
+ */
+router.post('/document/save', async (req: Request, res: Response) => {
+  try {
+    const { planId, title, sections, customerId } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title || !sections || !Array.isArray(sections) || sections.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title and sections are required',
+      });
+    }
+
+    // Import docs and drive services
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Build document content in Google Docs format
+    const documentContent = sections.map((s: { title: string; content: string }) =>
+      `## ${s.title}\n\n${s.content}`
+    ).join('\n\n---\n\n');
+
+    // Create document in Google Docs
+    const result = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+      folderId: customerId ? undefined : undefined, // Will use customer folder if available
+    });
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'document_created',
+            description: `Document created: ${title}`,
+            metadata: {
+              documentId: result.id,
+              documentUrl: result.webViewLink,
+              sectionCount: sections.length,
+              createdVia: 'cadg_document_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log document activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: result.id,
+      documentUrl: result.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Document save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save document',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/meeting-prep/suggest
+ * Get AI suggestions for meeting prep (agenda or talking points)
+ */
+router.post('/meeting-prep/suggest', async (req: Request, res: Response) => {
+  try {
+    const { suggestionType, currentItems, customerId, meetingContext } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!suggestionType || !['agenda', 'talking_points'].includes(suggestionType)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Valid suggestionType (agenda or talking_points) is required',
+      });
+    }
+
+    // Get customer context if available
+    let customerContext = '';
+    if (customerId) {
+      try {
+        const context = await contextAggregator.aggregateContext({
+          taskType: 'meeting_prep',
+          customerId,
+          userQuery: 'get customer context for meeting prep',
+          userId,
+        });
+
+        if (context.platformData.customer360) {
+          const c = context.platformData.customer360;
+          customerContext = `
+Customer: ${c.name || 'Unknown'}
+Health Score: ${c.healthScore || 'N/A'}
+Status: ${c.status || 'N/A'}
+ARR: ${c.arr ? `$${c.arr.toLocaleString()}` : 'N/A'}
+Renewal Date: ${c.renewalDate || 'N/A'}
+`;
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not fetch customer context:', err);
+      }
+    }
+
+    const itemType = suggestionType === 'agenda' ? 'agenda items' : 'talking points';
+    const currentList = (currentItems || []).join('\n- ');
+
+    // Call Claude for suggestions
+    const prompt = `You are a customer success expert preparing for a meeting. Suggest 3-5 additional ${itemType} that would be valuable.
+
+${customerContext ? `Customer Context:\n${customerContext}\n` : ''}
+Meeting: ${meetingContext || 'Customer meeting'}
+
+Current ${itemType}:
+${currentList ? `- ${currentList}` : '(none yet)'}
+
+Provide 3-5 concise, actionable ${itemType} that complement the existing list. ${suggestionType === 'talking_points' ? 'Focus on key messages, questions to ask, or points to emphasize.' : 'Focus on topics that drive value and progress.'}
+
+Return ONLY a JSON array of strings, like: ["Item 1", "Item 2", "Item 3"]`;
+
+    const response = await reasoningEngine.generateSuggestion(prompt);
+
+    // Parse the JSON array from response
+    let suggestions: string[] = [];
+    try {
+      // Try to extract JSON array from response
+      const jsonMatch = response.match(/\[[\s\S]*?\]/);
+      if (jsonMatch) {
+        suggestions = JSON.parse(jsonMatch[0]);
+      } else {
+        // Fall back to splitting by newlines
+        suggestions = response
+          .split('\n')
+          .map(s => s.replace(/^[-•*\d.)\s]+/, '').trim())
+          .filter(s => s.length > 0)
+          .slice(0, 5);
+      }
+    } catch {
+      // If parsing fails, return the raw text split
+      suggestions = response
+        .split('\n')
+        .map(s => s.replace(/^[-•*\d.)\s]+/, '').trim())
+        .filter(s => s.length > 0)
+        .slice(0, 5);
+    }
+
+    res.json({
+      success: true,
+      suggestions,
+    });
+  } catch (error) {
+    console.error('[CADG] Meeting prep suggest error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to get suggestions',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/meeting-prep/save
+ * Save finalized meeting prep after user review
+ */
+router.post('/meeting-prep/save', async (req: Request, res: Response) => {
+  try {
+    const { planId, title, attendees, agenda, talkingPoints, risks, customerId } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import docs service
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Build meeting prep document content
+    const documentContent = `# ${title}
+
+## Attendees
+${(attendees || []).map((a: string) => `- ${a}`).join('\n') || 'TBD'}
+
+## Agenda
+${(agenda || []).map((a: { topic: string }, i: number) => `${i + 1}. ${a.topic}`).join('\n') || 'TBD'}
+
+## Talking Points
+${(talkingPoints || []).map((t: { point: string }) => `- ${t.point}`).join('\n') || 'No talking points defined'}
+
+## Risks & Concerns
+${(risks || []).map((r: { risk: string }) => `- ${r.risk}`).join('\n') || 'No risks identified'}
+`;
+
+    // Create document in Google Docs
+    const result = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+    });
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'meeting_prep_created',
+            description: `Meeting prep created: ${title}`,
+            metadata: {
+              documentId: result.id,
+              documentUrl: result.webViewLink,
+              attendeesCount: (attendees || []).length,
+              agendaCount: (agenda || []).length,
+              talkingPointsCount: (talkingPoints || []).length,
+              createdVia: 'cadg_meeting_prep_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log meeting prep activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: result.id,
+      documentUrl: result.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Meeting prep save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save meeting prep',
     });
   }
 });

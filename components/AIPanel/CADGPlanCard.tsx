@@ -6,6 +6,9 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { CADGEmailPreview, EmailData, CustomerData } from './CADGEmailPreview';
+import { CADGDocumentPreview, DocumentData, DocumentSection, CustomerData as DocCustomerData } from './CADGDocumentPreview';
+import { CADGMeetingPrepPreview, MeetingPrepData, AgendaItem, TalkingPoint, RiskItem, CustomerData as MeetingCustomerData } from './CADGMeetingPrepPreview';
+import { CADGMeetingBookingModal, MeetingBookingData, BookedMeeting } from './CADGMeetingBookingModal';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -121,6 +124,29 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     planId: string;
   } | null>(null);
 
+  // Document preview state for HITL workflow
+  const [showDocumentPreview, setShowDocumentPreview] = useState(false);
+  const [documentPreviewData, setDocumentPreviewData] = useState<{
+    document: DocumentData;
+    customer: DocCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Meeting prep preview state for HITL workflow
+  const [showMeetingPrepPreview, setShowMeetingPrepPreview] = useState(false);
+  const [meetingPrepPreviewData, setMeetingPrepPreviewData] = useState<{
+    meetingPrep: MeetingPrepData;
+    customer: MeetingCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Meeting booking modal state
+  const [showMeetingBookingModal, setShowMeetingBookingModal] = useState(false);
+  const [meetingBookingData, setMeetingBookingData] = useState<{
+    bookingData: MeetingBookingData;
+  } | null>(null);
+  const [bookedMeetingInfo, setBookedMeetingInfo] = useState<BookedMeeting | null>(null);
+
   const { plan, capability, methodology, taskType, confidence, customerId } = metadata;
 
   // Detect template mode (no customer selected)
@@ -183,6 +209,51 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         return;
       }
 
+      // Check if this is a document preview (HITL workflow)
+      if (data.isDocumentPreview && data.preview) {
+        setDocumentPreviewData({
+          document: {
+            title: data.preview.title || 'Document',
+            sections: data.preview.sections || [],
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowDocumentPreview(true);
+        setStatus('pending'); // Keep in pending until document is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a meeting prep preview (HITL workflow)
+      if (data.isMeetingPrepPreview && data.preview) {
+        setMeetingPrepPreviewData({
+          meetingPrep: {
+            title: data.preview.title || 'Meeting Prep',
+            attendees: data.preview.attendees || [],
+            agenda: data.preview.agenda || [],
+            talkingPoints: data.preview.talkingPoints || [],
+            risks: data.preview.risks || [],
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowMeetingPrepPreview(true);
+        setStatus('pending'); // Keep in pending until meeting prep is saved
+        setIsApproving(false);
+        return;
+      }
+
       // Regular artifact response
       setArtifact(data as ArtifactResponse);
       setStatus('complete');
@@ -231,6 +302,175 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const handleEmailCancel = () => {
     setShowEmailPreview(false);
     setEmailPreviewData(null);
+    setStatus('pending');
+  };
+
+  // Handle saving document from preview
+  const handleDocumentSave = async (document: DocumentData) => {
+    if (!documentPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/document/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: documentPreviewData.planId,
+        title: document.title,
+        sections: document.sections,
+        customerId: documentPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save document');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowDocumentPreview(false);
+    setDocumentPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling document preview
+  const handleDocumentCancel = () => {
+    setShowDocumentPreview(false);
+    setDocumentPreviewData(null);
+    setStatus('pending');
+  };
+
+  // Handle saving meeting prep from preview
+  const handleMeetingPrepSave = async (meetingPrep: MeetingPrepData): Promise<{ documentUrl?: string }> => {
+    if (!meetingPrepPreviewData) return {};
+
+    const response = await fetch(`${API_URL}/api/cadg/meeting-prep/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: meetingPrepPreviewData.planId,
+        title: meetingPrep.title,
+        attendees: meetingPrep.attendees,
+        agenda: meetingPrep.agenda,
+        talkingPoints: meetingPrep.talkingPoints,
+        risks: meetingPrep.risks,
+        customerId: meetingPrepPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save meeting prep');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowMeetingPrepPreview(false);
+    setMeetingPrepPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+
+    return { documentUrl: result.documentUrl };
+  };
+
+  // Handle save and book meeting flow
+  const handleSaveAndBook = (meetingPrep: MeetingPrepData, documentUrl: string) => {
+    // Close the meeting prep preview
+    setShowMeetingPrepPreview(false);
+    setMeetingPrepPreviewData(null);
+
+    // Open the booking modal with the meeting prep data
+    setMeetingBookingData({
+      bookingData: {
+        title: meetingPrep.title,
+        attendees: meetingPrep.attendees,
+        agenda: meetingPrep.agenda.map(a => a.topic),
+        prepDocumentUrl: documentUrl,
+      },
+    });
+    setShowMeetingBookingModal(true);
+  };
+
+  // Handle meeting booked
+  const handleMeetingBooked = async (meeting: BookedMeeting) => {
+    setBookedMeetingInfo(meeting);
+    setShowMeetingBookingModal(false);
+    setMeetingBookingData(null);
+    setStatus('complete');
+
+    // Log the meeting booking activity
+    if (meetingPrepPreviewData?.customer?.id) {
+      try {
+        await fetch(`${API_URL}/api/agent-activities`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...getAuthHeaders(),
+          },
+          body: JSON.stringify({
+            customerId: meetingPrepPreviewData.customer.id,
+            activityType: 'meeting_booked',
+            description: `Meeting booked: ${meeting.eventUrl}`,
+            metadata: {
+              eventId: meeting.eventId,
+              eventUrl: meeting.eventUrl,
+              meetLink: meeting.meetLink,
+              startTime: meeting.startTime,
+              endTime: meeting.endTime,
+            },
+          }),
+        });
+      } catch (err) {
+        console.error('Failed to log meeting booking activity:', err);
+      }
+    }
+  };
+
+  // Handle canceling booking modal
+  const handleBookingCancel = () => {
+    setShowMeetingBookingModal(false);
+    setMeetingBookingData(null);
+    // The meeting prep was already saved, so status should stay complete
+  };
+
+  // Handle canceling meeting prep preview
+  const handleMeetingPrepCancel = () => {
+    setShowMeetingPrepPreview(false);
+    setMeetingPrepPreviewData(null);
     setStatus('pending');
   };
 
@@ -378,6 +618,42 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     );
   }
 
+  // Document preview for HITL workflow
+  if (showDocumentPreview && documentPreviewData) {
+    return (
+      <CADGDocumentPreview
+        document={documentPreviewData.document}
+        customer={documentPreviewData.customer}
+        onSave={handleDocumentSave}
+        onCancel={handleDocumentCancel}
+      />
+    );
+  }
+
+  // Meeting booking modal
+  if (showMeetingBookingModal && meetingBookingData) {
+    return (
+      <CADGMeetingBookingModal
+        initialData={meetingBookingData.bookingData}
+        onBook={handleMeetingBooked}
+        onCancel={handleBookingCancel}
+      />
+    );
+  }
+
+  // Meeting prep preview for HITL workflow
+  if (showMeetingPrepPreview && meetingPrepPreviewData) {
+    return (
+      <CADGMeetingPrepPreview
+        meetingPrep={meetingPrepPreviewData.meetingPrep}
+        customer={meetingPrepPreviewData.customer}
+        onSave={handleMeetingPrepSave}
+        onCancel={handleMeetingPrepCancel}
+        onSaveAndBook={handleSaveAndBook}
+      />
+    );
+  }
+
   // Status-based rendering
   if (status === 'complete' && artifact) {
     return (
@@ -476,6 +752,38 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
                   <p className="text-blue-300/60 text-xs mt-1">
                     Saved to: CSCX Templates folder
                   </p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Meeting Booked Info */}
+        {bookedMeetingInfo && (
+          <div className="p-4 border-b border-cscx-gray-700/50">
+            <div className="bg-teal-900/20 border border-teal-600/30 rounded-lg p-3">
+              <div className="flex items-center gap-2 text-teal-400 mb-2">
+                <span>&#x1F4C5;</span>
+                <span className="font-medium text-sm">Meeting Booked</span>
+              </div>
+              <div className="space-y-2">
+                <a
+                  href={bookedMeetingInfo.eventUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-sm text-teal-300 hover:text-teal-200 transition-colors"
+                >
+                  Open in Google Calendar ↗
+                </a>
+                {bookedMeetingInfo.meetLink && (
+                  <a
+                    href={bookedMeetingInfo.meetLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-sm text-blue-300 hover:text-blue-200 transition-colors"
+                  >
+                    Google Meet Link ↗
+                  </a>
                 )}
               </div>
             </div>
