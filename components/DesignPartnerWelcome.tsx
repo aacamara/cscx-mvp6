@@ -1,9 +1,11 @@
 /**
  * DesignPartnerWelcome - Welcome modal for first-time design partners
- * Shows on first login, explains what they can explore
+ * PRD: Compound Product Launch (CP-005)
+ * Shows on first login, explains what they can explore with time estimates
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { trackWelcomeModalShown, trackWelcomeModalDismissed } from '../src/services/analytics';
 
 const STORAGE_KEY = 'dp_welcome_dismissed';
 
@@ -13,6 +15,7 @@ interface DesignPartnerWelcomeProps {
 
 export function DesignPartnerWelcome({ isDesignPartner }: DesignPartnerWelcomeProps) {
   const [isVisible, setIsVisible] = useState(false);
+  const showTimeRef = useRef<number>(0);
 
   useEffect(() => {
     // Only show for design partners who haven't dismissed
@@ -20,11 +23,15 @@ export function DesignPartnerWelcome({ isDesignPartner }: DesignPartnerWelcomePr
       const dismissed = localStorage.getItem(STORAGE_KEY);
       if (!dismissed) {
         setIsVisible(true);
+        showTimeRef.current = Date.now();
+        trackWelcomeModalShown();
       }
     }
   }, [isDesignPartner]);
 
   const handleDismiss = () => {
+    const timeOnModal = Date.now() - showTimeRef.current;
+    trackWelcomeModalDismissed(timeOnModal);
     localStorage.setItem(STORAGE_KEY, 'true');
     setIsVisible(false);
   };
@@ -36,47 +43,61 @@ export function DesignPartnerWelcome({ isDesignPartner }: DesignPartnerWelcomePr
       <div className="bg-cscx-gray-900 rounded-xl border border-cscx-gray-800 max-w-lg w-full p-8 shadow-2xl">
         {/* Header */}
         <div className="text-center mb-6">
-          <div className="text-4xl mb-4">👋</div>
-          <h2 className="text-2xl font-bold text-white mb-2">
-            Welcome to CSCX.AI
+          <h2 className="text-3xl font-bold text-white mb-2">
+            Welcome to CSCX<span className="text-cscx-accent">.</span>AI!
           </h2>
           <p className="text-gray-400">
-            Design Partner Preview
+            You're now a Design Partner with full access to explore our AI-powered
+            Customer Success platform.
           </p>
         </div>
 
-        {/* What you can explore */}
+        {/* What You Can Try */}
         <div className="mb-8">
           <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider mb-4">
-            What you can explore
+            What You Can Try
           </h3>
           <ul className="space-y-4">
-            <li className="flex items-start gap-3">
-              <span className="text-2xl">🎯</span>
-              <div>
-                <p className="text-white font-medium">Explore Demo Customers</p>
-                <p className="text-gray-400 text-sm">View sample customer data, health scores, and 360° views</p>
+            <li className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-8 h-8 bg-cscx-accent/20 rounded-full flex items-center justify-center">
+                <span className="text-cscx-accent font-bold">1</span>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-white font-medium">Mock Onboarding</p>
+                  <span className="text-xs text-gray-500 bg-cscx-gray-800 px-2 py-1 rounded">~5 min</span>
+                </div>
+                <p className="text-gray-400 text-sm">
+                  Start a simulated customer onboarding to see our AI agents in action.
+                </p>
               </div>
             </li>
-            <li className="flex items-start gap-3">
-              <span className="text-2xl">🚀</span>
-              <div>
-                <p className="text-white font-medium">Start Mock Onboarding</p>
-                <p className="text-gray-400 text-sm">Experience the AI-powered onboarding workflow</p>
+            <li className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-8 h-8 bg-cscx-accent/20 rounded-full flex items-center justify-center">
+                <span className="text-cscx-accent font-bold">2</span>
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-white font-medium">Import Your Data</p>
+                  <span className="text-xs text-gray-500 bg-cscx-gray-800 px-2 py-1 rounded">~2 min</span>
+                </div>
+                <p className="text-gray-400 text-sm">
+                  Upload a contract or import customers via CSV to test with real data.
+                </p>
               </div>
             </li>
-            <li className="flex items-start gap-3">
-              <span className="text-2xl">🤖</span>
-              <div>
-                <p className="text-white font-medium">Chat with AI Assistant</p>
-                <p className="text-gray-400 text-sm">Ask questions and see how agents generate emails, documents, and more</p>
+            <li className="flex items-start gap-4">
+              <div className="flex-shrink-0 w-8 h-8 bg-cscx-accent/20 rounded-full flex items-center justify-center">
+                <span className="text-cscx-accent font-bold">3</span>
               </div>
-            </li>
-            <li className="flex items-start gap-3">
-              <span className="text-2xl">✅</span>
-              <div>
-                <p className="text-white font-medium">Review Agent Actions</p>
-                <p className="text-gray-400 text-sm">Approve or reject AI-generated content before it's sent</p>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-white font-medium">Explore Demo Customers</p>
+                  <span className="text-xs text-gray-500 bg-cscx-gray-800 px-2 py-1 rounded">~3 min</span>
+                </div>
+                <p className="text-gray-400 text-sm">
+                  Browse our sample customers to see health scores, AI insights, and more.
+                </p>
               </div>
             </li>
           </ul>
