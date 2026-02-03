@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { trackCustomerListViewed, trackCsvTemplateDownloaded, trackCsvImportCompleted } from '../src/services/analytics';
 
 interface Customer {
   id: string;
@@ -49,6 +50,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<string | null>(null);
+  const hasTrackedView = useRef(false);
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -68,6 +70,12 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       setCustomers(data.customers);
       setSummary(data.summary);
       setError(null);
+
+      // Track customer list viewed (only once per mount)
+      if (!hasTrackedView.current) {
+        trackCustomerListViewed(data.customers?.length || 0);
+        hasTrackedView.current = true;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load customers');
     } finally {
@@ -130,6 +138,7 @@ export const CustomerList: React.FC<CustomerListProps> = ({
 
   // Download CSV template
   const handleDownloadTemplate = () => {
+    trackCsvTemplateDownloaded();
     window.location.href = `${API_BASE}/customers/template`;
   };
 
@@ -154,6 +163,9 @@ export const CustomerList: React.FC<CustomerListProps> = ({
       if (!response.ok) {
         throw new Error(result.error?.message || 'Import failed');
       }
+
+      // Track CSV import completed
+      trackCsvImportCompleted(result.imported || 0, result.errors?.length || 0);
 
       if (result.imported > 0) {
         setImportSuccess(`Imported ${result.imported} customer${result.imported > 1 ? 's' : ''}`);

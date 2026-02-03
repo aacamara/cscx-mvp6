@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { CustomerContext, ContractData } from '../types/workflow';
 import { parseContractFull } from '../services/geminiService';
 import { ContractInput, ContractExtraction, OnboardingPlan } from '../types';
+import { trackOnboardingStarted, trackContractUploadStarted } from '../src/services/analytics';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -362,7 +363,10 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
               </div>
             </div>
             <button
-              onClick={() => setShowMockOnboarding(true)}
+              onClick={() => {
+                trackOnboardingStarted();
+                setShowMockOnboarding(true);
+              }}
               className="bg-cscx-accent hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
             >
               Start Demo
