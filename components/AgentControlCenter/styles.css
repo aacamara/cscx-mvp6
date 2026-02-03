@@ -2583,3 +2583,25 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+/* Message actions on hover */
+.message-with-actions {
+  position: relative;
+}
+
+.message-with-actions:hover .message-actions {
+  opacity: 1 !important;
+}
+
+/* Slide up animation for new messages button */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+

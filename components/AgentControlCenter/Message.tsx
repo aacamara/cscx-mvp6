@@ -2,6 +2,122 @@ import React, { useState } from 'react';
 import { AGENTS, CS_AGENTS, AgentId, CSAgentType } from '../../types/agents';
 import { ToolResultCard } from './ToolResultCard';
 
+// Loading skeleton for messages
+// Message actions component (copy, etc.)
+const MessageActions: React.FC<{ content: string }> = ({ content }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <div
+      className="message-actions"
+      style={{
+        position: 'absolute',
+        top: '8px',
+        right: '8px',
+        display: 'flex',
+        gap: '4px',
+        opacity: 0,
+        transition: 'opacity 0.2s ease-in-out',
+        background: 'rgba(0,0,0,0.7)',
+        backdropFilter: 'blur(4px)',
+        borderRadius: '6px',
+        padding: '4px',
+      }}
+    >
+      <button
+        onClick={handleCopy}
+        style={{
+          background: copied ? '#22c55e' : 'transparent',
+          border: 'none',
+          borderRadius: '4px',
+          padding: '4px 8px',
+          cursor: 'pointer',
+          fontSize: '11px',
+          color: '#fff',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '4px',
+          transition: 'background 0.2s',
+        }}
+        title="Copy message"
+      >
+        {copied ? '✓' : '📋'}
+      </button>
+    </div>
+  );
+};
+
+export const MessageSkeleton: React.FC = () => {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' }}>
+      {[1, 2, 3].map((i) => (
+        <div key={i} className="message agent-message" style={{ opacity: 0.6 }}>
+          <div
+            style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '50%',
+              background: 'linear-gradient(90deg, #222 25%, #333 50%, #222 75%)',
+              backgroundSize: '200% 100%',
+              animation: 'skeleton-pulse 1.5s ease-in-out infinite',
+            }}
+          />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div
+              style={{
+                height: '12px',
+                width: '60%',
+                borderRadius: '4px',
+                background: 'linear-gradient(90deg, #222 25%, #333 50%, #222 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'skeleton-pulse 1.5s ease-in-out infinite',
+              }}
+            />
+            <div
+              style={{
+                height: '12px',
+                width: '80%',
+                borderRadius: '4px',
+                background: 'linear-gradient(90deg, #222 25%, #333 50%, #222 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'skeleton-pulse 1.5s ease-in-out infinite',
+                animationDelay: '0.1s',
+              }}
+            />
+            <div
+              style={{
+                height: '12px',
+                width: '45%',
+                borderRadius: '4px',
+                background: 'linear-gradient(90deg, #222 25%, #333 50%, #222 75%)',
+                backgroundSize: '200% 100%',
+                animation: 'skeleton-pulse 1.5s ease-in-out infinite',
+                animationDelay: '0.2s',
+              }}
+            />
+          </div>
+        </div>
+      ))}
+      <style>{`
+        @keyframes skeleton-pulse {
+          0% { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
+    </div>
+  );
+};
+
 // Copy button component for code blocks
 const CopyButton: React.FC<{ code: string }> = ({ code }) => {
   const [copied, setCopied] = useState(false);
@@ -276,7 +392,8 @@ export const Message: React.FC<MessageProps> = ({
 }) => {
   if (isUser) {
     return (
-      <div className="message user-message">
+      <div className="message user-message message-with-actions">
+        <MessageActions content={message} />
         <div className="message-content user">
           <p>{message}</p>
           {/* Attachment indicator for user messages */}
@@ -317,7 +434,8 @@ export const Message: React.FC<MessageProps> = ({
   const agentInfo = getAgentInfo(agent);
 
   return (
-    <div className="message agent-message">
+    <div className="message agent-message message-with-actions">
+      <MessageActions content={message} />
       <div
         className="agent-avatar"
         style={{ backgroundColor: `${agentInfo.color}20` }}

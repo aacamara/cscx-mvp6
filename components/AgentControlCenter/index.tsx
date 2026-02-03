@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { CS_AGENTS, AgentId, AgentMessage, CustomerContext, CSAgentType, RoutingDecision, AgentStatus } from '../../types/agents';
 import { ContractExtraction, OnboardingPlan } from '../../types';
 import { AgentCard, AGENT_ACTIONS } from './AgentCard';
-import { Message } from './Message';
+import { Message, MessageSkeleton } from './Message';
 import { QuickActions } from './QuickActions';
 import { MeetingScheduler, EmailComposer, DocumentActions } from './InteractiveActions';
 import { WorkflowProgress, WorkflowExecution } from './WorkflowProgress';
@@ -103,6 +103,9 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [messageHistory, setMessageHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -112,23 +115,46 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    setHasNewMessages(false);
+    setIsUserScrolledUp(false);
+  };
+
+  // Handle scroll to detect if user scrolled up
+  const handleMessagesScroll = () => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 50;
+
+    if (isAtBottom) {
+      setIsUserScrolledUp(false);
+      setHasNewMessages(false);
+    } else {
+      setIsUserScrolledUp(true);
+    }
   };
 
   // Scroll to top when first message arrives (new conversation)
-  // Scroll to bottom for subsequent messages
+  // Scroll to bottom for subsequent messages (unless user scrolled up)
   useEffect(() => {
     if (messages.length === 1) {
       // First message - scroll to top to show it
       scrollToTop();
     } else if (messages.length > 1) {
-      // Subsequent messages - scroll to bottom to show latest
-      scrollToBottom();
+      // Subsequent messages - scroll to bottom if not scrolled up
+      if (!isUserScrolledUp) {
+        scrollToBottom();
+      } else {
+        setHasNewMessages(true);
+      }
     }
-  }, [messages]);
+  }, [messages, isUserScrolledUp]);
 
   // Load chat history from database on mount or customer change
   useEffect(() => {
     const loadChatHistory = async () => {
+      setIsLoadingHistory(true);
       try {
         const params = new URLSearchParams({
           limit: '50',
@@ -158,6 +184,8 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
         }
       } catch (error) {
         console.error('Failed to load chat history:', error);
+      } finally {
+        setIsLoadingHistory(false);
       }
     };
 
@@ -1755,7 +1783,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           </div>
         </header>
 
-        <div className="messages-container" ref={messagesContainerRef}>
+        <div className="messages-container" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
           {/* Onboarding Flow */}
           {showOnboardingFlow && (
             <div style={{ padding: '16px' }}>
@@ -1834,15 +1862,20 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             />
           )}
 
+          {/* Loading skeleton while fetching history */}
+          {isLoadingHistory && (
+            <MessageSkeleton />
+          )}
+
           {/* Regular chat messages when no interactive action is active */}
-          {!showOnboardingFlow && !activeInteractiveAction && messages.length === 0 && !activeWorkflow ? (
+          {!isLoadingHistory && !showOnboardingFlow && !activeInteractiveAction && messages.length === 0 && !activeWorkflow ? (
             <div className="empty-state">
               <div className="empty-icon">{CS_AGENTS[activeAgent]?.icon || '🤖'}</div>
               <h2>{CS_AGENTS[activeAgent]?.name || 'AI Agent'} Ready</h2>
               <p>LangChain-powered with RAG knowledge base. Auto-routing intelligently selects the best specialist for each conversation.</p>
               <QuickActions onAction={handleQuickAction} disabled={isProcessing} activeAgent={activeAgent} />
             </div>
-          ) : !showOnboardingFlow && !activeInteractiveAction && (
+          ) : !isLoadingHistory && !showOnboardingFlow && !activeInteractiveAction && (
             <>
               {messages.map((msg, i) => (
                 <Message
@@ -1869,6 +1902,35 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               )}
               <div ref={messagesEndRef} />
             </>
+          )}
+
+          {/* New Messages Button - shown when user scrolled up and new messages arrived */}
+          {hasNewMessages && isUserScrolledUp && (
+            <button
+              onClick={scrollToBottom}
+              style={{
+                position: 'absolute',
+                bottom: '20px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: '#e63946',
+                color: '#fff',
+                border: 'none',
+                borderRadius: '20px',
+                padding: '8px 16px',
+                fontSize: '12px',
+                fontWeight: 500,
+                cursor: 'pointer',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                zIndex: 10,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                animation: 'slideUp 0.2s ease-out',
+              }}
+            >
+              New messages ↓
+            </button>
           )}
         </div>
 
