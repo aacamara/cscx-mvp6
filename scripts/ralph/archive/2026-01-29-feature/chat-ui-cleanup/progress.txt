@@ -1,0 +1,22 @@
+# Ralph Progress Log
+Started: Thu 29 Jan 2026 00:00:00 EST
+
+## Codebase Patterns
+- Agent pill selectors use #e63946 accent for active state
+- CS_AGENTS object in types/agents.ts defines all specialist agents with icon/name/color
+- Sidebar sections use consistent styling: padding: '10px', borderBottom: '1px solid #1a1a1a'
+- Compact toggle switches: 28x16px with 12px knob for tight layouts
+- Two-button toggles preferred over dropdowns for binary choices (e.g., Claude/Gemini)
+- Section labels: 9px font, 500 weight, #555 color, uppercase with 0.06em letter-spacing
+- Chat messages saved via POST /api/agent-activities/chat-message
+- Chat history fetched via GET /api/chat routes
+- Supabase auth uses auth.uid() not a public.users table
+- File attachments can use existing Gemini document parsing in services/gemini.ts
+
+---
+
+# Chat Enhancements Progress Log
+
+Initialized: Fixing chat persistence, adding history search, and document attachment
+
+---

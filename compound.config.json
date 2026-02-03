@@ -1,0 +1,9 @@
+{
+  "tool": "claude",
+  "reportsDir": "./reports",
+  "outputDir": "./scripts/compound",
+  "qualityChecks": ["npx tsc --noEmit"],
+  "maxIterations": 25,
+  "branchPrefix": "compound/",
+  "analyzeCommand": ""
+}

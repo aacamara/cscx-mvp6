@@ -1,0 +1,137 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "feature/chat-enhancements",
+  "description": "Fix chat persistence, add chat history search, and document attachment capability",
+  "designPrinciples": [
+    "Chat history must persist and be searchable",
+    "Support both general mode (no customer) and customer-specific chat",
+    "Document attachment should be intuitive (paperclip icon)",
+    "Search via magnifying glass icon with dropdown results",
+    "Dark theme: #0a0a0a bg, #ffffff text, #e63946 accent"
+  ],
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Fix chat_messages table schema for Supabase auth",
+      "description": "The user_id foreign key references a users table that doesn't exist. Fix to work with Supabase auth UUIDs directly.",
+      "acceptanceCriteria": [
+        "Create new migration file: database/migrations/021_fix_chat_messages_userid.sql",
+        "ALTER TABLE chat_messages to DROP the foreign key constraint on user_id if it exists",
+        "Change user_id column to UUID type without foreign key (stores Supabase auth.uid())",
+        "Add RLS policy: Users can only read/write their own messages (user_id = auth.uid())",
+        "Add index on user_id for performance",
+        "Migration is idempotent (safe to run multiple times)",
+        "Document the SQL for manual execution in Supabase dashboard"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "The 500 error is caused by FK constraint. Supabase auth users are in auth.users, not public.users."
+    },
+    {
+      "id": "US-002",
+      "title": "Update backend to handle chat message saves correctly",
+      "description": "Ensure the save endpoint works without errors after schema fix",
+      "acceptanceCriteria": [
+        "In server/src/routes/agentActivities.ts, update the /chat-message endpoint",
+        "Remove reference to user_id foreign key assumption",
+        "Make customer_id truly optional (null for general mode chat)",
+        "Add proper error handling with descriptive messages",
+        "Test locally: POST to /api/agent-activities/chat-message should return 201",
+        "Build succeeds: npm run build in server directory"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "The endpoint exists but fails due to schema. May need minimal changes after migration."
+    },
+    {
+      "id": "US-003",
+      "title": "Create chat history API endpoint",
+      "description": "Add endpoint to fetch chat history with search and filtering",
+      "acceptanceCriteria": [
+        "Add GET /api/chat/history endpoint in server/src/routes/chat.ts",
+        "Support query params: customerId (optional), search (text search), limit (default 50), offset (pagination)",
+        "If customerId provided, return only that customer's messages",
+        "If no customerId, return all messages for the user (general mode)",
+        "Search should filter by content (case-insensitive ILIKE)",
+        "Return messages ordered by created_at DESC (newest first)",
+        "Include agent_type, role, session_id in response",
+        "Add auth middleware to ensure user can only access their own messages",
+        "Build succeeds: npm run build in server directory"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "Use existing chat.ts routes file. Check if similar endpoint exists and extend it."
+    },
+    {
+      "id": "US-004",
+      "title": "Add chat history search UI with magnifying glass",
+      "description": "Add a search icon in chat header that opens a dropdown with recent chats and search",
+      "acceptanceCriteria": [
+        "In components/AgentControlCenter/index.tsx, add a magnifying glass (🔍) icon button in the chat header",
+        "Clicking the icon opens a dropdown/modal showing recent chat history",
+        "Add a search input at top of dropdown for filtering messages",
+        "Show last 20 messages by default, grouped by session or date",
+        "Each message shows: snippet of content, agent type, timestamp, customer name (if any)",
+        "Clicking a message loads that conversation context (optional: just shows it inline)",
+        "Dropdown closes on click outside or Escape key",
+        "Style matches dark theme (#0a0a0a bg, #1a1a1a dropdown, #e63946 accent)",
+        "Build succeeds: npm run build"
+      ],
+      "priority": 4,
+      "passes": false,
+      "notes": "Position dropdown below the icon. Use fetch to call GET /api/chat/history"
+    },
+    {
+      "id": "US-005",
+      "title": "Support customer-specific vs general chat history",
+      "description": "Toggle between showing all chats or only current customer's chats",
+      "acceptanceCriteria": [
+        "In the chat history dropdown, add a toggle: 'All Chats' vs 'This Customer'",
+        "Default to 'This Customer' if a customer is selected, otherwise 'All Chats'",
+        "When customer is selected and toggle is 'This Customer', pass customerId to API",
+        "When toggle is 'All Chats', don't pass customerId (shows all user's chats)",
+        "Show customer name badge on messages from specific customers",
+        "Empty state: 'No chat history yet' with appropriate icon",
+        "Build succeeds: npm run build"
+      ],
+      "priority": 5,
+      "passes": false,
+      "notes": "Use the existing customer state from AgentControlCenter to get customerId"
+    },
+    {
+      "id": "US-006",
+      "title": "Add document attachment button in chat input",
+      "description": "Add a paperclip icon to attach documents in the chat input area",
+      "acceptanceCriteria": [
+        "In components/AgentControlCenter/index.tsx, add a paperclip (📎) icon button next to the chat input",
+        "Clicking opens a file picker (accept: .pdf, .doc, .docx, .txt, .csv, .xlsx)",
+        "Show selected file name as a chip/tag above the input with X to remove",
+        "When sending message with attachment, include file info in the message",
+        "For now, store file as base64 in the message or upload to Supabase storage",
+        "Show attachment indicator in sent messages (📄 filename.pdf)",
+        "Style: icon is subtle gray, hover shows accent color",
+        "Build succeeds: npm run build"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "Start simple - attach file data to message. Future: upload to storage and reference URL."
+    },
+    {
+      "id": "US-007",
+      "title": "Handle document in AI chat context",
+      "description": "When a document is attached, include its content in the AI context",
+      "acceptanceCriteria": [
+        "When message has attachment, read file content (for text-based files)",
+        "For PDFs, extract text if possible or send as description",
+        "Include document content/summary in the message sent to AI",
+        "AI response should acknowledge and reference the document",
+        "Store attachment metadata in chat_messages.tool_calls or new column",
+        "Show in chat history that message had an attachment",
+        "Build succeeds: npm run build"
+      ],
+      "priority": 7,
+      "passes": false,
+      "notes": "Use existing Gemini document parsing or simple text extraction. Keep it simple initially."
+    }
+  ]
+}

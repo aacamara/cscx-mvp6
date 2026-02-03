@@ -1,0 +1,354 @@
+/**
+ * CSCX.AI Reduced Motion System
+ * PRD-275: Reduced Motion Option
+ *
+ * CSS utilities for motion preference management.
+ * Supports OS preference detection and granular motion levels.
+ */
+
+/* ============================================
+   Motion Level CSS Custom Properties
+   ============================================ */
+
+:root {
+  /* Default animation durations */
+  --motion-duration-instant: 0ms;
+  --motion-duration-fast: 100ms;
+  --motion-duration-normal: 200ms;
+  --motion-duration-slow: 300ms;
+
+  /* Current motion settings (modified by JavaScript) */
+  --motion-duration: var(--motion-duration-normal);
+  --motion-timing: ease-out;
+  --motion-enabled: 1;
+}
+
+/* ============================================
+   OS Preference Detection
+   Respect prefers-reduced-motion by default
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Disable parallax and scroll effects */
+  html {
+    scroll-behavior: auto !important;
+  }
+
+  /* Reset motion custom properties */
+  :root {
+    --motion-duration: 0ms;
+    --motion-enabled: 0;
+  }
+}
+
+/* ============================================
+   User Preference Classes
+   Applied via JavaScript based on user settings
+   ============================================ */
+
+/* Full Motion - All animations enabled (default) */
+.motion-full {
+  --motion-duration: var(--motion-duration-normal);
+  --motion-enabled: 1;
+}
+
+.motion-full *,
+.motion-full *::before,
+.motion-full *::after {
+  animation-duration: revert;
+  animation-iteration-count: revert;
+  transition-duration: revert;
+  scroll-behavior: revert;
+}
+
+/* Partial Motion - Reduced, subtle animations */
+.motion-partial {
+  --motion-duration: var(--motion-duration-fast);
+  --motion-enabled: 1;
+}
+
+.motion-partial *,
+.motion-partial *::before,
+.motion-partial *::after {
+  animation-duration: 0.15s !important;
+  transition-duration: 0.1s !important;
+}
+
+/* Reduced Motion - Minimal essential animations */
+.motion-reduced {
+  --motion-duration: 0.05s;
+  --motion-enabled: 0.5;
+}
+
+.motion-reduced *,
+.motion-reduced *::before,
+.motion-reduced *::after {
+  animation-duration: 0.05s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.05s !important;
+  scroll-behavior: auto !important;
+}
+
+/* No Motion - All animations disabled */
+.motion-none {
+  --motion-duration: 0ms;
+  --motion-enabled: 0;
+}
+
+.motion-none *,
+.motion-none *::before,
+.motion-none *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* ============================================
+   Alternative Loading Indicators
+   Static alternatives for reduced motion
+   ============================================ */
+
+/* Spinner alternatives */
+.motion-reduced .spinner,
+.motion-none .spinner,
+.motion-reduced .loading-spinner,
+.motion-none .loading-spinner,
+.motion-reduced .animate-spin,
+.motion-none .animate-spin {
+  animation: none !important;
+}
+
+/* Pulsing loading indicator alternative */
+.motion-reduced .loading-indicator,
+.motion-none .loading-indicator {
+  position: relative;
+}
+
+.motion-reduced .loading-indicator::after,
+.motion-none .loading-indicator::after {
+  content: "Loading...";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 0.75rem;
+  color: inherit;
+}
+
+/* Progress bar static state */
+.motion-reduced .progress-bar,
+.motion-none .progress-bar {
+  transition: none !important;
+}
+
+/* ============================================
+   Page Transition Alternatives
+   ============================================ */
+
+/* Instant page transitions for reduced motion */
+.motion-reduced .page-transition,
+.motion-none .page-transition {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
+}
+
+/* Modal alternatives */
+.motion-reduced [role="dialog"],
+.motion-none [role="dialog"],
+.motion-reduced .modal,
+.motion-none .modal {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Dropdown/menu alternatives */
+.motion-reduced [role="menu"],
+.motion-none [role="menu"],
+.motion-reduced [role="listbox"],
+.motion-none [role="listbox"],
+.motion-reduced .dropdown-menu,
+.motion-none .dropdown-menu {
+  animation: none !important;
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* ============================================
+   Toast/Notification Alternatives
+   ============================================ */
+
+.motion-reduced .toast,
+.motion-none .toast,
+.motion-reduced [role="alert"],
+.motion-none [role="alert"],
+.motion-reduced [role="status"],
+.motion-none [role="status"] {
+  animation: none !important;
+  transform: none !important;
+}
+
+/* ============================================
+   Hover Effect Alternatives
+   ============================================ */
+
+.motion-reduced *:hover,
+.motion-none *:hover {
+  transition: none !important;
+}
+
+/* Preserve color changes but remove motion */
+.motion-reduced .btn:hover,
+.motion-none .btn:hover,
+.motion-reduced .card:hover,
+.motion-none .card:hover {
+  transform: none !important;
+}
+
+/* ============================================
+   Chart/Graph Alternatives
+   ============================================ */
+
+.motion-reduced .chart-container,
+.motion-none .chart-container,
+.motion-reduced [data-chart],
+.motion-none [data-chart] {
+  /* Charts should render immediately without animation */
+}
+
+.motion-reduced .chart-container *,
+.motion-none .chart-container * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ============================================
+   Skeleton Loading Alternatives
+   ============================================ */
+
+.motion-reduced .skeleton,
+.motion-none .skeleton,
+.motion-reduced .animate-pulse,
+.motion-none .animate-pulse {
+  animation: none !important;
+  opacity: 0.5 !important;
+}
+
+/* ============================================
+   Scroll Behavior
+   ============================================ */
+
+.motion-reduced,
+.motion-none {
+  scroll-behavior: auto !important;
+}
+
+.motion-reduced *,
+.motion-none * {
+  scroll-behavior: auto !important;
+}
+
+/* ============================================
+   Focus Animation Alternatives
+   ============================================ */
+
+/* Keep focus visible but remove animation */
+.motion-reduced *:focus,
+.motion-none *:focus,
+.motion-reduced *:focus-visible,
+.motion-none *:focus-visible {
+  transition: none !important;
+}
+
+/* ============================================
+   Tailwind Animation Overrides
+   ============================================ */
+
+.motion-reduced .animate-bounce,
+.motion-none .animate-bounce {
+  animation: none !important;
+}
+
+.motion-reduced .animate-ping,
+.motion-none .animate-ping {
+  animation: none !important;
+  opacity: 0 !important;
+}
+
+.motion-reduced .animate-pulse,
+.motion-none .animate-pulse {
+  animation: none !important;
+}
+
+.motion-reduced .animate-spin,
+.motion-none .animate-spin {
+  animation: none !important;
+}
+
+/* ============================================
+   Accordion/Collapse Alternatives
+   ============================================ */
+
+.motion-reduced [data-state="open"],
+.motion-none [data-state="open"],
+.motion-reduced [data-state="closed"],
+.motion-none [data-state="closed"],
+.motion-reduced .collapse,
+.motion-none .collapse {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ============================================
+   High Contrast + Reduced Motion Combo
+   ============================================ */
+
+.high-contrast-light.motion-reduced,
+.high-contrast-light.motion-none,
+.high-contrast-dark.motion-reduced,
+.high-contrast-dark.motion-none {
+  /* Ensure reduced motion works with high contrast */
+}
+
+.high-contrast-light.motion-reduced *,
+.high-contrast-light.motion-none *,
+.high-contrast-dark.motion-reduced *,
+.high-contrast-dark.motion-none * {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ============================================
+   Motion-Safe Utilities
+   Use these for animations that SHOULD play
+   even in reduced motion (essential feedback)
+   ============================================ */
+
+.motion-safe {
+  /* Opt-in class for essential animations */
+}
+
+/* Error shake - essential feedback, kept minimal */
+.motion-reduced .motion-safe.error-shake,
+.motion-none .motion-safe.error-shake {
+  animation-duration: 0.2s !important;
+  animation-iteration-count: 1 !important;
+}
+
+/* Success checkmark - essential feedback */
+.motion-reduced .motion-safe.success-check,
+.motion-none .motion-safe.success-check {
+  animation-duration: 0.3s !important;
+  animation-iteration-count: 1 !important;
+}

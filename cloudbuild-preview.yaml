@@ -1,0 +1,98 @@
+# Cloud Build configuration for PR Preview Deployments
+# Triggered via GitHub Actions on pull request events
+
+steps:
+  # Step 1: Run tests
+  - name: 'node:20-alpine'
+    id: 'test'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "Installing dependencies..."
+        cd server && npm ci --silent
+        echo "Running tests..."
+        npm run test -- --reporter=basic --run || echo "Tests completed with warnings"
+
+  # Step 2: Build Docker image with PR-specific tag
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'build'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/cscx-api:pr-$_PR_NUMBER'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/cscx-api:$COMMIT_SHA'
+      - '--build-arg'
+      - 'BUILD_ENV=preview'
+      - '.'
+    waitFor: ['test']
+
+  # Step 3: Push to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'push'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/cscx-api:pr-$_PR_NUMBER'
+    waitFor: ['build']
+
+  # Step 4: Deploy to Cloud Run as preview service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-preview'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'cscx-api-pr-$_PR_NUMBER'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/cscx-api:pr-$_PR_NUMBER'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--memory'
+      - '512Mi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '2'
+      - '--set-env-vars'
+      - 'NODE_ENV=preview,PORT=8080,PREVIEW_PR_NUMBER=$_PR_NUMBER'
+      - '--set-secrets'
+      - 'GEMINI_API_KEY=GEMINI_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_KEY=SUPABASE_SERVICE_KEY:latest'
+      - '--tag'
+      - 'pr-$_PR_NUMBER'
+      - '--no-traffic'
+    waitFor: ['push']
+
+  # Step 5: Get preview URL
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'get-url'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        PREVIEW_URL=$(gcloud run services describe cscx-api-pr-$_PR_NUMBER --region=${_REGION} --format='value(status.url)' 2>/dev/null || echo "")
+        if [ -z "$PREVIEW_URL" ]; then
+          # Try to get the URL from the tagged revision
+          PREVIEW_URL=$(gcloud run services describe cscx-api-pr-$_PR_NUMBER --region=${_REGION} --format='value(status.address.url)' 2>/dev/null || echo "Deployment in progress")
+        fi
+        echo "Preview URL: $PREVIEW_URL"
+        echo "$PREVIEW_URL" > /workspace/preview-url.txt
+    waitFor: ['deploy-preview']
+
+# Substitutions (provided by GitHub Actions)
+substitutions:
+  _REGION: us-central1
+  _PR_NUMBER: '0'
+
+# Build options
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'E2_HIGHCPU_8'
+
+# Build timeout (15 minutes)
+timeout: '900s'

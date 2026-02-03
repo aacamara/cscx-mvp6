@@ -1,0 +1,364 @@
+/**
+ * CSCX.AI Typography System
+ * PRD-274: Font Size Customization
+ *
+ * CSS custom properties for scalable typography.
+ * All font sizes use calc() with --font-scale for dynamic adjustment.
+ */
+
+/* ============================================
+   Font Scale System
+   ============================================ */
+
+:root {
+  /* Base font scale - modified by FontSizeContext */
+  --font-scale: 1;
+
+  /* Base sizes (before scaling) */
+  --font-size-base: 16px;
+  --font-size-xs: 12px;
+  --font-size-sm: 14px;
+  --font-size-lg: 18px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 24px;
+  --font-size-3xl: 30px;
+  --font-size-4xl: 36px;
+  --font-size-5xl: 48px;
+
+  /* Line heights */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* Letter spacing */
+  --letter-spacing-tight: -0.025em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.025em;
+  --letter-spacing-wider: 0.05em;
+  --letter-spacing-widest: 0.1em;
+}
+
+/* ============================================
+   Font Scale Classes
+   ============================================ */
+
+.font-scale-small {
+  --font-scale: 0.875;
+}
+
+.font-scale-normal {
+  --font-scale: 1;
+}
+
+.font-scale-large {
+  --font-scale: 1.125;
+}
+
+.font-scale-xlarge {
+  --font-scale: 1.25;
+}
+
+.font-scale-xxlarge {
+  --font-scale: 1.5;
+}
+
+/* ============================================
+   Scaled Typography Classes
+   ============================================ */
+
+/* Base body text */
+.text-scaled {
+  font-size: calc(var(--font-size-base) * var(--font-scale));
+  line-height: var(--line-height-normal);
+}
+
+/* Extra small */
+.text-scaled-xs {
+  font-size: calc(var(--font-size-xs) * var(--font-scale));
+  line-height: var(--line-height-normal);
+}
+
+/* Small */
+.text-scaled-sm {
+  font-size: calc(var(--font-size-sm) * var(--font-scale));
+  line-height: var(--line-height-normal);
+}
+
+/* Large */
+.text-scaled-lg {
+  font-size: calc(var(--font-size-lg) * var(--font-scale));
+  line-height: var(--line-height-normal);
+}
+
+/* Extra Large */
+.text-scaled-xl {
+  font-size: calc(var(--font-size-xl) * var(--font-scale));
+  line-height: var(--line-height-tight);
+}
+
+/* 2XL */
+.text-scaled-2xl {
+  font-size: calc(var(--font-size-2xl) * var(--font-scale));
+  line-height: var(--line-height-tight);
+}
+
+/* 3XL */
+.text-scaled-3xl {
+  font-size: calc(var(--font-size-3xl) * var(--font-scale));
+  line-height: var(--line-height-tight);
+}
+
+/* 4XL */
+.text-scaled-4xl {
+  font-size: calc(var(--font-size-4xl) * var(--font-scale));
+  line-height: var(--line-height-tight);
+}
+
+/* 5XL */
+.text-scaled-5xl {
+  font-size: calc(var(--font-size-5xl) * var(--font-scale));
+  line-height: var(--line-height-tight);
+}
+
+/* ============================================
+   Semantic Typography Classes
+   ============================================ */
+
+/* Headings */
+.heading-1 {
+  font-size: calc(var(--font-size-4xl) * var(--font-scale));
+  font-weight: 700;
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.heading-2 {
+  font-size: calc(var(--font-size-3xl) * var(--font-scale));
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+  letter-spacing: var(--letter-spacing-tight);
+}
+
+.heading-3 {
+  font-size: calc(var(--font-size-2xl) * var(--font-scale));
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+}
+
+.heading-4 {
+  font-size: calc(var(--font-size-xl) * var(--font-scale));
+  font-weight: 600;
+  line-height: var(--line-height-tight);
+}
+
+.heading-5 {
+  font-size: calc(var(--font-size-lg) * var(--font-scale));
+  font-weight: 600;
+  line-height: var(--line-height-normal);
+}
+
+.heading-6 {
+  font-size: calc(var(--font-size-base) * var(--font-scale));
+  font-weight: 600;
+  line-height: var(--line-height-normal);
+}
+
+/* Body text variants */
+.body-lg {
+  font-size: calc(var(--font-size-lg) * var(--font-scale));
+  line-height: var(--line-height-relaxed);
+}
+
+.body {
+  font-size: calc(var(--font-size-base) * var(--font-scale));
+  line-height: var(--line-height-normal);
+}
+
+.body-sm {
+  font-size: calc(var(--font-size-sm) * var(--font-scale));
+  line-height: var(--line-height-normal);
+}
+
+/* Caption and labels */
+.caption {
+  font-size: calc(var(--font-size-xs) * var(--font-scale));
+  line-height: var(--line-height-normal);
+  letter-spacing: var(--letter-spacing-wide);
+}
+
+.label {
+  font-size: calc(var(--font-size-xs) * var(--font-scale));
+  font-weight: 600;
+  line-height: var(--line-height-normal);
+  letter-spacing: var(--letter-spacing-wider);
+  text-transform: uppercase;
+}
+
+/* Button text */
+.btn-text {
+  font-size: calc(var(--font-size-sm) * var(--font-scale));
+  font-weight: 600;
+  line-height: 1;
+}
+
+.btn-text-lg {
+  font-size: calc(var(--font-size-base) * var(--font-scale));
+  font-weight: 600;
+  line-height: 1;
+}
+
+.btn-text-sm {
+  font-size: calc(var(--font-size-xs) * var(--font-scale));
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* ============================================
+   Icon Scaling
+   ============================================ */
+
+/* Icons should scale proportionally with text */
+.icon-scaled {
+  width: calc(1em * var(--font-scale));
+  height: calc(1em * var(--font-scale));
+}
+
+.icon-scaled-sm {
+  width: calc(0.875em * var(--font-scale));
+  height: calc(0.875em * var(--font-scale));
+}
+
+.icon-scaled-lg {
+  width: calc(1.25em * var(--font-scale));
+  height: calc(1.25em * var(--font-scale));
+}
+
+/* ============================================
+   Spacing Adjustments
+   ============================================ */
+
+/* Scaled padding for buttons and inputs */
+.padding-scaled {
+  padding: calc(0.5rem * var(--font-scale)) calc(1rem * var(--font-scale));
+}
+
+.padding-scaled-sm {
+  padding: calc(0.25rem * var(--font-scale)) calc(0.5rem * var(--font-scale));
+}
+
+.padding-scaled-lg {
+  padding: calc(0.75rem * var(--font-scale)) calc(1.5rem * var(--font-scale));
+}
+
+/* Scaled gaps */
+.gap-scaled {
+  gap: calc(0.5rem * var(--font-scale));
+}
+
+.gap-scaled-sm {
+  gap: calc(0.25rem * var(--font-scale));
+}
+
+.gap-scaled-lg {
+  gap: calc(1rem * var(--font-scale));
+}
+
+/* ============================================
+   Minimum Size Protection
+   ============================================ */
+
+/* Ensure text never goes below 12px for accessibility */
+@media screen {
+  .text-scaled-xs,
+  .caption {
+    font-size: max(calc(var(--font-size-xs) * var(--font-scale)), 12px);
+  }
+}
+
+/* ============================================
+   Print Styles
+   ============================================ */
+
+@media print {
+  :root {
+    --font-scale: 1;
+  }
+
+  .body,
+  .text-scaled {
+    font-size: 12pt;
+  }
+
+  .heading-1 {
+    font-size: 24pt;
+  }
+
+  .heading-2 {
+    font-size: 18pt;
+  }
+
+  .heading-3 {
+    font-size: 14pt;
+  }
+}
+
+/* ============================================
+   High Contrast Mode Support
+   ============================================ */
+
+@media (prefers-contrast: high) {
+  .heading-1,
+  .heading-2,
+  .heading-3,
+  .heading-4,
+  .heading-5,
+  .heading-6 {
+    font-weight: 700;
+  }
+
+  .body,
+  .body-lg,
+  .body-sm {
+    font-weight: 500;
+  }
+}
+
+/* ============================================
+   Reduced Motion Support
+   ============================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  /* Font size transitions */
+  *,
+  *::before,
+  *::after {
+    transition-property: none !important;
+  }
+}
+
+/* ============================================
+   Screen Reader Only
+   ============================================ */
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.not-sr-only {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}

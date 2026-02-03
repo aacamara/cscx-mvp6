@@ -1,0 +1,447 @@
+{
+  "name": "WorkspaceAgent V2 - Autonomous CSM Platform",
+  "description": "Transform WorkspaceAgent into fully autonomous, MCP-powered Customer Success platform with proactive agents, meeting intelligence, and natural language automations",
+  "stories": [
+    {
+      "id": "WA2-001",
+      "title": "MCP Tool Router Infrastructure",
+      "description": "Create Model Context Protocol compatible tool routing system that standardizes how agents access external services. Create server/src/mcp/index.ts with MCPTool, MCPContext, MCPResult interfaces. Create server/src/mcp/registry.ts for central tool registry with dynamic discovery and permission checking.",
+      "acceptance_criteria": [
+        "MCPTool interface defined with name, description, inputSchema, execute, category, requiresAuth, requiresApproval",
+        "MCPContext interface with userId, customerId, customerName, sessionId, approvalCallback",
+        "MCPResult interface with success, data, error, requiresApproval, approvalId",
+        "MCPRegistry class with registerTool, getTool, listTools, searchTools, checkPermissions methods",
+        "Export all from server/src/mcp/index.ts"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-002",
+      "title": "MCP Gmail Tool Wrapper",
+      "description": "Wrap existing server/src/services/google/gmail.ts in MCP interface. Create server/src/mcp/tools/gmail.ts with tools: gmail.list_threads, gmail.get_thread, gmail.send_email, gmail.draft_email. Use existing googleOAuth for authentication.",
+      "acceptance_criteria": [
+        "gmail.list_threads tool returns EmailThread[] with pagination",
+        "gmail.get_thread tool returns full thread with messages",
+        "gmail.send_email tool with requiresApproval: true",
+        "gmail.draft_email tool creates draft without sending",
+        "All tools use existing gmailService internally",
+        "Register tools in MCP registry"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-003",
+      "title": "MCP Calendar Tool Wrapper",
+      "description": "Wrap existing calendar service in MCP interface. Create server/src/mcp/tools/calendar.ts with tools: calendar.list_events, calendar.find_availability, calendar.create_event, calendar.update_event.",
+      "acceptance_criteria": [
+        "calendar.list_events returns CalendarEvent[] for date range",
+        "calendar.find_availability returns AvailabilitySlot[] for attendees",
+        "calendar.create_event with requiresApproval: true",
+        "calendar.update_event with requiresApproval: true",
+        "All tools use existing calendarService internally",
+        "Register tools in MCP registry"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-004",
+      "title": "MCP Drive Tool Wrapper",
+      "description": "Wrap existing drive service in MCP interface. Create server/src/mcp/tools/drive.ts with tools: drive.search, drive.create_folder, drive.upload_file, drive.share.",
+      "acceptance_criteria": [
+        "drive.search returns DriveDocument[] matching query",
+        "drive.create_folder creates customer folder structure",
+        "drive.upload_file uploads and returns file metadata",
+        "drive.share with requiresApproval: true for external sharing",
+        "All tools use existing driveService internally",
+        "Register tools in MCP registry"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-005",
+      "title": "Slack Integration Service",
+      "description": "Create new Slack integration. Create server/src/services/slack/index.ts with SlackService class. Create server/src/services/slack/oauth.ts for OAuth2 flow with token storage in Supabase.",
+      "acceptance_criteria": [
+        "SlackService class with sendMessage, listChannels, searchMessages, getCustomerChannel, postCustomerUpdate, createThread, addReaction methods",
+        "OAuth2 flow with Slack API",
+        "Token storage in Supabase slack_connections table",
+        "Scopes: channels:read, channels:write, chat:write, search:read, users:read",
+        "Error handling with retries"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-006",
+      "title": "MCP Slack Tool Wrapper",
+      "description": "Wrap Slack service in MCP interface. Create server/src/mcp/tools/slack.ts with tools: slack.send_message, slack.list_channels, slack.search_messages, slack.add_reaction.",
+      "acceptance_criteria": [
+        "slack.send_message posts to channel with optional blocks",
+        "slack.list_channels returns available channels",
+        "slack.search_messages searches message history",
+        "slack.add_reaction adds emoji reaction",
+        "All tools use SlackService internally",
+        "Register tools in MCP registry"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-007",
+      "title": "Slack Routes and Webhooks",
+      "description": "Create server/src/routes/slack.ts with OAuth callback, webhook handler for Slack events, and message posting endpoints.",
+      "acceptance_criteria": [
+        "GET /api/slack/auth - Initiate OAuth flow",
+        "GET /api/slack/callback - Handle OAuth callback",
+        "POST /api/slack/webhook - Handle Slack events",
+        "POST /api/slack/message - Send message to channel",
+        "GET /api/slack/status - Check connection status",
+        "Register routes in server/src/index.ts"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-008",
+      "title": "MCP API Routes",
+      "description": "Update server/src/routes/workspace-agent.ts to use MCP tool router. Add /tools endpoint to list available tools. Add /tools/:toolId/execute for direct tool invocation.",
+      "acceptance_criteria": [
+        "GET /api/mcp/tools - List all registered tools",
+        "GET /api/mcp/tools/:category - List tools by category",
+        "POST /api/mcp/tools/:toolId/execute - Execute specific tool",
+        "POST /api/workspace-agent/execute uses MCP router internally",
+        "Tool execution respects approval requirements",
+        "Results streamed via WebSocket when available"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-009",
+      "title": "Connect WorkspaceAgent UI to MCP Backend",
+      "description": "Update components/WorkspaceAgent/index.tsx to replace all mock handlers with real MCP API calls. Add loading states, error handling, and WebSocket subscriptions.",
+      "acceptance_criteria": [
+        "All 25+ action handlers call MCP tools via API",
+        "Loading state per action with spinner",
+        "Error handling with user-friendly messages and retry",
+        "WebSocket subscription for real-time updates",
+        "Remove all MOCK_* constants and mock handlers",
+        "Connection status from real API"
+      ],
+      "phase": 1
+    },
+    {
+      "id": "WA2-010",
+      "title": "Trigger System Types and Engine",
+      "description": "Create server/src/triggers/index.ts with Trigger, TriggerCondition, TriggerAction interfaces. Create server/src/triggers/engine.ts with TriggerEngine class.",
+      "acceptance_criteria": [
+        "Trigger interface with id, name, type, condition, actions, enabled, customerId",
+        "TriggerCondition types: health_score_drop, no_login, ticket_escalated, renewal_approaching, nps_submitted, champion_left, usage_spike, usage_drop",
+        "TriggerAction types: draft_email, send_slack, create_task, alert_csm, run_playbook, update_health_score",
+        "TriggerEngine with evaluateTriggers, runScheduledTriggers, registerTrigger, pauseTrigger methods",
+        "Store triggers in Supabase triggers table"
+      ],
+      "phase": 3
+    },
+    {
+      "id": "WA2-011",
+      "title": "Trigger Condition Processors",
+      "description": "Create server/src/triggers/conditions/ with condition processor files for each trigger type.",
+      "acceptance_criteria": [
+        "health-score-drop.ts - Detect 10+ point drops",
+        "no-login.ts - Detect 7/14/30 day inactivity",
+        "ticket-escalated.ts - React to P1/P2 tickets",
+        "renewal-approaching.ts - 90/60/30/7 day triggers",
+        "nps-submitted.ts - React to NPS < 7",
+        "usage-anomaly.ts - 20%+ spike or drop",
+        "Each processor implements ConditionProcessor interface"
+      ],
+      "phase": 3
+    },
+    {
+      "id": "WA2-012",
+      "title": "Playbook Engine Types and Executor",
+      "description": "Create server/src/playbooks/index.ts with Playbook, PlaybookStage, PlaybookAction interfaces. Create server/src/playbooks/executor.ts with PlaybookExecutor class.",
+      "acceptance_criteria": [
+        "Playbook interface with id, name, type, stages, triggers, variables",
+        "PlaybookStage with id, name, daysOffset, actions, conditions, status",
+        "PlaybookAction with id, type, template, params, status, requiresApproval",
+        "PlaybookExecutor with startPlaybook, advanceStage, executeAction, pausePlaybook, getProgress methods",
+        "Store executions in Supabase playbook_executions table"
+      ],
+      "phase": 3
+    },
+    {
+      "id": "WA2-013",
+      "title": "Built-in Playbook Templates",
+      "description": "Create server/src/playbooks/templates/ with 5 playbook template files.",
+      "acceptance_criteria": [
+        "renewal-90-day.ts - 90/60/30/7 day renewal stages",
+        "risk-mitigation.ts - Immediate/short-term/long-term stages",
+        "expansion-opportunity.ts - Identify/qualify/propose/close stages",
+        "onboarding-30-60-90.ts - 30/60/90 day milestones",
+        "qbr-preparation.ts - Pre-QBR/QBR/Post-QBR stages",
+        "Each template exports Playbook object"
+      ],
+      "phase": 3
+    },
+    {
+      "id": "WA2-014",
+      "title": "Playbook Routes",
+      "description": "Create server/src/routes/playbooks.ts with CRUD endpoints and execution management.",
+      "acceptance_criteria": [
+        "GET /api/playbooks - List playbook templates",
+        "GET /api/playbooks/:id - Get playbook details",
+        "POST /api/playbooks/:id/start - Start playbook for customer",
+        "GET /api/playbooks/executions - List active executions",
+        "POST /api/playbooks/executions/:id/advance - Advance to next stage",
+        "POST /api/playbooks/executions/:id/action/:actionId - Execute action",
+        "Register routes in server/src/index.ts"
+      ],
+      "phase": 3
+    },
+    {
+      "id": "WA2-015",
+      "title": "Playbook Runner UI Component",
+      "description": "Create components/PlaybookRunner/index.tsx with visual playbook timeline, stage progress, and action execution.",
+      "acceptance_criteria": [
+        "Visual timeline showing all stages",
+        "Current stage highlighted with progress indicator",
+        "Action buttons with approval badges",
+        "Real-time status updates via WebSocket",
+        "Expandable stage details with action list",
+        "Pause/resume playbook controls"
+      ],
+      "phase": 3
+    },
+    {
+      "id": "WA2-016",
+      "title": "Zoom Integration Service",
+      "description": "Create server/src/services/zoom/index.ts with ZoomService class. Create server/src/services/zoom/oauth.ts for OAuth2 flow.",
+      "acceptance_criteria": [
+        "ZoomService with listMeetings, getMeeting, createMeeting, getRecording, getTranscript methods",
+        "OAuth2 flow with Zoom API",
+        "Token storage in Supabase",
+        "Scopes: meeting:read, meeting:write, recording:read, user:read",
+        "Error handling with rate limit awareness"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-017",
+      "title": "Zoom Webhooks Handler",
+      "description": "Create server/src/services/zoom/webhooks.ts to handle Zoom webhook events and trigger meeting intelligence pipeline.",
+      "acceptance_criteria": [
+        "Handle meeting.started event",
+        "Handle meeting.ended event",
+        "Handle recording.completed event",
+        "Handle recording.transcript_completed event",
+        "Trigger MeetingIntelligence.processTranscript on transcript ready",
+        "Verify webhook signatures"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-018",
+      "title": "Meeting Intelligence Pipeline",
+      "description": "Create server/src/services/meeting-intelligence/index.ts with MeetingIntelligence class for transcript analysis.",
+      "acceptance_criteria": [
+        "processTranscript method orchestrates full analysis",
+        "extractActionItems uses Claude to identify action items",
+        "analyzeSentiment tracks per-speaker sentiment over time",
+        "detectCustomerSignals identifies risk/opportunity/feedback signals",
+        "generateSummary creates executive summary",
+        "generateFollowUpEmail drafts follow-up email"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-019",
+      "title": "Meeting Intelligence Processors",
+      "description": "Create server/src/services/meeting-intelligence/processors/ with individual processor files.",
+      "acceptance_criteria": [
+        "action-extractor.ts - Extract action items with owners and due dates",
+        "sentiment-analyzer.ts - Per-speaker sentiment with timeline",
+        "signal-detector.ts - Risk, opportunity, feedback, competitor signals",
+        "summary-generator.ts - Executive summary with key points",
+        "topic-segmenter.ts - Break transcript into topics with timestamps"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-020",
+      "title": "MCP Zoom Tool Wrapper",
+      "description": "Wrap Zoom service in MCP interface. Create server/src/mcp/tools/zoom.ts with meeting and recording tools.",
+      "acceptance_criteria": [
+        "zoom.list_meetings returns upcoming/past meetings",
+        "zoom.get_meeting returns meeting details",
+        "zoom.create_meeting with requiresApproval: true",
+        "zoom.get_transcript returns meeting transcript",
+        "zoom.analyze_meeting triggers intelligence pipeline",
+        "Register tools in MCP registry"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-021",
+      "title": "Meeting Intelligence Routes",
+      "description": "Create server/src/routes/meetings.ts (update existing) with intelligence endpoints.",
+      "acceptance_criteria": [
+        "GET /api/meetings - List meetings with analysis status",
+        "GET /api/meetings/:id - Get meeting with full analysis",
+        "GET /api/meetings/:id/transcript - Get raw transcript",
+        "GET /api/meetings/:id/summary - Get AI summary",
+        "GET /api/meetings/:id/actions - Get extracted action items",
+        "GET /api/meetings/:id/signals - Get customer signals",
+        "POST /api/meetings/:id/analyze - Trigger analysis"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-022",
+      "title": "Meeting Intelligence UI",
+      "description": "Update components/WorkspaceAgent/index.tsx to add meeting intelligence section with real data.",
+      "acceptance_criteria": [
+        "Recent meetings list with analysis status badges",
+        "Meeting detail modal with tabs: Summary, Transcript, Actions, Signals",
+        "AI-generated summary with key points",
+        "Action items with owner assignment UI",
+        "Sentiment visualization timeline",
+        "Customer signal alerts with icons",
+        "One-click follow-up email generation"
+      ],
+      "phase": 4
+    },
+    {
+      "id": "WA2-023",
+      "title": "Skills System Types and Parser",
+      "description": "Create server/src/skills/index.ts with Skill interfaces. Create server/src/skills/parser.ts to parse markdown skill files.",
+      "acceptance_criteria": [
+        "Skill interface with id, name, description, trigger, steps, variables, approvalPolicy",
+        "SkillTrigger with type (command/phrase/event) and patterns",
+        "SkillStep with action, params, condition, onError",
+        "SkillParser.parseMarkdown converts markdown to Skill object",
+        "SkillParser.validateSkill checks all referenced MCP tools exist"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-024",
+      "title": "Skills Executor",
+      "description": "Create server/src/skills/executor.ts with SkillExecutor class to run skills.",
+      "acceptance_criteria": [
+        "executeSkill orchestrates full skill execution",
+        "resolveVariables substitutes {{variable}} placeholders",
+        "executeStep runs individual step via MCP tool",
+        "Step results aggregate into skill result",
+        "Approval pauses handled properly",
+        "Error handling per step with onError policy"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-025",
+      "title": "Built-in Skills Library",
+      "description": "Create server/src/skills/templates/ with 5+ markdown skill files.",
+      "acceptance_criteria": [
+        "qbr-prep.md - Full QBR preparation skill",
+        "renewal-kickoff.md - Start renewal conversation",
+        "risk-review.md - Review at-risk customer",
+        "weekly-digest.md - Generate weekly CSM digest",
+        "customer-onboard.md - New customer onboarding checklist",
+        "Each skill file follows markdown skill format"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-026",
+      "title": "Skills Routes",
+      "description": "Create server/src/routes/skills.ts with skill management and execution endpoints.",
+      "acceptance_criteria": [
+        "GET /api/skills - List available skills",
+        "GET /api/skills/:id - Get skill details",
+        "POST /api/skills - Create custom skill",
+        "POST /api/skills/:id/execute - Execute skill with context",
+        "GET /api/skills/match?query= - Find skills matching query",
+        "Register routes in server/src/index.ts"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-027",
+      "title": "Natural Language Automation Parser",
+      "description": "Create server/src/automations/nl-parser.ts to parse natural language automation descriptions using Claude.",
+      "acceptance_criteria": [
+        "parseAutomation takes natural language string",
+        "Uses Claude to extract: trigger, conditions, actions, schedule",
+        "Returns structured AutomationDefinition object",
+        "Handles common patterns: 'Every X at Y', 'When X happens', 'After X do Y'",
+        "Validates all referenced tools exist in MCP registry"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-028",
+      "title": "Automation Builder and Scheduler",
+      "description": "Create server/src/automations/builder.ts and server/src/automations/scheduler.ts for automation management.",
+      "acceptance_criteria": [
+        "AutomationBuilder.createFromNL creates automation from natural language",
+        "AutomationBuilder.validateAutomation checks automation validity",
+        "AutomationBuilder.testAutomation runs dry-run test",
+        "AutomationScheduler.scheduleRecurring sets up cron jobs",
+        "AutomationScheduler.scheduleOneTime sets up one-time runs",
+        "Store automations in Supabase automations table"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-029",
+      "title": "Automation Routes",
+      "description": "Create server/src/routes/automations.ts with automation CRUD and execution endpoints.",
+      "acceptance_criteria": [
+        "POST /api/automations/parse - Parse NL to automation definition",
+        "POST /api/automations - Create new automation",
+        "GET /api/automations - List user's automations",
+        "PUT /api/automations/:id - Update automation",
+        "DELETE /api/automations/:id - Delete automation",
+        "POST /api/automations/:id/test - Test run automation",
+        "POST /api/automations/:id/toggle - Enable/disable automation"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-030",
+      "title": "Automation Builder UI",
+      "description": "Create components/AutomationBuilder/index.tsx with natural language input and automation management.",
+      "acceptance_criteria": [
+        "Natural language textarea with examples",
+        "Parse button shows structured preview",
+        "Variable extraction with input fields",
+        "Schedule picker for recurring automations",
+        "Test run button with result preview",
+        "Active automations list with enable/disable toggle",
+        "Edit/delete controls per automation"
+      ],
+      "phase": 5
+    },
+    {
+      "id": "WA2-031",
+      "title": "Database Migrations",
+      "description": "Create database/migrations/022_workspace_agent_v2.sql with all new tables.",
+      "acceptance_criteria": [
+        "mcp_tools table for tool registry",
+        "triggers table for trigger definitions",
+        "playbooks table for playbook templates",
+        "playbook_executions table for active executions",
+        "skills table for skill definitions",
+        "automations table for NL automations",
+        "meeting_analyses table for meeting intelligence",
+        "slack_connections table for Slack OAuth",
+        "All tables have proper indexes and RLS policies"
+      ],
+      "phase": 1
+    }
+  ],
+  "config": {
+    "auto_commit": true,
+    "run_tests": false,
+    "parallel_stories": 2,
+    "max_iterations_per_story": 5
+  }
+}

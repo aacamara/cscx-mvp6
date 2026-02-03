@@ -1,0 +1,53 @@
+# PR Preview Cleanup Workflow
+# Deletes preview environments when PRs are closed
+
+name: PR Preview Cleanup
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+
+jobs:
+  cleanup-preview:
+    name: Cleanup Preview
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Delete Preview Environment
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          echo "Cleaning up preview for PR #$PR_NUMBER..."
+
+          # Delete Cloud Run service
+          gcloud run services delete cscx-api-pr-$PR_NUMBER \
+            --region=${{ env.REGION }} \
+            --quiet \
+            2>/dev/null || echo "Service already deleted or doesn't exist"
+
+          # Delete container image
+          gcloud container images delete gcr.io/${{ env.PROJECT_ID }}/cscx-api:pr-$PR_NUMBER \
+            --quiet \
+            --force-delete-tags \
+            2>/dev/null || echo "Image already deleted or doesn't exist"
+
+          echo "Cleanup completed for PR #$PR_NUMBER"

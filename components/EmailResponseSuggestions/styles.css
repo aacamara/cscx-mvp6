@@ -1,0 +1,701 @@
+/**
+ * EmailResponseSuggestions Styles
+ * PRD-215: Smart Email Response Suggestions
+ *
+ * Dark theme styling matching CSCX.AI design system
+ */
+
+/* ============================================
+   Container
+   ============================================ */
+
+.email-suggestions {
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ============================================
+   Header
+   ============================================ */
+
+.suggestions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.suggestions-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #fff;
+}
+
+.suggestions-icon {
+  font-size: 16px;
+}
+
+.suggestions-dismiss {
+  background: none;
+  border: none;
+  color: #666;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.suggestions-dismiss:hover {
+  background: #222;
+  color: #fff;
+}
+
+/* ============================================
+   Loading State
+   ============================================ */
+
+.suggestions-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: #888;
+  font-size: 14px;
+}
+
+.loading-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #333;
+  border-top-color: #e63946;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ============================================
+   Error State
+   ============================================ */
+
+.suggestions-error {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  color: #fca5a5;
+  font-size: 14px;
+}
+
+.error-icon {
+  font-size: 18px;
+}
+
+.retry-btn {
+  margin-left: auto;
+  background: #e63946;
+  border: none;
+  color: #fff;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.retry-btn:hover {
+  background: #dc2626;
+}
+
+/* ============================================
+   Context Info
+   ============================================ */
+
+.suggestions-context {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  background: #111;
+  border-radius: 8px;
+}
+
+.context-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.context-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.context-pill.urgency {
+  background: color-mix(in srgb, var(--urgency-color, #666) 20%, transparent);
+  color: var(--urgency-color, #888);
+  border: 1px solid color-mix(in srgb, var(--urgency-color, #666) 40%, transparent);
+}
+
+.context-pill.intent {
+  background: rgba(37, 99, 235, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+}
+
+.context-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.action-label {
+  color: #666;
+}
+
+.action-value {
+  color: #e63946;
+  font-weight: 500;
+}
+
+/* ============================================
+   Suggestion Cards List
+   ============================================ */
+
+.suggestions-list {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .suggestions-list {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .suggestions-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================
+   Suggestion Card
+   ============================================ */
+
+.suggestion-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  width: 100%;
+}
+
+.suggestion-card:hover {
+  border-color: #444;
+  background: #151515;
+}
+
+.suggestion-card.selected {
+  border-color: #e63946;
+  background: rgba(230, 57, 70, 0.08);
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.style-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.style-icon {
+  font-size: 14px;
+}
+
+.style-label {
+  color: #ccc;
+  font-weight: 500;
+}
+
+.confidence-badge {
+  font-size: 11px;
+  color: #666;
+}
+
+.card-preview {
+  flex: 1;
+}
+
+.card-preview .greeting {
+  font-size: 13px;
+  color: #fff;
+  margin: 0 0 6px 0;
+  font-weight: 500;
+}
+
+.card-preview .body-preview {
+  font-size: 12px;
+  color: #888;
+  margin: 0;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.selected-indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  background: #e63946;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* ============================================
+   Suggestion Preview
+   ============================================ */
+
+.suggestion-preview {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: #0a0a0a;
+  border-bottom: 1px solid #333;
+}
+
+.preview-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.edit-btn {
+  background: none;
+  border: 1px solid #444;
+  color: #ccc;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.edit-btn:hover {
+  background: #222;
+  border-color: #666;
+  color: #fff;
+}
+
+.preview-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.preview-subject {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 12px;
+  color: #666;
+  flex-shrink: 0;
+}
+
+.field-value {
+  font-size: 14px;
+  color: #fff;
+  font-weight: 500;
+}
+
+.preview-body {
+  background: #0a0a0a;
+  border-radius: 8px;
+  padding: 16px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.body-text {
+  margin: 0;
+  font-family: inherit;
+  font-size: 14px;
+  color: #ddd;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.preview-context {
+  padding-top: 12px;
+  border-top: 1px solid #222;
+}
+
+.context-label {
+  display: block;
+  font-size: 11px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.context-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.context-list li {
+  font-size: 12px;
+  color: #60a5fa;
+  background: rgba(37, 99, 235, 0.1);
+  padding: 4px 10px;
+  border-radius: 12px;
+}
+
+/* ============================================
+   Editor
+   ============================================ */
+
+.suggestion-editor {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editor-field label {
+  font-size: 12px;
+  color: #888;
+  font-weight: 500;
+}
+
+.editor-input {
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: #fff;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.editor-input:focus {
+  outline: none;
+  border-color: #e63946;
+}
+
+.editor-textarea {
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px 14px;
+  color: #fff;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 200px;
+  transition: border-color 0.2s;
+}
+
+.editor-textarea:focus {
+  outline: none;
+  border-color: #e63946;
+}
+
+.editor-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cancel-edit-btn {
+  background: none;
+  border: 1px solid #333;
+  color: #888;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.cancel-edit-btn:hover {
+  background: #222;
+  color: #fff;
+}
+
+/* ============================================
+   Action Buttons
+   ============================================ */
+
+.suggestions-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding-top: 8px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.action-btn.secondary {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #ccc;
+}
+
+.action-btn.secondary:hover:not(:disabled) {
+  background: #222;
+  border-color: #444;
+  color: #fff;
+}
+
+.action-btn.primary {
+  background: #e63946;
+  border: none;
+  color: #fff;
+}
+
+.action-btn.primary:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.action-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* ============================================
+   Confidence Indicator
+   ============================================ */
+
+.confidence-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #111;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.confidence-label {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.confidence-bar {
+  flex: 1;
+  height: 6px;
+  background: #222;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e63946, #f97316);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.confidence-value {
+  color: #888;
+  font-weight: 500;
+  min-width: 40px;
+  text-align: right;
+}
+
+/* ============================================
+   Feedback Modal
+   ============================================ */
+
+.feedback-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.feedback-modal {
+  background: #111;
+  border: 1px solid #333;
+  border-radius: 16px;
+  padding: 24px;
+  width: 100%;
+  max-width: 400px;
+  margin: 16px;
+}
+
+.feedback-modal h3 {
+  margin: 0 0 8px 0;
+  font-size: 18px;
+  color: #fff;
+}
+
+.feedback-modal p {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  color: #888;
+}
+
+.rating-section {
+  margin-bottom: 24px;
+}
+
+.rating-label {
+  display: block;
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 10px;
+}
+
+.rating-stars {
+  display: flex;
+  gap: 8px;
+}
+
+.star-btn {
+  background: none;
+  border: none;
+  font-size: 28px;
+  color: #333;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 4px;
+}
+
+.star-btn:hover {
+  color: #f59e0b;
+  transform: scale(1.1);
+}
+
+.star-btn.active {
+  color: #f59e0b;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.feedback-btn {
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.feedback-btn.secondary {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #ccc;
+}
+
+.feedback-btn.secondary:hover {
+  background: #222;
+  color: #fff;
+}
+
+.feedback-btn.primary {
+  background: #e63946;
+  border: none;
+  color: #fff;
+}
+
+.feedback-btn.primary:hover {
+  background: #dc2626;
+}

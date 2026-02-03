@@ -1,0 +1,42 @@
+# Cloud Build configuration for cleaning up PR preview deployments
+# Triggered when PR is closed/merged
+
+steps:
+  # Step 1: Delete the Cloud Run preview service
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'delete-service'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Deleting Cloud Run service cscx-api-pr-$_PR_NUMBER..."
+        gcloud run services delete cscx-api-pr-$_PR_NUMBER \
+          --region=${_REGION} \
+          --quiet \
+          2>/dev/null || echo "Service already deleted or doesn't exist"
+
+  # Step 2: Delete the container image
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'delete-image'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Deleting container image for PR-$_PR_NUMBER..."
+        gcloud container images delete gcr.io/$PROJECT_ID/cscx-api:pr-$_PR_NUMBER \
+          --quiet \
+          --force-delete-tags \
+          2>/dev/null || echo "Image already deleted or doesn't exist"
+    waitFor: ['delete-service']
+
+# Substitutions
+substitutions:
+  _REGION: us-central1
+  _PR_NUMBER: '0'
+
+# Build options
+options:
+  logging: CLOUD_LOGGING_ONLY
+
+# Build timeout (5 minutes)
+timeout: '300s'

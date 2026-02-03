@@ -1,0 +1,113 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "feature/landing-page",
+  "description": "Minimalist landing page for CSCX.ai with Google OAuth authentication",
+  "designSystem": {
+    "background": "#ffffff",
+    "text": "#000000",
+    "accent": "#e63946",
+    "muted": "#555555",
+    "font": "Inter",
+    "style": "minimalist, clean, professional"
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Landing Page Component Structure",
+      "description": "Create the base LandingPage component with proper structure",
+      "acceptanceCriteria": [
+        "components/LandingPage.tsx exists with proper TypeScript types",
+        "Component receives onLogin callback prop (optional)",
+        "Uses useAuth hook from ../context/AuthContext for signInWithGoogle and isLoading",
+        "Page has three sections: header (landing-header), main (landing-main), footer (landing-footer)",
+        "Uses inline <style> tag for all CSS",
+        "Imports Inter font from Google Fonts",
+        "Build succeeds with no new TypeScript errors"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "LandingPage.tsx already exists - review and verify it meets all criteria"
+    },
+    {
+      "id": "US-002",
+      "title": "Header with Logo",
+      "description": "Display CSCX.ai branding in the header",
+      "acceptanceCriteria": [
+        "Header displays 'CSCX' text followed by '.ai'",
+        "The period uses accent color #e63946 via .accent class",
+        "Logo uses font-weight 800, letter-spacing -0.03em",
+        "Header has padding: 2rem 4rem",
+        "Responsive: padding 1.5rem on mobile (max-width: 768px)"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Part of LandingPage.tsx header section"
+    },
+    {
+      "id": "US-003",
+      "title": "Hero Content Section",
+      "description": "Display compelling hero content with value proposition",
+      "acceptanceCriteria": [
+        "Label 'Customer Success Platform' in uppercase, accent color, letter-spacing 0.15em",
+        "Title: 'The future of' on first line, 'Customer Success.' on second line",
+        "'Customer Success' uses muted color #555555 via .muted class",
+        "Period at end uses accent color via .accent-dot class",
+        "Title uses font-size clamp(2.5rem, 8vw, 4.5rem), font-weight 800",
+        "Subtitle describes AI-powered workflows for onboarding and agents",
+        "Content centered with max-width 580px"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Part of LandingPage.tsx main section"
+    },
+    {
+      "id": "US-004",
+      "title": "Google Sign-In Button",
+      "description": "Implement Google OAuth sign-in button with proper styling",
+      "acceptanceCriteria": [
+        "Button displays Google multicolor SVG logo",
+        "Button text: 'Continue with Google' normally, 'Signing in...' when loading",
+        "Button calls signInWithGoogle() on click",
+        "Button disabled when isLoading is true",
+        "Button style: black background #000000, white text, no border",
+        "Hover: opacity 0.85, transform translateY(-2px)",
+        "Below button: 'By signing in, you agree to our Terms and Privacy Policy'",
+        "Terms and Privacy links use accent color"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Button uses signInWithGoogle from useAuth hook"
+    },
+    {
+      "id": "US-005",
+      "title": "Footer Section",
+      "description": "Display footer with copyright and links",
+      "acceptanceCriteria": [
+        "Footer displays '© 2025 CSCX.ai — CAS Advisory'",
+        "Footer links: About, Contact, info@casadvisory.ca (mailto)",
+        "Footer has border-top: 1px solid #e5e5e5",
+        "Links use color #555555, hover to #000000",
+        "Responsive: flex-direction column, centered on mobile"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Part of LandingPage.tsx footer section"
+    },
+    {
+      "id": "US-006",
+      "title": "App.tsx Integration",
+      "description": "Show landing page when user is not authenticated",
+      "acceptanceCriteria": [
+        "Import LandingPage component in App.tsx",
+        "Check authentication state using useAuth hook (user or session)",
+        "If no authenticated user, render LandingPage instead of main dashboard",
+        "After successful Google login, user sees main dashboard",
+        "No flash of dashboard before landing page shows (use isLoading state)",
+        "Build succeeds: npm run build exits with code 0"
+      ],
+      "priority": 6,
+      "passes": false,
+      "notes": "App.tsx already uses useAuth. Check for user/session state to conditionally render."
+    }
+  ]
+}

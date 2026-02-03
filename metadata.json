@@ -1,0 +1,5 @@
+{
+  "name": "CSCX Parsing ",
+  "description": "An AI-powered customer onboarding workflow system that automates the entire process from contract upload to personalized planning and communication using the Gemini API.",
+  "requestFramePermissions": []
+}

@@ -1,0 +1,17 @@
+# Ralph Progress Log
+Started: Wed 28 Jan 2026 22:10:13 EST
+
+## Codebase Patterns
+- App.tsx uses conditional rendering based on `isAuthenticated` from `useAuth()` hook
+- Show loading spinner during `authLoading` to prevent flash of content
+- Components that need auth use the `useAuth` hook from `../context/AuthContext`
+- AgentControlCenter/index.tsx contains the sidebar with agent selection, model toggles, and status sections
+- Dark theme: bg-cscx-gray-900, text-white, accent #e63946
+- Agent selection uses state hooks, preserve the selection logic when refactoring UI
+---
+
+# Chat UI Cleanup Progress Log
+
+Initialized: Cleaning up AgentControlCenter sidebar - removing bloat while keeping 100% agentic functionality
+
+---
