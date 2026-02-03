@@ -159,8 +159,111 @@ const CopyButton: React.FC<{ code: string }> = ({ code }) => {
   );
 };
 
-// Code block component with copy button
+// Collapsible JSON viewer component
+const CollapsibleJson: React.FC<{ data: any; label?: string; defaultExpanded?: boolean }> = ({
+  data,
+  label = 'JSON',
+  defaultExpanded = false
+}) => {
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const jsonString = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+
+  // Try to parse if string to check if valid JSON
+  let isValid = true;
+  let parsed = data;
+  if (typeof data === 'string') {
+    try {
+      parsed = JSON.parse(data);
+    } catch {
+      isValid = false;
+    }
+  }
+
+  // Count keys/items for preview
+  const getPreview = () => {
+    if (!isValid) return 'Invalid JSON';
+    if (Array.isArray(parsed)) return `Array[${parsed.length}]`;
+    if (typeof parsed === 'object' && parsed !== null) {
+      const keys = Object.keys(parsed);
+      return `Object{${keys.slice(0, 3).join(', ')}${keys.length > 3 ? ', ...' : ''}}`;
+    }
+    return String(parsed).slice(0, 50);
+  };
+
+  return (
+    <div style={{
+      margin: '8px 0',
+      border: '1px solid #333',
+      borderRadius: '8px',
+      overflow: 'hidden',
+      background: '#0d0d0d',
+    }}>
+      <button
+        onClick={() => setIsExpanded(!isExpanded)}
+        style={{
+          width: '100%',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '10px 12px',
+          background: '#1a1a1a',
+          border: 'none',
+          cursor: 'pointer',
+          color: '#ccc',
+          fontSize: '12px',
+          textAlign: 'left',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{
+            transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s',
+            display: 'inline-block',
+          }}>
+            ▶
+          </span>
+          <span style={{ color: '#e63946', fontWeight: 500 }}>{label}</span>
+          <span style={{ color: '#666', fontSize: '11px' }}>{getPreview()}</span>
+        </span>
+        <CopyButton code={jsonString} />
+      </button>
+      {isExpanded && (
+        <pre style={{
+          margin: 0,
+          padding: '12px',
+          fontSize: '11px',
+          fontFamily: 'monospace',
+          overflowX: 'auto',
+          maxHeight: '400px',
+          overflowY: 'auto',
+        }}>
+          <code style={{ color: '#8cc84b' }}>{jsonString}</code>
+        </pre>
+      )}
+    </div>
+  );
+};
+
+// Code block component with copy button (detects JSON and shows collapsible viewer)
 const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, language }) => {
+  // Check if this is JSON content
+  const isJson = language === 'json' || (language === '' && code.trim().startsWith('{') || code.trim().startsWith('['));
+  let isValidJson = false;
+
+  if (isJson) {
+    try {
+      JSON.parse(code);
+      isValidJson = true;
+    } catch {
+      isValidJson = false;
+    }
+  }
+
+  // Use collapsible viewer for valid JSON
+  if (isValidJson) {
+    return <CollapsibleJson data={code} label={language || 'json'} defaultExpanded={code.length < 500} />;
+  }
+
   return (
     <div
       style={{
@@ -229,6 +332,78 @@ function cleanAIResponse(text: string): string {
     .trim();
 }
 
+// Rich table component for markdown tables
+const MarkdownTable: React.FC<{ headers: string[]; rows: string[][] }> = ({ headers, rows }) => {
+  return (
+    <div style={{
+      overflowX: 'auto',
+      margin: '12px 0',
+      borderRadius: '8px',
+      border: '1px solid #333',
+    }}>
+      <table style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        fontSize: '13px',
+        minWidth: '300px',
+      }}>
+        <thead>
+          <tr style={{ background: '#1a1a1a' }}>
+            {headers.map((header, i) => (
+              <th key={i} style={{
+                padding: '10px 12px',
+                textAlign: 'left',
+                fontWeight: 600,
+                borderBottom: '2px solid #333',
+                color: '#e63946',
+                whiteSpace: 'nowrap',
+              }}>
+                {parseInline(header.trim())}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, rowIndex) => (
+            <tr
+              key={rowIndex}
+              style={{
+                background: rowIndex % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)',
+                transition: 'background 0.15s',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(230,57,70,0.05)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = rowIndex % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.02)'}
+            >
+              {row.map((cell, cellIndex) => (
+                <td key={cellIndex} style={{
+                  padding: '8px 12px',
+                  borderBottom: '1px solid #222',
+                  color: '#ccc',
+                }}>
+                  {parseInline(cell.trim())}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+};
+
+// Parse a table row into cells
+function parseTableRow(line: string): string[] {
+  return line
+    .split('|')
+    .filter((_, i, arr) => i > 0 && i < arr.length - 1) // Remove first and last empty splits
+    .map(cell => cell.trim());
+}
+
+// Check if a line is a table separator (e.g., |---|---|)
+function isTableSeparator(line: string): boolean {
+  return /^\|[\s:-]+\|[\s|:-]*$/.test(line.trim());
+}
+
 // Parse markdown to React elements with clickable links
 function parseMarkdown(text: string): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
@@ -239,9 +414,27 @@ function parseMarkdown(text: string): React.ReactNode[] {
   let codeBlockLanguage = '';
   let codeBlockStartIndex = 0;
 
+  // Table parsing state
+  let inTable = false;
+  let tableHeaders: string[] = [];
+  let tableRows: string[][] = [];
+  let tableStartIndex = 0;
+
+  const flushTable = () => {
+    if (tableHeaders.length > 0 && tableRows.length > 0) {
+      elements.push(
+        <MarkdownTable key={`table-${tableStartIndex}`} headers={tableHeaders} rows={tableRows} />
+      );
+    }
+    inTable = false;
+    tableHeaders = [];
+    tableRows = [];
+  };
+
   lines.forEach((line, lineIndex) => {
     // Handle code block start/end
     if (line.startsWith('```')) {
+      if (inTable) flushTable();
       if (!inCodeBlock) {
         // Starting a code block
         inCodeBlock = true;
@@ -265,6 +458,27 @@ function parseMarkdown(text: string): React.ReactNode[] {
     if (inCodeBlock) {
       codeBlockContent.push(line);
       return;
+    }
+
+    // Table parsing
+    const isTableRow = line.trim().startsWith('|') && line.trim().endsWith('|');
+
+    if (isTableRow) {
+      if (!inTable) {
+        // Starting a new table
+        inTable = true;
+        tableStartIndex = lineIndex;
+        tableHeaders = parseTableRow(line);
+      } else if (isTableSeparator(line)) {
+        // Skip separator line
+      } else {
+        // Regular table row
+        tableRows.push(parseTableRow(line));
+      }
+      return;
+    } else if (inTable) {
+      // End of table
+      flushTable();
     }
 
     // Headers
@@ -292,6 +506,11 @@ function parseMarkdown(text: string): React.ReactNode[] {
       elements.push(<p key={lineIndex} style={{ margin: '4px 0' }}>{parseInline(line)}</p>);
     }
   });
+
+  // Flush any remaining table
+  if (inTable) {
+    flushTable();
+  }
 
   // Handle unclosed code block at end of text
   if (inCodeBlock && codeBlockContent.length > 0) {

@@ -147,8 +147,76 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [isUserScrolledUp, setIsUserScrolledUp] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+  const [predictedIntent, setPredictedIntent] = useState<{ agent: CSAgentType; confidence: number; keywords: string[] } | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // Client-side intent classifier for real-time agent routing preview
+  const classifyIntent = useCallback((text: string): { agent: CSAgentType; confidence: number; keywords: string[] } | null => {
+    if (!text || text.length < 3) return null;
+
+    const lowerText = text.toLowerCase();
+
+    // Intent patterns with weights
+    const patterns: { agent: CSAgentType; keywords: string[]; weight: number }[] = [
+      {
+        agent: 'onboarding',
+        keywords: ['onboard', 'kickoff', 'get started', 'new customer', 'setup', 'welcome', 'first', 'introduce', 'begin', 'start', '30-60-90', 'implementation'],
+        weight: 1.0
+      },
+      {
+        agent: 'adoption',
+        keywords: ['usage', 'adopt', 'feature', 'training', 'learn', 'how to', 'tutorial', 'champion', 'engagement', 'active users', 'activation', 'utilization'],
+        weight: 1.0
+      },
+      {
+        agent: 'renewal',
+        keywords: ['renew', 'contract', 'pricing', 'expand', 'upsell', 'negotiate', 'proposal', 'quote', 'discount', 'terms', 'commercial', 'license'],
+        weight: 1.0
+      },
+      {
+        agent: 'risk',
+        keywords: ['risk', 'churn', 'cancel', 'unhappy', 'complaint', 'issue', 'problem', 'escalat', 'save', 'at-risk', 'concern', 'upset', 'frustrated'],
+        weight: 1.2
+      },
+      {
+        agent: 'strategic',
+        keywords: ['qbr', 'executive', 'strategic', 'roadmap', 'vision', 'cxo', 'c-suite', 'board', 'leadership', 'transformation', 'partnership', 'account plan'],
+        weight: 1.0
+      }
+    ];
+
+    let bestMatch: { agent: CSAgentType; confidence: number; keywords: string[] } | null = null;
+    let highestScore = 0;
+
+    for (const pattern of patterns) {
+      const matchedKeywords = pattern.keywords.filter(kw => lowerText.includes(kw));
+      if (matchedKeywords.length > 0) {
+        const score = matchedKeywords.length * pattern.weight;
+        if (score > highestScore) {
+          highestScore = score;
+          const confidence = Math.min(0.95, 0.5 + (score * 0.15));
+          bestMatch = { agent: pattern.agent, confidence, keywords: matchedKeywords };
+        }
+      }
+    }
+
+    return bestMatch;
+  }, []);
+
+  // Update predicted intent as user types (debounced)
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (selectedAgent === 'auto' && input.trim()) {
+        const intent = classifyIntent(input);
+        setPredictedIntent(intent);
+      } else {
+        setPredictedIntent(null);
+      }
+    }, 150);
+
+    return () => clearTimeout(timeoutId);
+  }, [input, selectedAgent, classifyIntent]);
 
   const scrollToTop = () => {
     messagesContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -2222,7 +2290,13 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             </button>
           </div>
           <p className="input-hint">
-            {agenticModeEnabled ? '⚡ Agentic Mode' : 'LangChain RAG'} · {selectedAgent === 'auto' ? 'Auto-routing' : `${CS_AGENTS[selectedAgent]?.name}`} · {agenticModeEnabled ? 'Autonomous execution' : 'HITL approval'}
+            {agenticModeEnabled ? '⚡ Agentic Mode' : 'LangChain RAG'} · {
+              predictedIntent && selectedAgent === 'auto' ? (
+                <span style={{ color: CS_AGENTS[predictedIntent.agent].color }}>
+                  {CS_AGENTS[predictedIntent.agent].icon} {CS_AGENTS[predictedIntent.agent].name} ({Math.round(predictedIntent.confidence * 100)}%)
+                </span>
+              ) : selectedAgent === 'auto' ? 'Auto-routing' : `${CS_AGENTS[selectedAgent]?.name}`
+            } · {agenticModeEnabled ? 'Autonomous execution' : 'HITL approval'}
           </p>
         </div>
       </div>
