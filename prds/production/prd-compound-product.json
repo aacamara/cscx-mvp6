@@ -1,0 +1,184 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "ralph/compound-product-launch",
+  "description": "Compound Product Launch - Analytics, Onboarding Optimization, Feedback Collection",
+  "userStories": [
+    {
+      "id": "CP-001",
+      "title": "Create analytics events tracking service",
+      "description": "Create services/analytics.ts with trackEvent function that logs to Supabase analytics_events table.",
+      "acceptanceCriteria": [
+        "trackEvent(event, properties) function exists",
+        "Logs to Supabase analytics_events table",
+        "Includes user_id, session_id, timestamp",
+        "Export from services/analytics.ts",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false
+    },
+    {
+      "id": "CP-002",
+      "title": "Create analytics_events database migration",
+      "description": "Create migration for analytics_events table with proper indexes.",
+      "acceptanceCriteria": [
+        "Table: analytics_events with id, event, properties, user_id, session_id, timestamp",
+        "Indexes on event, user_id, timestamp",
+        "Properties column is JSONB",
+        "Migration file in database/migrations/",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false
+    },
+    {
+      "id": "CP-003",
+      "title": "Add analytics tracking to invite code flow",
+      "description": "Track invite_code_entered, invite_code_validated events in login flow.",
+      "acceptanceCriteria": [
+        "Track 'invite_code_entered' when user types code",
+        "Track 'invite_code_validated' with valid/invalid status",
+        "Track 'google_signin_started' on button click",
+        "Track 'google_signin_completed' on OAuth success",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": false
+    },
+    {
+      "id": "CP-004",
+      "title": "Add analytics tracking to feature engagement",
+      "description": "Track key feature usage events throughout the app.",
+      "acceptanceCriteria": [
+        "Track 'customer_list_viewed' on customer list load",
+        "Track 'csv_template_downloaded' on template download",
+        "Track 'csv_import_completed' with count",
+        "Track 'onboarding_started' when AI chat begins",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": false
+    },
+    {
+      "id": "CP-005",
+      "title": "Update welcome modal with optimized copy",
+      "description": "Update WelcomeModal component with compound-product approved copy.",
+      "acceptanceCriteria": [
+        "Header: 'Welcome to CSCX.AI!'",
+        "3 clear action items with time estimates",
+        "Action-oriented CTA: 'Start Exploring'",
+        "Professional but approachable tone",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": false
+    },
+    {
+      "id": "CP-006",
+      "title": "Create feedback widget component",
+      "description": "Create FeedbackWidget.tsx that floats in bottom-right corner.",
+      "acceptanceCriteria": [
+        "Fixed position bottom-right",
+        "Expands to feedback form on click",
+        "Fields: type (dropdown), message (textarea), rating (optional)",
+        "Submits to /api/feedback endpoint",
+        "Styled with CSCX brand colors",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": false
+    },
+    {
+      "id": "CP-007",
+      "title": "Create user_feedback database table",
+      "description": "Create migration for user_feedback table.",
+      "acceptanceCriteria": [
+        "Table: user_feedback with id, user_id, type, context, message, rating, metadata",
+        "Type enum: general, feature_request, bug, praise",
+        "Rating is 1-5 integer",
+        "Migration file exists",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": false
+    },
+    {
+      "id": "CP-008",
+      "title": "Create feedback API endpoint",
+      "description": "Create POST /api/feedback endpoint to receive user feedback.",
+      "acceptanceCriteria": [
+        "POST /api/feedback accepts { type, message, rating, context }",
+        "Validates required fields",
+        "Stores in user_feedback table with user_id",
+        "Returns 201 on success",
+        "Route registered in index.ts",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": false
+    },
+    {
+      "id": "CP-009",
+      "title": "Add contextual feedback prompts",
+      "description": "Show feedback prompts at key moments in user journey.",
+      "acceptanceCriteria": [
+        "After completing mock onboarding: 'How was this experience?'",
+        "After CSV import: 'Was the import easy?'",
+        "After 3rd session: 'What feature would help your workflow?'",
+        "Prompts dismissible and stored in localStorage",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false
+    },
+    {
+      "id": "CP-010",
+      "title": "Create launch metrics dashboard",
+      "description": "Create admin view showing key launch metrics.",
+      "acceptanceCriteria": [
+        "Shows: signups, activation rate, import rate",
+        "Shows: avg session duration, features tried",
+        "Shows: top features used (ranked list)",
+        "Pulls from analytics_events table",
+        "Only visible to admin users",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false
+    },
+    {
+      "id": "CP-011",
+      "title": "Improve empty states with action-oriented copy",
+      "description": "Update all empty states to guide users to next action.",
+      "acceptanceCriteria": [
+        "Customer list empty: 'No customers yet. Import your first one →'",
+        "Contract list empty: 'Upload a contract to get started →'",
+        "All empty states have clear CTA",
+        "Consistent styling across app",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false
+    },
+    {
+      "id": "CP-012",
+      "title": "Add progress tracking for feature exploration",
+      "description": "Track and display which features user has tried.",
+      "acceptanceCriteria": [
+        "Store explored features in localStorage or Supabase",
+        "Show 'Explored X/8 features' in sidebar or header",
+        "Highlight unexplored features with subtle badge",
+        "Reset option for demo purposes",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false
+    }
+  ],
+  "config": {
+    "auto_commit": true,
+    "run_tests": false,
+    "parallel_stories": 2,
+    "max_iterations_per_story": 5
+  }
+}
