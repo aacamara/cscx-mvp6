@@ -849,6 +849,34 @@ router.get('/', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/customers/template - Download CSV template for bulk import
+// IMPORTANT: Must be BEFORE /:id route to avoid being caught by param route
+router.get('/template', (_req: Request, res: Response) => {
+  const headers = [
+    'name',
+    'industry',
+    'arr',
+    'health_score',
+    'stage',
+    'renewal_date',
+    'csm_name',
+    'primary_contact_name',
+    'primary_contact_email',
+    'primary_contact_title'
+  ].join(',');
+
+  const exampleRows = [
+    '"Acme Corp","Technology",250000,85,"active","2026-12-31","Jane Smith","John Doe","john@acme.com","VP Engineering"',
+    '"Example Inc","SaaS",150000,70,"onboarding","2027-06-30","","Sarah Connor","sarah@example.com","CTO"'
+  ];
+
+  const csvContent = [headers, ...exampleRows].join('\n');
+
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="cscx-customer-template.csv"');
+  res.send(csvContent);
+});
+
 // GET /api/customers/:id - Get single customer
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -1517,32 +1545,5 @@ function parseCSVRow(row: string): string[] {
   result.push(current.trim());
   return result;
 }
-
-// GET /api/customers/template - Download CSV template for bulk import
-router.get('/template', (_req: Request, res: Response) => {
-  const headers = [
-    'name',
-    'industry',
-    'arr',
-    'health_score',
-    'stage',
-    'renewal_date',
-    'csm_name',
-    'primary_contact_name',
-    'primary_contact_email',
-    'primary_contact_title'
-  ].join(',');
-
-  const exampleRows = [
-    '"Acme Corp","Technology",250000,85,"active","2026-12-31","Jane Smith","John Doe","john@acme.com","VP Engineering"',
-    '"Example Inc","SaaS",150000,70,"onboarding","2027-06-30","","Sarah Connor","sarah@example.com","CTO"'
-  ];
-
-  const csvContent = [headers, ...exampleRows].join('\n');
-
-  res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="cscx-customer-template.csv"');
-  res.send(csvContent);
-});
 
 export { router as customerRoutes };

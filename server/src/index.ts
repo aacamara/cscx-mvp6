@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
 
+import { authRoutes } from './routes/auth.js'; // PRD-1: Gated Login + Onboarding
 import { agentRoutes } from './routes/agents.js';
 import { contractRoutes } from './routes/contracts.js';
 import { entitlementRoutes } from './routes/entitlements.js';
@@ -197,12 +198,17 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, curl, etc.)
     if (!origin) return callback(null, true);
 
-    // Allow localhost on any port for development
+    // Allow localhost for development + production domains
     const allowedOrigins = [
       'http://localhost:3000',
+      'http://localhost:3002',
       'http://localhost:5173',
       'http://127.0.0.1:3000',
       'http://127.0.0.1:5173',
+      // Production domains
+      'https://cscx.ai',
+      'https://www.cscx.ai',
+      'https://app.cscx.ai',
     ];
 
     if (config.corsOrigin === '*' || allowedOrigins.includes(origin) || config.corsOrigin === origin) {
@@ -278,6 +284,7 @@ app.get('/health/circuits', (req, res) => {
 });
 
 // API Routes
+app.use('/api/auth', authRoutes); // PRD-1: Gated Login + Onboarding
 app.use('/api/agents', agentRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/entitlements', entitlementRoutes); // PRD-0: Contract entitlements HITL review
