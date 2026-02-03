@@ -13,6 +13,7 @@ import { AgentAnalysisActions } from './AgentAnalysisActions';
 import { ChatHistoryDropdown } from './ChatHistoryDropdown';
 import { useAgenticMode } from '../../context/AgenticModeContext';
 import { useWebSocket } from '../../context/WebSocketContext';
+import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import './styles.css';
 
 // Type for pending email data
@@ -66,6 +67,46 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   // Agentic mode integration (shared context)
   const { isEnabled: agenticModeEnabled, executeGoal, resumeExecution } = useAgenticMode();
   const { connected: wsConnected } = useWebSocket();
+  const { isOnline, queuedCount, queueMessage, dequeueMessage, getNextQueuedMessage } = useOnlineStatus();
+
+  // Process queued messages when coming back online
+  useEffect(() => {
+    if (!isOnline) return;
+
+    const processQueue = async () => {
+      let nextMessage = getNextQueuedMessage();
+      while (nextMessage) {
+        try {
+          // Update message status
+          setMessages(prev => prev.map(msg =>
+            msg.id === nextMessage!.id ? { ...msg, status: 'sending' as const } : msg
+          ));
+
+          // Send the message
+          await sendToAgent(nextMessage.content, undefined, nextMessage.id);
+
+          // Remove from queue
+          dequeueMessage(nextMessage.id);
+
+          // Update status to sent
+          setMessages(prev => prev.map(msg =>
+            msg.id === nextMessage!.id ? { ...msg, status: 'sent' as const } : msg
+          ));
+        } catch (error) {
+          console.error('Failed to send queued message:', error);
+          setMessages(prev => prev.map(msg =>
+            msg.id === nextMessage!.id ? { ...msg, status: 'failed' as const } : msg
+          ));
+          break; // Stop processing on error
+        }
+        nextMessage = getNextQueuedMessage();
+      }
+    };
+
+    if (queuedCount > 0) {
+      processQueue();
+    }
+  }, [isOnline, queuedCount]);
   const [agenticStateId, setAgenticStateId] = useState<string | null>(null);
   // Persist sessionId per customer in localStorage
   const [sessionId] = useState(() => {
@@ -476,10 +517,28 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   // Send message to LangChain-powered AI backend (or agentic system)
   const sendToAgent = async (
     message: string,
-    attachment?: { name: string; size: number; type: string; hasContent?: boolean }
+    attachment?: { name: string; size: number; type: string; hasContent?: boolean },
+    messageId?: string
   ) => {
-    // Save user message to database with attachment metadata
-    saveChatMessage('user', message, undefined, undefined, attachment);
+    // Update message status to sent (optimistic update succeeded)
+    const updateMessageStatus = (status: 'sent' | 'failed') => {
+      if (messageId) {
+        setMessages(prev => prev.map(msg =>
+          msg.id === messageId ? { ...msg, status } : msg
+        ));
+      }
+    };
+
+    try {
+      // Save user message to database with attachment metadata
+      saveChatMessage('user', message, undefined, undefined, attachment);
+      updateMessageStatus('sent');
+    } catch (error) {
+      console.error('Failed to save message:', error);
+      updateMessageStatus('failed');
+      return;
+    }
+
     setIsProcessing(true);
 
     // Add thinking state
@@ -1362,6 +1421,18 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     setInput('');
     setSelectedFile(null);
 
+    // Queue message if offline
+    if (!isOnline && userMessage && !attachedFile) {
+      const queuedId = queueMessage(userMessage, customer?.id);
+      setMessages(prev => [...prev, {
+        id: queuedId,
+        isUser: true,
+        message: userMessage,
+        status: 'sending',
+      }]);
+      return;
+    }
+
     // Focus input after send
     setTimeout(() => textInputRef.current?.focus(), 0);
 
@@ -1412,8 +1483,10 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
       }
     }
 
-    // Add message to UI with attachment metadata
+    // Add message to UI with attachment metadata (optimistic update)
+    const messageId = `msg_${Date.now()}`;
     setMessages(prev => [...prev, {
+      id: messageId,
       isUser: true,
       message: messageToDisplay,
       attachment: attachmentMeta ? {
@@ -1421,10 +1494,20 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
         size: attachmentMeta.size,
         type: attachmentMeta.type,
       } : undefined,
+      status: 'sending',
     }]);
 
     // Pass attachment metadata to sendToAgent for database persistence
-    sendToAgent(messageToSend, attachmentMeta);
+    sendToAgent(messageToSend, attachmentMeta, messageId);
+  };
+
+  // Retry a failed message
+  const handleRetryMessage = (messageId: string, content: string) => {
+    // Update message status to sending
+    setMessages(prev => prev.map(msg =>
+      msg.id === messageId ? { ...msg, status: 'sending' as const } : msg
+    ));
+    sendToAgent(content, undefined, messageId);
   };
 
   // Calculate plan progress for sidebar
@@ -1783,6 +1866,29 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           </div>
         </header>
 
+        {/* Offline Banner */}
+        {!isOnline && (
+          <div style={{
+            background: '#f59e0b',
+            color: '#000',
+            padding: '8px 16px',
+            fontSize: '12px',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+          }}>
+            <span>⚠️</span>
+            <span>You are offline</span>
+            {queuedCount > 0 && (
+              <span style={{ opacity: 0.8 }}>
+                ({queuedCount} message{queuedCount > 1 ? 's' : ''} queued)
+              </span>
+            )}
+          </div>
+        )}
+
         <div className="messages-container" ref={messagesContainerRef} onScroll={handleMessagesScroll}>
           {/* Onboarding Flow */}
           {showOnboardingFlow && (
@@ -1879,7 +1985,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             <>
               {messages.map((msg, i) => (
                 <Message
-                  key={i}
+                  key={msg.id || i}
                   message={msg.message}
                   agent={msg.agent}
                   isUser={msg.isUser}
@@ -1888,6 +1994,8 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                   onApprove={handleApproval}
                   toolResults={msg.toolResults}
                   attachment={msg.attachment}
+                  status={msg.status}
+                  onRetry={msg.id && msg.status === 'failed' ? () => handleRetryMessage(msg.id!, msg.message) : undefined}
                 />
               ))}
               {/* Show workflow progress after messages if active */}

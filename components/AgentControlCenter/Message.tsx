@@ -194,6 +194,8 @@ const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, langua
   );
 };
 
+type MessageStatus = 'sending' | 'sent' | 'failed';
+
 interface MessageProps {
   message: string;
   agent?: AgentId;
@@ -207,6 +209,8 @@ interface MessageProps {
     size: number;
     type: string;
   };
+  status?: MessageStatus;
+  onRetry?: () => void;
 }
 
 // Clean up spurious placeholder text from AI responses
@@ -388,14 +392,54 @@ export const Message: React.FC<MessageProps> = ({
   isApproval,
   onApprove,
   toolResults,
-  attachment
+  attachment,
+  status,
+  onRetry
 }) => {
   if (isUser) {
     return (
-      <div className="message user-message message-with-actions">
+      <div
+        className="message user-message message-with-actions"
+        style={{ opacity: status === 'sending' ? 0.7 : 1 }}
+      >
         <MessageActions content={message} />
         <div className="message-content user">
           <p>{message}</p>
+          {/* Status indicator */}
+          {status && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              marginTop: '4px',
+              fontSize: '10px',
+            }}>
+              {status === 'sending' && (
+                <span style={{ color: '#888' }}>Sending...</span>
+              )}
+              {status === 'failed' && (
+                <>
+                  <span style={{ color: '#ef4444' }}>Failed to send</span>
+                  {onRetry && (
+                    <button
+                      onClick={onRetry}
+                      style={{
+                        background: 'transparent',
+                        border: '1px solid #ef4444',
+                        color: '#ef4444',
+                        borderRadius: '4px',
+                        padding: '2px 6px',
+                        fontSize: '10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      Retry
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          )}
           {/* Attachment indicator for user messages */}
           {attachment && (
             <div style={{

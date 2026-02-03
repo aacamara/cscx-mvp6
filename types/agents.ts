@@ -23,6 +23,8 @@ export interface RoutingDecision {
   reasoning: string;
 }
 
+export type MessageStatus = 'sending' | 'sent' | 'failed';
+
 export interface AgentMessage {
   agent?: AgentId;
   message: string;
@@ -37,6 +39,8 @@ export interface AgentMessage {
     size: number;
     type: string;
   };
+  status?: MessageStatus;
+  id?: string;
 }
 
 // Re-export CustomerContext from workflow for consistency
