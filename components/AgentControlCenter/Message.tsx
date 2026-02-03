@@ -1,6 +1,82 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { AGENTS, CS_AGENTS, AgentId, CSAgentType } from '../../types/agents';
 import { ToolResultCard } from './ToolResultCard';
+
+// Copy button component for code blocks
+const CopyButton: React.FC<{ code: string }> = ({ code }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopy}
+      style={{
+        position: 'absolute',
+        top: '8px',
+        right: '8px',
+        background: copied ? '#22c55e' : '#333',
+        border: 'none',
+        borderRadius: '4px',
+        padding: '4px 8px',
+        cursor: 'pointer',
+        fontSize: '11px',
+        color: '#fff',
+        opacity: 0,
+        transition: 'opacity 0.2s, background 0.2s',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+      }}
+      className="code-copy-btn"
+    >
+      {copied ? '✓ Copied!' : '📋 Copy'}
+    </button>
+  );
+};
+
+// Code block component with copy button
+const CodeBlock: React.FC<{ code: string; language?: string }> = ({ code, language }) => {
+  return (
+    <div
+      style={{
+        position: 'relative',
+        margin: '8px 0',
+      }}
+      className="code-block-container"
+    >
+      <pre
+        style={{
+          background: '#1a1a1a',
+          padding: '12px',
+          paddingRight: '60px',
+          borderRadius: '8px',
+          overflow: 'auto',
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          border: '1px solid #333',
+          margin: 0,
+        }}
+      >
+        <code style={{ color: '#e0e0e0' }}>{code}</code>
+      </pre>
+      <CopyButton code={code} />
+      <style>{`
+        .code-block-container:hover .code-copy-btn {
+          opacity: 1 !important;
+        }
+      `}</style>
+    </div>
+  );
+};
 
 interface MessageProps {
   message: string;
@@ -38,7 +114,39 @@ function parseMarkdown(text: string): React.ReactNode[] {
   const elements: React.ReactNode[] = [];
   const lines = text.split('\n');
 
+  let inCodeBlock = false;
+  let codeBlockContent: string[] = [];
+  let codeBlockLanguage = '';
+  let codeBlockStartIndex = 0;
+
   lines.forEach((line, lineIndex) => {
+    // Handle code block start/end
+    if (line.startsWith('```')) {
+      if (!inCodeBlock) {
+        // Starting a code block
+        inCodeBlock = true;
+        codeBlockContent = [];
+        codeBlockLanguage = line.slice(3).trim();
+        codeBlockStartIndex = lineIndex;
+      } else {
+        // Ending a code block
+        inCodeBlock = false;
+        const code = codeBlockContent.join('\n');
+        elements.push(
+          <CodeBlock key={`codeblock-${codeBlockStartIndex}`} code={code} language={codeBlockLanguage} />
+        );
+        codeBlockContent = [];
+        codeBlockLanguage = '';
+      }
+      return;
+    }
+
+    // If inside code block, collect content
+    if (inCodeBlock) {
+      codeBlockContent.push(line);
+      return;
+    }
+
     // Headers
     if (line.startsWith('### ')) {
       elements.push(<h4 key={lineIndex} style={{ margin: '8px 0 4px', fontSize: '14px', fontWeight: 600 }}>{parseInline(line.slice(4))}</h4>);
@@ -55,10 +163,6 @@ function parseMarkdown(text: string): React.ReactNode[] {
     else if (/^\d+\.\s/.test(line)) {
       elements.push(<li key={lineIndex} style={{ marginLeft: '16px', marginBottom: '2px', listStyleType: 'decimal' }}>{parseInline(line.replace(/^\d+\.\s/, ''))}</li>);
     }
-    // Code block
-    else if (line.startsWith('```')) {
-      // Skip code fence markers
-    }
     // Empty line
     else if (line.trim() === '') {
       elements.push(<br key={lineIndex} />);
@@ -68,6 +172,14 @@ function parseMarkdown(text: string): React.ReactNode[] {
       elements.push(<p key={lineIndex} style={{ margin: '4px 0' }}>{parseInline(line)}</p>);
     }
   });
+
+  // Handle unclosed code block at end of text
+  if (inCodeBlock && codeBlockContent.length > 0) {
+    const code = codeBlockContent.join('\n');
+    elements.push(
+      <CodeBlock key={`codeblock-${codeBlockStartIndex}`} code={code} language={codeBlockLanguage} />
+    );
+  }
 
   return elements;
 }
