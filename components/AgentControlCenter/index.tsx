@@ -99,7 +99,10 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [showChatHistory, setShowChatHistory] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [messageHistory, setMessageHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1270,13 +1273,69 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     return textExtensions.includes(ext);
   };
 
+  // Keyboard shortcut handler for chat input
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Cmd/Ctrl+Enter to send
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleSend();
+      return;
+    }
+
+    // Enter alone to send (existing behavior)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      handleSend();
+      return;
+    }
+
+    // Escape to close dropdowns/modals
+    if (e.key === 'Escape') {
+      setShowChatHistory(false);
+      setShowAnalysisPanel(false);
+      return;
+    }
+
+    // Up arrow in empty input to recall last message
+    if (e.key === 'ArrowUp' && input === '' && messageHistory.length > 0) {
+      e.preventDefault();
+      const newIndex = historyIndex < messageHistory.length - 1 ? historyIndex + 1 : historyIndex;
+      setHistoryIndex(newIndex);
+      setInput(messageHistory[messageHistory.length - 1 - newIndex] || '');
+      return;
+    }
+
+    // Down arrow to go forward in history
+    if (e.key === 'ArrowDown' && historyIndex >= 0) {
+      e.preventDefault();
+      const newIndex = historyIndex - 1;
+      if (newIndex < 0) {
+        setHistoryIndex(-1);
+        setInput('');
+      } else {
+        setHistoryIndex(newIndex);
+        setInput(messageHistory[messageHistory.length - 1 - newIndex] || '');
+      }
+      return;
+    }
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && !selectedFile) || isProcessing) return;
 
     const userMessage = input.trim();
     const attachedFile = selectedFile;
+
+    // Add to message history for recall
+    if (userMessage) {
+      setMessageHistory(prev => [...prev.slice(-49), userMessage]); // Keep last 50
+      setHistoryIndex(-1);
+    }
+
     setInput('');
     setSelectedFile(null);
+
+    // Focus input after send
+    setTimeout(() => textInputRef.current?.focus(), 0);
 
     // Build message with attachment info if present
     let messageToSend = userMessage;
@@ -1977,10 +2036,11 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               <span style={{ fontSize: '16px' }}>📎</span>
             </button>
             <input
+              ref={textInputRef}
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+              onKeyDown={handleInputKeyDown}
               placeholder={showOnboardingFlow ? 'Complete onboarding flow above...' : activeWorkflow ? 'Workflow in progress...' : selectedFile ? `Message with ${selectedFile.name}...` : `Message the ${CS_AGENTS[activeAgent]?.name || 'AI Agent'}...`}
               disabled={isProcessing || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
             />
