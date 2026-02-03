@@ -6,6 +6,11 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
+import {
+  trackInviteCodeEntered,
+  trackInviteCodeValidated,
+  trackGoogleSignInStarted,
+} from '../src/services/analytics';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
@@ -43,6 +48,9 @@ export function Login({ onDemoMode }: LoginProps) {
       return;
     }
 
+    // Track invite code entry
+    trackInviteCodeEntered(inviteCode);
+
     setError(null);
     setIsValidatingCode(true);
 
@@ -56,10 +64,15 @@ export function Login({ onDemoMode }: LoginProps) {
       const data = await response.json();
 
       if (!response.ok || !data.valid) {
+        // Track invalid invite code
+        trackInviteCodeValidated(false, inviteCode);
         setError(data.error?.message || 'Invalid invite code');
         setIsValidatingCode(false);
         return;
       }
+
+      // Track valid invite code
+      trackInviteCodeValidated(true, inviteCode);
 
       // Store invite info for after OAuth
       localStorage.setItem('pendingInvite', JSON.stringify({
@@ -81,6 +94,9 @@ export function Login({ onDemoMode }: LoginProps) {
       setError('Authentication is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
       return;
     }
+
+    // Track Google Sign-In started
+    trackGoogleSignInStarted();
 
     setError(null);
     setIsSigningIn(true);

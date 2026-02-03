@@ -5,6 +5,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabase';
+import { trackGoogleSignInCompleted } from '../src/services/analytics';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
@@ -105,6 +106,9 @@ export function AuthCallback({ onSuccess, onError }: AuthCallbackProps) {
         }
 
         if (data.session) {
+          // Track successful Google Sign-In
+          trackGoogleSignInCompleted(true);
+
           // Handle user setup (admin or invite redemption)
           await handleUserSetup(data.session);
 
@@ -128,6 +132,9 @@ export function AuthCallback({ onSuccess, onError }: AuthCallbackProps) {
             if (event === 'SIGNED_IN' && session) {
               clearTimeout(timeout);
 
+              // Track successful Google Sign-In
+              trackGoogleSignInCompleted(true);
+
               // Handle user setup (admin or invite redemption)
               await handleUserSetup(session);
 
@@ -147,6 +154,9 @@ export function AuthCallback({ onSuccess, onError }: AuthCallbackProps) {
           };
         }
       } catch (error) {
+        // Track failed Google Sign-In
+        trackGoogleSignInCompleted(false);
+
         console.error('Auth callback error:', error);
         setStatus('error');
         setMessage(error instanceof Error ? error.message : 'Authentication failed');
