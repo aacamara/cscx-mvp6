@@ -814,3 +814,44 @@
   - Success criteria and risks are simple string lists vs complex objects
   - Query detection patterns: 'account plan', 'strategic plan', 'strategic account plan', 'account strategy', 'account roadmap', 'strategic roadmap', 'customer plan', 'annual plan', 'success plan', 'growth plan', 'engagement plan', 'partnership plan', 'relationship plan'
 ---
+
+## 2026-02-04 - US-025
+- **What was implemented**: Transformation roadmap generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateTransformationRoadmapPreview()` function (~550 lines) with types for TransformationPhase, TransformationMilestone, TransformationSuccessCriterion, TransformationDependency, TransformationRisk, TransformationRoadmapPreviewResult
+  - `server/src/routes/cadg.ts` - Added transformation_roadmap detection (~70 lines) and `/api/cadg/transformation-roadmap/save` endpoint (~250 lines)
+  - `components/AIPanel/CADGTransformationRoadmapPreview.tsx` (created, ~1450 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added transformation roadmap preview state and handlers (~130 lines)
+- **Features**:
+  - **generateTransformationRoadmapPreview()**: Uses Claude to generate transformation roadmap with:
+    - Vision statement, current state, target state
+    - Transformation phases with objectives, deliverables, timeline, owner, status
+    - Milestones linked to phases with target dates
+    - Success criteria with categories (adoption, business, technical, operational, strategic)
+    - Dependencies with types (internal, external, customer, vendor, technical)
+    - Risks with likelihood, impact, and mitigation strategies
+    - Key stakeholders list
+  - **CADGTransformationRoadmapPreview component**:
+    - Tab-based navigation for Overview, Phases, Milestones, Criteria, Dependencies, Risks
+    - Summary cards showing counts for each category
+    - Expandable phase cards with color-coded styling
+    - Phase management: add objectives, add deliverables, edit timeline
+    - Milestone management linked to phases
+    - Success criteria with category badges and measurable toggle
+    - Dependencies with type/status tracking
+    - Risk cards with likelihood/impact indicators and mitigation editing
+    - Key stakeholders list management
+    - Unsaved changes warning
+    - Violet/purple accent color theme
+  - **Backend endpoint**: POST `/api/cadg/transformation-roadmap/save`:
+    - Creates Google Doc with formatted roadmap content
+    - Attempts to create Google Slides presentation (optional)
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Transformation roadmap uses `isTransformationRoadmapPreview: true` response type
+  - qbrSlidesService is the correct export from qbrSlides.ts, not qbrSlides
+  - Use `(service as any).methodName` for optional method calls on services
+  - Phases are color-coded using PHASE_COLORS array to differentiate visually
+  - Dependencies have their own status tracking (resolved/pending/blocked) separate from phases
+  - Query detection patterns: 'transformation roadmap', 'transformation plan', 'digital transformation', 'transformation journey', 'change roadmap', 'transformation timeline', 'maturity roadmap', 'evolution roadmap', 'adoption roadmap', 'implementation roadmap', 'rollout roadmap', 'deployment roadmap'
+---
