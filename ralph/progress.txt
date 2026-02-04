@@ -322,3 +322,37 @@
   - Chart type toggles give users control over visualization options
   - Query detection patterns: 'usage analysis', 'usage report', 'analyze usage', 'feature adoption', 'adoption report', 'engagement analysis', 'user activity report'
 ---
+
+## 2026-02-04 - US-012
+- **What was implemented**: Feature campaign generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateFeatureCampaignPreview()` function (~350 lines)
+  - `server/src/routes/cadg.ts` - Added feature_campaign detection and `/api/cadg/feature-campaign/save` endpoint
+  - `components/AIPanel/CADGFeatureCampaignPreview.tsx` (created, ~1000 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added feature campaign preview state and handlers
+- **Features**:
+  - **generateFeatureCampaignPreview()**: Uses Claude to generate feature adoption campaign with:
+    - Campaign title and goal
+    - Target features with current/target adoption rates and priority
+    - User segments with size, usage, and potential rating
+    - Campaign timeline with phases and activities
+    - Messaging templates for different channels (email, in-app, webinar, training, slack)
+    - Success metrics with current vs target values
+  - **CADGFeatureCampaignPreview component**:
+    - Tab-based navigation for Features, Segments, Timeline, Messaging, Metrics
+    - Target features with include/exclude toggles, adoption progress bars
+    - User segments with potential rating dropdowns
+    - Campaign phases with expandable cards and activity management
+    - Messaging templates with channel icons and full editing
+    - Success metrics with progress bars and goal tracking
+    - Rose/pink accent color theme
+  - **Backend endpoint**: POST `/api/cadg/feature-campaign/save`:
+    - Creates Google Doc with formatted campaign plan
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Feature campaigns use `isFeatureCampaignPreview: true` response type
+  - Tab-based UI with 5 tabs works well for complex multi-section content
+  - Progress bars help users visualize current vs target adoption
+  - Expandable cards work well for phases and messaging templates
+  - Query detection patterns: 'feature campaign', 'drive adoption', 'increase adoption', 'adoption campaign', 'feature rollout', 'promote feature', 'underutilized features', 'boost usage'
+---
