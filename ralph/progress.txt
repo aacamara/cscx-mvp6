@@ -246,3 +246,41 @@
   - Relationships need name-to-ID mapping when parsing AI response
   - Query detection patterns: 'stakeholder map', 'stakeholder analysis', 'key contacts', 'org chart', 'contact map'
 ---
+
+## 2026-02-04 - US-010
+- **What was implemented**: Training schedule generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateTrainingSchedulePreview()` function (~200 lines)
+  - `server/src/routes/cadg.ts` - Added training_schedule detection and `/api/cadg/training-schedule/save` endpoint
+  - `components/AIPanel/CADGTrainingSchedulePreview.tsx` (created, ~690 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added training schedule preview state and handlers
+- **Features**:
+  - **generateTrainingSchedulePreview()**: Uses Claude to generate training schedule with:
+    - Training sessions with name, description
+    - Date, time, and duration per session
+    - Trainer assignment (CSM, Product Expert, Implementation Team, etc.)
+    - Attendee groups (multi-select)
+    - Topics to cover per session
+    - Prerequisites if any
+  - **CADGTrainingSchedulePreview component**:
+    - Expandable session cards with full editing
+    - Session management: add/remove/reorder sessions
+    - Date and time pickers for scheduling
+    - Duration dropdown (30/45/60/90/120 min)
+    - Trainer dropdown
+    - Attendee group toggles (All Users, Admins, Power Users, End Users, etc.)
+    - Topics list with add/remove
+    - Prerequisites list with add/remove
+    - Unsaved changes warning
+    - Cyan accent color theme
+  - **Backend endpoint**: POST `/api/cadg/training-schedule/save`:
+    - Creates Google Doc with formatted training schedule
+    - Creates Google Sheets calendar with session tracking
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Training schedules use `isTrainingSchedulePreview: true` response type
+  - Session-based UI with expand/collapse works well for training schedules
+  - Attendee group toggles are more intuitive than multi-select dropdowns for known options
+  - Creating both Doc and Sheet provides documentation + calendar tracking
+  - Query detection patterns: 'training schedule', 'training calendar', 'training plan', 'training sessions', 'schedule training'
+---
