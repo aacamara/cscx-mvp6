@@ -390,3 +390,46 @@
   - Category icons make activity and reward types easy to identify visually
   - Query detection patterns: 'champion development', 'champion program', 'develop champions', 'customer champions', 'champion candidates', 'identify champions', 'nurture champions', 'power users', 'advocate program'
 ---
+
+## 2026-02-04 - US-014
+- **What was implemented**: Training program generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateTrainingProgramPreview()` function (~400 lines)
+  - `server/src/routes/cadg.ts` - Added training_program detection and `/api/cadg/training-program/save` endpoint (~175 lines)
+  - `components/AIPanel/CADGTrainingProgramPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added training program preview state and handlers
+- **Features**:
+  - **generateTrainingProgramPreview()**: Uses Claude to generate comprehensive training curriculum with:
+    - Program title and learning goal
+    - Training modules with name, description, duration, order
+    - Learning objectives and assessment criteria per module
+    - Prerequisites per module
+    - Resources (video, document, quiz, hands-on, webinar)
+    - Target audience with current and target skill levels
+    - Program timeline (start/end dates, total duration)
+    - Completion criteria (attendance, assessment, project, certification)
+    - Success metrics with current vs target values
+  - **CADGTrainingProgramPreview component**:
+    - Tab-based navigation for Modules, Audience, Criteria, Timeline, Metrics
+    - Expandable module cards with full editing
+    - Module reordering with up/down controls
+    - Learning objectives list with add/remove
+    - Assessment criteria list with add/remove
+    - Prerequisites list with add/remove
+    - Resource management with type icons (video/document/quiz/hands-on/webinar)
+    - Target audience cards with skill level progression (beginner → intermediate → advanced)
+    - Completion criteria toggles with required score for assessments
+    - Timeline tab with module schedule visualization
+    - Success metrics with progress bars
+    - Violet accent color theme
+  - **Backend endpoint**: POST `/api/cadg/training-program/save`:
+    - Creates Google Doc with formatted curriculum content
+    - Creates Google Sheets tracker for module progress
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Training program uses `isTrainingProgramPreview: true` response type
+  - Training programs are curricula (modules with learning objectives) vs training schedules (calendar of sessions)
+  - When creating Google Sheets without a template, don't pass template property - just omit it
+  - Skill level visualization with color-coded badges works well (green/blue/purple for beginner/intermediate/advanced)
+  - Query detection patterns: 'training program', 'training curriculum', 'learning program', 'training modules', 'training course', 'learning path', 'onboarding curriculum', 'certification program'
+---
