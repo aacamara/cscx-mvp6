@@ -10,7 +10,37 @@
 // ============================================================================
 
 export type TaskType =
+  // Onboarding Specialist Cards
+  | 'kickoff_plan'
+  | 'milestone_plan'
+  | 'stakeholder_map'
+  | 'training_schedule'
+  // Adoption Specialist Cards
+  | 'usage_analysis'
+  | 'feature_campaign'
+  | 'champion_development'
+  | 'training_program'
+  // Renewal Specialist Cards
+  | 'renewal_forecast'
+  | 'value_summary'
+  | 'expansion_proposal'
+  | 'negotiation_brief'
+  // Risk Specialist Cards
+  | 'risk_assessment'
+  | 'save_play'
+  | 'escalation_report'
+  | 'resolution_plan'
+  // Strategic CSM Cards
   | 'qbr_generation'
+  | 'executive_briefing'
+  | 'account_plan'
+  | 'transformation_roadmap'
+  // General Mode Cards (portfolio-level, no customer required)
+  | 'portfolio_dashboard'
+  | 'team_metrics'
+  | 'renewal_pipeline'
+  | 'at_risk_overview'
+  // Legacy/existing types
   | 'data_analysis'
   | 'presentation_creation'
   | 'document_creation'
@@ -19,7 +49,6 @@ export type TaskType =
   | 'transcription_summary'
   | 'health_analysis'
   | 'expansion_planning'
-  | 'risk_assessment'
   | 'custom';
 
 export type PlanStatus =

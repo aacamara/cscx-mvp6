@@ -10,6 +10,7 @@ import { useAgenticMode } from '../../context/AgenticModeContext';
 import { useWebSocket } from '../../context/WebSocketContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import './styles.css';
+import { CADGPlanCard, CADGPlanMetadata } from '../AIPanel/CADGPlanCard';
 
 // Lazy-loaded components for code splitting (reduces initial bundle by ~40KB)
 const InteractiveActions = lazy(() => import('./InteractiveActions').then(m => ({
@@ -91,6 +92,9 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const [useAIEnhancement, setUseAIEnhancement] = useState(true);
   const [lastRouting, setLastRouting] = useState<RoutingDecision | null>(null);
   const [deployingTo, setDeployingTo] = useState<AgentId | null>(null);
+
+  // CADG plan approval state
+  const [pendingCadgPlan, setPendingCadgPlan] = useState<CADGPlanMetadata | null>(null);
 
   // Agentic mode integration (shared context)
   const { isEnabled: agenticModeEnabled, executeGoal, resumeExecution } = useAgenticMode();
@@ -904,6 +908,37 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
       }
 
       const data = await response.json();
+
+      // Check if this is a CADG generative response with a plan
+      if (data.isGenerative && data.plan?.planId) {
+        console.log('[CADG] Received execution plan:', data.plan.planId);
+
+        // Store full CADG metadata for CADGPlanCard
+        const cadgMetadata: CADGPlanMetadata = {
+          isGenerative: data.isGenerative,
+          taskType: data.taskType,
+          confidence: data.confidence,
+          requiresApproval: data.requiresApproval,
+          plan: data.plan,
+          capability: data.capability,
+          methodology: data.methodology,
+          customerId: customer?.id || null,
+        };
+        setPendingCadgPlan(cadgMetadata);
+
+        // Show the plan message - the CADGPlanCard will render below
+        setMessages(prev => {
+          const filtered = prev.filter(m => !m.isThinking);
+          return [...filtered, {
+            agent: 'strategic' as CSAgentType,
+            message: data.response,
+            isCadgPlan: true,
+            cadgPlan: data.plan,
+          }];
+        });
+        setIsProcessing(false);
+        return; // Don't continue with regular processing
+      }
 
       // Update active agent based on routing decision
       const routedAgent = data.routing?.agentType as CSAgentType || 'onboarding';
@@ -2291,6 +2326,23 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                         status={msg.status}
                         onRetry={msg.id && msg.status === 'failed' ? () => handleRetryMessage(msg.id!, msg.message) : undefined}
                       />
+                      {/* CADG Plan Card - Don't clear pendingCadgPlan so card can show completed state with links */}
+                      {msg.isCadgPlan && pendingCadgPlan && (
+                        <CADGPlanCard
+                          metadata={pendingCadgPlan}
+                          onApproved={(artifactId) => {
+                            console.log('[CADG] Artifact generated:', artifactId);
+                            // Don't clear pendingCadgPlan - let the card show the completed state with full details
+                          }}
+                          onRejected={() => {
+                            setPendingCadgPlan(null);
+                            setMessages(prev => [...prev, {
+                              agent: 'strategic' as CSAgentType,
+                              message: '⛔ Plan rejected. Let me know if you\'d like to try a different approach.',
+                            }]);
+                          }}
+                        />
+                      )}
                     </div>
                   );
                 })}

@@ -1,137 +1,502 @@
 {
   "project": "CSCX.AI",
-  "branchName": "ralph/chat-fixes-v2",
-  "description": "Fix all broken chat production features - wire up backend integrations that are currently UI-only facades",
+  "branchName": "ralph/cadg-complete-cards",
+  "description": "Implement comprehensive CADG card generation for all 5 CS Agents (24 cards total). Each card: editable HITL preview, PDF/data export, 20+ trigger patterns, beautiful UI like MeetingScheduler",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Add intent classification endpoint to backend",
-      "description": "As a developer, I need a backend endpoint that uses Claude AI to classify user message intent into the appropriate CS agent category.",
+      "title": "Add all new CADG task types to types.ts",
+      "description": "As a developer, I need all 23 new CADG task types defined in the TaskType union so the system can classify and route requests.",
       "acceptanceCriteria": [
-        "Create POST /api/agents/intent/classify endpoint in server/src/routes/agents.ts",
-        "Endpoint accepts { message: string, customerId?: string }",
-        "Use claudeService to classify intent with Claude AI",
-        "Return JSON: { agent: string, confidence: number, reasoning: string }",
-        "Agent values: onboarding, adoption, renewal, risk, strategic, general",
-        "Use haiku model for speed (< 500ms response)",
+        "Update server/src/services/cadg/types.ts TaskType union",
+        "Add onboarding types: kickoff_plan, milestone_plan, stakeholder_map, training_schedule",
+        "Add adoption types: usage_analysis, feature_campaign, champion_development, training_program",
+        "Add renewal types: renewal_forecast, value_summary, expansion_proposal, negotiation_brief",
+        "Add risk types: risk_assessment, save_play, escalation_report, resolution_plan",
+        "Add strategic types: executive_briefing, account_plan, transformation_roadmap",
+        "Add general types: portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview",
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": true,
-      "notes": "Implemented in server/src/routes/agents.ts with graceful fallback"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-002",
-      "title": "Wire frontend intent classifier to backend API",
-      "description": "As a user, I want the intent prediction shown while typing to use real AI classification from the backend.",
+      "title": "Add comprehensive trigger patterns for all task types",
+      "description": "As a user, I want to trigger CADG cards using many natural language variations (20+ per card) so I can say things in different ways.",
       "acceptanceCriteria": [
-        "Update components/AgentControlCenter/index.tsx classifyIntent function",
-        "Call /api/agents/intent/classify endpoint with debounce (300ms)",
-        "Display backend classification result in input hint",
-        "Fallback to existing local regex classifier if backend fails",
-        "Show loading indicator while classifying",
+        "Update server/src/services/cadg/taskClassifier.ts",
+        "Add 20+ pattern variations for each new task type",
+        "kickoff_plan patterns: 'kickoff plan', 'build kickoff', 'kickoff agenda', 'kickoff meeting', 'new customer kickoff', 'kickoff deck', 'kickoff prep', etc.",
+        "milestone_plan patterns: '30-60-90', '30 60 90', 'milestone plan', 'first 90 days', 'onboarding timeline', 'implementation plan', 'launch plan', etc.",
+        "All 23 new task types have comprehensive pattern lists matching PRD",
+        "Patterns are case-insensitive and handle word variations",
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Async classifier with AbortController and local fallback"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-003",
-      "title": "Update saveChatMessage to persist status",
-      "description": "As a developer, I need the backend to save message status (sending/sent/failed) to the database.",
+      "title": "Create generic editable preview component",
+      "description": "As a user, I want an editable preview before documents are generated so I can modify content like the MeetingScheduler.",
       "acceptanceCriteria": [
-        "Update server/src/services/supabase.ts saveChatMessage method",
-        "Accept status parameter: 'sending' | 'sent' | 'failed'",
-        "Accept client_id parameter for deduplication",
-        "Save status and client_id to chat_messages table",
-        "Return saved message with id and status in response",
+        "Create components/AIPanel/CADGEditablePreview.tsx",
+        "Support inline text editing for all text fields",
+        "Support add/remove items from lists",
+        "Support reorder items via drag/drop or buttons",
+        "Support dropdown selection for owner assignments",
+        "Support date pickers for timeline fields",
+        "Support section collapse/expand",
+        "Include AI Enhance button for content improvement",
+        "Match MeetingScheduler styling and feel",
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Updated in server/src/routes/chat.ts with upsert for deduplication"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-004",
-      "title": "Update getChatHistory to return message status",
-      "description": "As a user, I want to see the correct status of messages when I reload the page.",
+      "title": "Add PDF and native format download endpoints",
+      "description": "As a user, I want to download generated documents as PDF, PPTX, DOCX, or XLSX.",
       "acceptanceCriteria": [
-        "Update chat history endpoint to include status field in response",
-        "Update server/src/services/supabase.ts getChatHistory method",
-        "Return status field for each message (default 'sent' for old messages)",
-        "Frontend displays correct status badge from backend data",
+        "Add GET /api/cadg/artifact/:artifactId/download endpoint to server/src/routes/cadg.ts",
+        "Support format query param: pdf, pptx, docx, xlsx",
+        "Use Google Drive API export functionality",
+        "Return proper Content-Type and Content-Disposition headers",
+        "Handle errors gracefully with clear error messages",
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Select now includes status and client_id, frontend loads from /api/chat/history"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-005",
-      "title": "Implement real optimistic updates with reconciliation",
-      "description": "As a user, I want my messages to appear instantly and update with real status from the server.",
+      "title": "Add CSV data sources export endpoint",
+      "description": "As a user, I want to export the underlying data sources used to generate a document as CSV.",
       "acceptanceCriteria": [
-        "Generate client-side UUID before sending message",
-        "Add message to UI immediately with status 'sending'",
-        "Send message to backend with client_id for deduplication",
-        "On success: update message with server ID, set status to 'sent'",
-        "On failure: set status to 'failed', keep message in UI",
-        "Update components/AgentControlCenter/index.tsx sendToAgent function",
+        "Add GET /api/cadg/artifact/:artifactId/export-sources endpoint",
+        "Return CSV with all data sources used (customer360, health, engagement, etc.)",
+        "Include column headers for each data type",
+        "Return proper Content-Type: text/csv header",
+        "Filename includes artifact ID for traceability",
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Uses crypto.randomUUID() and functional setState pattern"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-006",
-      "title": "Wire retry button to actually resend failed messages",
-      "description": "As a user, I want to click retry on a failed message and have it actually resend.",
+      "title": "Add shared data aggregation helpers",
+      "description": "As a developer, I need helper functions for aggregating customer data from multiple sources so all generators can reuse common patterns.",
       "acceptanceCriteria": [
-        "Failed messages show retry button in Message.tsx",
-        "handleRetryMessage in AgentControlCenter resends to backend",
-        "Resend uses same client_id for deduplication",
-        "Status updates: failed -> sending -> sent/failed",
-        "Retry works for both immediate failures and offline queue items",
+        "Add aggregateCustomerContext function that gathers customer 360, health trends, engagement metrics",
+        "Add aggregatePortfolioContext function for General Mode cards (no customer required)",
+        "Add getPlaybooksByType helper to fetch relevant playbooks from knowledge base",
+        "Add formatDataForDocument helper to prepare data for Google Docs/Slides/Sheets",
+        "Functions handle missing data gracefully with defaults",
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "handleRetryMessage calls sendToAgent with existing messageId"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-007",
-      "title": "Fix offline queue to reliably process on reconnect",
-      "description": "As a user, I want messages I sent while offline to automatically send when I reconnect.",
+      "title": "Implement kickoff_plan generator with editable preview",
+      "description": "As a CSM, I want to generate a kickoff plan with editable preview for meeting title, attendees, agenda items, goals, and next steps.",
       "acceptanceCriteria": [
-        "Verify useOnlineStatus hook processes queue on 'online' event",
-        "Each queued message sent with exponential backoff retry",
-        "Success removes message from localStorage queue",
-        "Failure increments retry count (max 3 retries)",
-        "After max retries, mark as failed and remove from queue",
-        "Show visual indicator when queue is processing",
+        "Add generateKickoffPlan function to artifactGenerator.ts",
+        "Return isDocumentPreview: true with editable sections",
+        "Editable fields: title, attendees (add/remove), agenda items (reorder), goals, next steps, notes",
+        "Gather data: Customer 360, stakeholders, contract terms, onboarding playbook",
+        "Create Google Doc with proper formatting after user edits and approves",
+        "Show data sources used panel",
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Queue processing with exponential backoff and jitter"
+      "passes": false,
+      "notes": ""
     },
     {
       "id": "US-008",
-      "title": "Remove total_value from contract save or make it optional",
-      "description": "As a developer, I need contract parsing to not fail due to missing database column.",
+      "title": "Implement milestone_plan generator with editable preview",
+      "description": "As a CSM, I want to generate a 30-60-90 day plan with editable goals for each phase.",
       "acceptanceCriteria": [
-        "Update server/src/routes/contracts.ts",
-        "Make total_value column optional in insert (use arr as fallback)",
-        "Make start_date and end_date optional in insert",
-        "Contract parsing saves successfully without migration",
-        "If columns exist, use them; if not, skip them",
+        "Add generateMilestonePlan function to artifactGenerator.ts",
+        "Return isDocumentPreview with editable 30/60/90 day goals",
+        "Editable fields: goals per phase (with checkboxes), milestones (with dates), success criteria, owners",
+        "Gather data: Customer goals, product complexity, benchmarks",
+        "Create Google Doc + Sheets tracker after approval",
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Updated server/src/services/supabase.ts with fallback insert"
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-009",
+      "title": "Implement stakeholder_map generator with editable preview",
+      "description": "As a CSM, I want to generate a stakeholder map with editable contact cards and relationships.",
+      "acceptanceCriteria": [
+        "Add generateStakeholderMap function to artifactGenerator.ts",
+        "Editable fields: contact name/role, influence level slider, engagement level, add new contacts",
+        "Role classification dropdown: Champion, Sponsor, Blocker, Evaluator, User",
+        "Gather data: CRM contacts, meeting attendees, email engagement",
+        "Create Google Slides with visual org chart layout",
+        "Typecheck passes"
+      ],
+      "priority": 9,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-010",
+      "title": "Implement training_schedule generator with editable preview",
+      "description": "As a CSM, I want to generate a training schedule with editable sessions, dates, and attendee groups.",
+      "acceptanceCriteria": [
+        "Add generateTrainingSchedule function to artifactGenerator.ts",
+        "Editable fields: session list (add/remove), date/time per session, attendee groups, topics, duration, trainer",
+        "Gather data: User roles, feature list, availability windows, learning paths",
+        "Create Google Sheets calendar after approval",
+        "Typecheck passes"
+      ],
+      "priority": 10,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-011",
+      "title": "Implement usage_analysis generator with editable preview",
+      "description": "As a CSM, I want to generate a usage analysis with editable time range, filters, and recommendations.",
+      "acceptanceCriteria": [
+        "Add generateUsageAnalysis function to artifactGenerator.ts",
+        "Editable fields: time range selector, feature filters, chart types, recommendation text",
+        "Gather data: Usage metrics, feature adoption rates, login frequency, power users",
+        "Create Google Sheets with charts + Docs summary after approval",
+        "Typecheck passes"
+      ],
+      "priority": 11,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-012",
+      "title": "Implement feature_campaign generator with editable preview",
+      "description": "As a CSM, I want to generate a feature campaign plan with editable targets, segments, and messaging.",
+      "acceptanceCriteria": [
+        "Add generateFeatureCampaign function to artifactGenerator.ts",
+        "Editable fields: target features (multi-select), user segments, campaign timeline, messaging templates, success metrics",
+        "Gather data: Low adoption features, user segments, success stories, best practices",
+        "Create Google Doc campaign plan after approval",
+        "Typecheck passes"
+      ],
+      "priority": 12,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-013",
+      "title": "Implement champion_development generator with editable preview",
+      "description": "As a CSM, I want to generate a champion development plan with editable candidates and activities.",
+      "acceptanceCriteria": [
+        "Add generateChampionDevelopment function to artifactGenerator.ts",
+        "Editable fields: champion candidates (add/remove), development activities, recognition rewards, timeline",
+        "Gather data: Power users, engagement scores, NPS promoters, training completion",
+        "Create Google Doc plan after approval",
+        "Typecheck passes"
+      ],
+      "priority": 13,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-014",
+      "title": "Implement training_program generator with editable preview",
+      "description": "As a CSM, I want to generate a training program with editable modules, objectives, and assessment criteria.",
+      "acceptanceCriteria": [
+        "Add generateTrainingProgram function to artifactGenerator.ts",
+        "Editable fields: module list (reorder), learning objectives, assessment criteria, prerequisites, duration",
+        "Gather data: Feature gaps, user roles, learning styles, available content",
+        "Create Google Slides curriculum + Sheets tracker after approval",
+        "Typecheck passes"
+      ],
+      "priority": 14,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-015",
+      "title": "Implement renewal_forecast generator with editable preview",
+      "description": "As a CSM, I want to generate a renewal forecast with editable risk factors and recommended actions.",
+      "acceptanceCriteria": [
+        "Add generateRenewalForecast function to artifactGenerator.ts",
+        "Editable fields: probability score factors, risk factors toggle, positive signals, recommended actions, notes",
+        "Gather data: Health trends, engagement metrics, risk signals, historical patterns",
+        "Create Google Sheets forecast model after approval",
+        "Typecheck passes"
+      ],
+      "priority": 15,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-016",
+      "title": "Implement value_summary generator with editable preview",
+      "description": "As a CSM, I want to generate a value summary with editable metrics, success stories, and ROI calculations.",
+      "acceptanceCriteria": [
+        "Add generateValueSummary function to artifactGenerator.ts",
+        "Editable fields: value metrics (edit values), success stories (add/remove), testimonials, ROI calculation",
+        "Gather data: ROI metrics, success outcomes, time/cost savings, customer quotes",
+        "Create Google Slides presentation after approval",
+        "Typecheck passes"
+      ],
+      "priority": 16,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-017",
+      "title": "Implement expansion_proposal generator with editable preview",
+      "description": "As a CSM, I want to generate an expansion proposal with editable pricing options and business case.",
+      "acceptanceCriteria": [
+        "Add generateExpansionProposal function to artifactGenerator.ts",
+        "Editable fields: proposed expansion, pricing options table, business case, ROI projections, next steps",
+        "Gather data: Usage gaps, growth signals, product roadmap, pricing tiers",
+        "Create Google Doc proposal after approval",
+        "Typecheck passes"
+      ],
+      "priority": 17,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-018",
+      "title": "Implement negotiation_brief generator with editable preview",
+      "description": "As a CSM, I want to generate a negotiation brief with editable leverage points and strategies.",
+      "acceptanceCriteria": [
+        "Add generateNegotiationBrief function to artifactGenerator.ts",
+        "Editable fields: current terms table, leverage points, walk-away points, counter strategies, internal notes",
+        "Gather data: Contract history, competitor intel, value delivered, market pricing",
+        "Create Google Doc brief after approval",
+        "Typecheck passes"
+      ],
+      "priority": 18,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-019",
+      "title": "Implement risk_assessment generator with editable preview",
+      "description": "As a CSM, I want to generate a risk assessment with editable risk factors and mitigation actions.",
+      "acceptanceCriteria": [
+        "Add generateRiskAssessment function to artifactGenerator.ts",
+        "Editable fields: risk factors (toggle severity), mitigation actions, owner assignment, notes",
+        "Show risk score with factor breakdown",
+        "Gather data: Health signals, engagement drops, support tickets, NPS scores",
+        "Create Google Doc + Sheets assessment after approval",
+        "Typecheck passes"
+      ],
+      "priority": 19,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-020",
+      "title": "Implement save_play generator with editable preview",
+      "description": "As a CSM, I want to generate a save play with editable root causes, action items, and owners.",
+      "acceptanceCriteria": [
+        "Add generateSavePlay function to artifactGenerator.ts",
+        "Editable fields: situation summary, root causes list, action items (add/remove/reorder), owners, timeline, success metrics",
+        "Gather data: Risk factors, playbook templates, similar saves, available resources",
+        "Create Google Doc save play after approval",
+        "Typecheck passes"
+      ],
+      "priority": 20,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-021",
+      "title": "Implement escalation_report generator with editable preview",
+      "description": "As a CSM, I want to generate an escalation report with editable timeline and resolution request.",
+      "acceptanceCriteria": [
+        "Add generateEscalationReport function to artifactGenerator.ts",
+        "Editable fields: issue summary, timeline events (add/remove), impact metrics, resolution request, supporting evidence",
+        "Gather data: Issue timeline, stakeholders involved, previous attempts, business impact",
+        "Create Google Doc report after approval",
+        "Typecheck passes"
+      ],
+      "priority": 21,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-022",
+      "title": "Implement resolution_plan generator with editable preview",
+      "description": "As a CSM, I want to generate a resolution plan with editable issues, actions, owners, and due dates.",
+      "acceptanceCriteria": [
+        "Add generateResolutionPlan function to artifactGenerator.ts",
+        "Editable fields: issues list (add/remove), action items per issue, owners (dropdown), due dates, status",
+        "Gather data: Open issues, dependencies, resources, timeline constraints",
+        "Create Google Doc + Sheets tracker after approval",
+        "Typecheck passes"
+      ],
+      "priority": 22,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-023",
+      "title": "Implement executive_briefing generator with editable preview",
+      "description": "As a CSM, I want to generate a concise executive briefing with editable headlines, metrics, and asks.",
+      "acceptanceCriteria": [
+        "Add generateExecutiveBriefing function to artifactGenerator.ts",
+        "Editable fields: headlines, key metrics (select which to show), strategic updates, asks list",
+        "Slide count selector (5-7 max)",
+        "Gather data: Key metrics, strategic goals, risk summary, asks/requests",
+        "Create Google Slides (5-7 slides) after approval",
+        "Typecheck passes"
+      ],
+      "priority": 23,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-024",
+      "title": "Implement account_plan generator with editable preview",
+      "description": "As a CSM, I want to generate a strategic account plan with editable objectives, actions, and timeline.",
+      "acceptanceCriteria": [
+        "Add generateAccountPlan function to artifactGenerator.ts",
+        "Editable fields: account overview, strategic objectives (add/remove), action items, timeline view, owners",
+        "Gather data: Customer goals, product roadmap, success metrics, resource allocation",
+        "Create Google Doc + Sheets milestone tracker after approval",
+        "Typecheck passes"
+      ],
+      "priority": 24,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-025",
+      "title": "Implement transformation_roadmap generator with editable preview",
+      "description": "As a CSM, I want to generate a transformation roadmap with editable phases, milestones, and success criteria.",
+      "acceptanceCriteria": [
+        "Add generateTransformationRoadmap function to artifactGenerator.ts",
+        "Editable fields: vision statement, phase names, milestones per phase, success criteria, timeline",
+        "Gather data: Current state, target state, milestones, dependencies",
+        "Create Google Slides roadmap after approval",
+        "Typecheck passes"
+      ],
+      "priority": 25,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-026",
+      "title": "Implement portfolio_dashboard generator with editable filters",
+      "description": "As a CSM, I want to generate a portfolio dashboard with editable filters and column selection.",
+      "acceptanceCriteria": [
+        "Add generatePortfolioDashboard function to artifactGenerator.ts",
+        "Editable fields: health filter (multi-select), segment filter, sort options, columns to show, date range",
+        "Works without customer context (General Mode - uses userId to get all assigned customers)",
+        "Gather data: All customers for user, health scores, ARR totals, renewal dates",
+        "Create Google Sheets dashboard after approval",
+        "Typecheck passes"
+      ],
+      "priority": 26,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-027",
+      "title": "Implement team_metrics generator with editable filters",
+      "description": "As a manager, I want to generate team metrics with editable CSM selection and KPI toggles.",
+      "acceptanceCriteria": [
+        "Add generateTeamMetrics function to artifactGenerator.ts",
+        "Editable fields: CSM filter (multi-select), metric selection toggle, time range, benchmark comparison toggle",
+        "Works without customer context (General Mode)",
+        "Gather data: All CSMs, customer assignments, health scores, activities",
+        "Create Google Sheets + Slides after approval",
+        "Typecheck passes"
+      ],
+      "priority": 27,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-028",
+      "title": "Implement renewal_pipeline generator with editable filters",
+      "description": "As a CSM, I want to generate a renewal pipeline with editable date range and risk filters.",
+      "acceptanceCriteria": [
+        "Add generateRenewalPipeline function to artifactGenerator.ts",
+        "Editable fields: date range filter, risk level filter, owner filter, ARR threshold, group by selector",
+        "Works without customer context (General Mode)",
+        "Gather data: Renewal dates, health scores, ARR values, risk levels",
+        "Create Google Sheets pipeline after approval",
+        "Typecheck passes"
+      ],
+      "priority": 28,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-029",
+      "title": "Implement at_risk_overview generator with editable filters",
+      "description": "As a CSM, I want to generate an at-risk overview with editable risk threshold and save play toggle.",
+      "acceptanceCriteria": [
+        "Add generateAtRiskOverview function to artifactGenerator.ts",
+        "Editable fields: risk threshold slider, owner filter, segment filter, show save plays toggle",
+        "Works without customer context (General Mode)",
+        "Gather data: Risk scores, health trends, save plays, owners",
+        "Create Google Sheets + Docs after approval",
+        "Typecheck passes"
+      ],
+      "priority": 29,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-030",
+      "title": "Add capability seeds for all new CADG card types",
+      "description": "As a developer, I need database seeds for all 23 new capabilities so they appear in the capability catalog.",
+      "acceptanceCriteria": [
+        "Create migration file for capability seeds",
+        "Add entries for all onboarding capabilities (4 cards)",
+        "Add entries for all adoption capabilities (4 cards)",
+        "Add entries for all renewal capabilities (4 cards)",
+        "Add entries for all risk capabilities (4 cards)",
+        "Add entries for strategic capabilities (3 cards, QBR exists)",
+        "Add entries for general mode capabilities (4 cards)",
+        "Each seed includes: name, description, agent_type, output_types",
+        "Typecheck passes"
+      ],
+      "priority": 30,
+      "passes": false,
+      "notes": ""
+    },
+    {
+      "id": "US-031",
+      "title": "Update CADGPlanCard to show download buttons after generation",
+      "description": "As a user, I want PDF, PPTX, and data export buttons visible after document generation.",
+      "acceptanceCriteria": [
+        "Update components/AIPanel/CADGPlanCard.tsx completed state",
+        "Add Download PDF button that calls /api/cadg/artifact/:id/download?format=pdf",
+        "Add Download PPTX/DOCX/XLSX button based on document type",
+        "Add Export Data (CSV) button that calls /api/cadg/artifact/:id/export-sources",
+        "Show loading state during download",
+        "Handle download errors with user-friendly messages",
+        "Buttons styled consistently with existing card UI",
+        "Typecheck passes"
+      ],
+      "priority": 31,
+      "passes": false,
+      "notes": ""
     }
   ]
 }

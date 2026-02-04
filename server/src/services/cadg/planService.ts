@@ -26,6 +26,8 @@ const supabase = config.supabaseUrl && config.supabaseServiceKey
   ? createClient(config.supabaseUrl, config.supabaseServiceKey)
   : null;
 
+console.log('[planService] Supabase client initialized:', supabase ? 'YES' : 'NO (database not configured)');
+
 /**
  * Create a new execution plan in the database
  */
@@ -37,8 +39,11 @@ export async function createPlan(
   contextSummary?: Partial<AggregatedContext>
 ): Promise<{ planId: string; success: boolean; error?: string }> {
   if (!supabase) {
+    console.error('[planService] createPlan called but Supabase client is NULL');
     return { planId: plan.planId, success: false, error: 'Database not configured' };
   }
+
+  console.log('[planService] Creating plan:', plan.planId, 'for user:', userId);
 
   try {
     const { error } = await supabase
@@ -55,10 +60,19 @@ export async function createPlan(
       });
 
     if (error) {
-      console.error('[planService] Create error:', error);
+      console.error('[planService] Create error:', JSON.stringify(error, null, 2));
+      console.error('[planService] Create error code:', error.code);
+      console.error('[planService] Create error details:', error.details);
+      console.error('[planService] Insert data:', JSON.stringify({
+        id: plan.planId,
+        user_id: userId,
+        customer_id: customerId,
+        task_type: plan.taskType,
+      }, null, 2));
       return { planId: plan.planId, success: false, error: error.message };
     }
 
+    console.log('[planService] Plan created successfully:', plan.planId);
     return { planId: plan.planId, success: true };
   } catch (error) {
     console.error('[planService] Create exception:', error);
@@ -90,7 +104,8 @@ export async function getPlan(planId: string): Promise<{
       .single();
 
     if (error) {
-      console.error('[planService] Get error:', error);
+      console.error('[planService] Get error:', JSON.stringify(error, null, 2));
+      console.error('[planService] Get error for planId:', planId);
       return { plan: null, success: false, error: error.message };
     }
 

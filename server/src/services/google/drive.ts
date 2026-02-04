@@ -888,6 +888,122 @@ export class DriveService {
   }
 
   /**
+   * Get or create user's CSCX Templates folder for template mode
+   */
+  async getOrCreateUserTemplatesFolder(userId: string): Promise<DriveFile> {
+    const drive = await this.getDriveClient(userId);
+
+    // Search for existing templates folder
+    const searchResponse = await drive.files.list({
+      q: "name = 'CSCX Templates' and mimeType = 'application/vnd.google-apps.folder' and trashed = false",
+      fields: 'files(id, name, webViewLink)',
+      spaces: 'drive',
+    });
+
+    if (searchResponse.data.files && searchResponse.data.files.length > 0) {
+      const folder = searchResponse.data.files[0];
+      return {
+        id: folder.id || '',
+        name: folder.name || '',
+        mimeType: 'application/vnd.google-apps.folder',
+        webViewLink: folder.webViewLink || undefined,
+      };
+    }
+
+    // Create templates folder if it doesn't exist
+    return this.createFolder(userId, 'CSCX Templates');
+  }
+
+  /**
+   * Get or create a subfolder for a specific task type within templates
+   */
+  async getOrCreateTaskTypeSubfolder(
+    userId: string,
+    parentFolderId: string,
+    taskType: string
+  ): Promise<DriveFile> {
+    const drive = await this.getDriveClient(userId);
+    const folderName = this.getTaskTypeFolderName(taskType);
+
+    // Search for existing subfolder
+    const searchResponse = await drive.files.list({
+      q: `name = '${folderName}' and '${parentFolderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name, webViewLink)',
+      spaces: 'drive',
+    });
+
+    if (searchResponse.data.files && searchResponse.data.files.length > 0) {
+      const folder = searchResponse.data.files[0];
+      return {
+        id: folder.id || '',
+        name: folder.name || '',
+        mimeType: 'application/vnd.google-apps.folder',
+        webViewLink: folder.webViewLink || undefined,
+      };
+    }
+
+    // Create subfolder if it doesn't exist
+    return this.createFolder(userId, folderName, parentFolderId);
+  }
+
+  /**
+   * Get or create customer folder
+   */
+  async getOrCreateCustomerFolder(
+    userId: string,
+    customerId: string,
+    customerName: string
+  ): Promise<DriveFile> {
+    const drive = await this.getDriveClient(userId);
+    const folderName = `CSCX - ${customerName}`;
+
+    // Search for existing customer folder
+    const searchResponse = await drive.files.list({
+      q: `name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name, webViewLink)',
+      spaces: 'drive',
+    });
+
+    if (searchResponse.data.files && searchResponse.data.files.length > 0) {
+      const folder = searchResponse.data.files[0];
+      return {
+        id: folder.id || '',
+        name: folder.name || '',
+        mimeType: 'application/vnd.google-apps.folder',
+        webViewLink: folder.webViewLink || undefined,
+      };
+    }
+
+    // Create customer folder structure if it doesn't exist
+    const structure = await this.createCustomerFolderStructure(userId, customerName);
+    return {
+      id: structure.root,
+      name: folderName,
+      mimeType: 'application/vnd.google-apps.folder',
+      webViewLink: structure.rootUrl,
+    };
+  }
+
+  /**
+   * Map task type to folder name
+   */
+  private getTaskTypeFolderName(taskType: string): string {
+    const folderNames: Record<string, string> = {
+      qbr_generation: 'QBRs',
+      document_creation: 'Documents',
+      email_drafting: 'Emails',
+      meeting_prep: 'Meeting Prep',
+      presentation_creation: 'Presentations',
+      data_analysis: 'Analysis',
+      health_analysis: 'Health Reports',
+      renewal_planning: 'Renewals',
+      risk_assessment: 'Risk Assessments',
+      expansion_planning: 'Expansion Plans',
+    };
+    return folderNames[taskType] || 'Other';
+  }
+
+  /**
    * Map Google Drive file to our type
    */
   private mapGoogleFileToDriveFile(file: drive_v3.Schema$File): DriveFile & { createdAt?: Date; modifiedAt?: Date } {

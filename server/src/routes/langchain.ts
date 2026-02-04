@@ -23,6 +23,7 @@ import { approvalService, ActionType } from '../services/approval.js';
 import { sessionService } from '../services/session.js';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { config } from '../config/index.js';
+import { cadgService } from '../services/cadg/index.js';
 
 const router = Router();
 
@@ -473,6 +474,72 @@ router.post('/chat', async (req: Request, res: Response) => {
     };
 
     console.log(`🤖 AI Chat: "${message.substring(0, 50)}..." for ${context.name} (user: ${userId || 'anonymous'}, model: ${model || 'auto'}, kb: ${enableKnowledgeBase})`);
+
+    // ============================================
+    // CADG: Check if this is a generative request
+    // ============================================
+    if (userId) {
+      try {
+        const cadgClassification = await cadgService.classify(message, {
+          customerId: customerId || context.id,
+          userId,
+        });
+
+        console.log(`[CADG] Classification: isGenerative=${cadgClassification.isGenerative}, confidence=${cadgClassification.classification.confidence}, taskType=${cadgClassification.classification.taskType}`);
+
+        // If this is a generative request with high confidence, create a CADG plan
+        if (cadgClassification.isGenerative && cadgClassification.classification.confidence >= 0.7) {
+          console.log(`[CADG] Creating execution plan for: ${cadgClassification.classification.taskType}`);
+
+          // Use customerId only if it's a valid UUID, otherwise null (template mode)
+          const validCustomerId = customerId && customerId !== 'unknown' ? customerId : null;
+
+          const planResult = await cadgService.createPlan({
+            userQuery: message,
+            customerId: validCustomerId,
+            userId,
+            taskType: cadgClassification.classification.taskType,
+          });
+
+          if (planResult.success && planResult.plan) {
+            console.log(`[CADG] Plan created successfully: ${planResult.plan.planId}`);
+
+            // Return CADG plan for HITL approval
+            return res.json({
+              response: `I've analyzed your request and created an execution plan for generating a ${cadgClassification.classification.taskType.replace(/_/g, ' ')}. Please review the plan and approve it to proceed with generation.`,
+              agentType: 'cadg',
+              model: 'claude',
+              isGenerative: true,
+              taskType: cadgClassification.classification.taskType,
+              confidence: cadgClassification.classification.confidence,
+              requiresApproval: true,
+              plan: {
+                planId: planResult.plan.planId,
+                taskType: planResult.plan.taskType,
+                structure: planResult.plan.structure,
+                inputs: planResult.plan.inputs,
+                destination: planResult.plan.destination,
+              },
+              capability: cadgClassification.capability?.capability ? {
+                id: cadgClassification.capability.capability.id,
+                name: cadgClassification.capability.capability.name,
+                description: cadgClassification.capability.capability.description,
+              } : null,
+              methodology: cadgClassification.capability?.methodology ? {
+                id: cadgClassification.capability.methodology.id,
+                name: cadgClassification.capability.methodology.name,
+                steps: cadgClassification.capability.methodology.steps?.length || 0,
+              } : null,
+            });
+          } else {
+            console.log(`[CADG] Plan creation failed: ${planResult.error}, falling back to regular agent`);
+          }
+        }
+      } catch (cadgError) {
+        console.error('[CADG] Classification/plan error:', cadgError);
+        // Fall through to regular agent
+      }
+    }
 
     // Get or create session for persistence
     const session = await sessionService.getOrCreateSession({
