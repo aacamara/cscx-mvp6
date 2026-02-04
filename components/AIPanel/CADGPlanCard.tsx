@@ -21,6 +21,7 @@ import { CADGRenewalForecastPreview, RenewalForecastData, CustomerData as Renewa
 import { CADGValueSummaryPreview, ValueSummaryData, CustomerData as ValueSummaryCustomerData } from './CADGValueSummaryPreview';
 import { CADGExpansionProposalPreview, ExpansionProposalData, CustomerData as ExpansionProposalCustomerData } from './CADGExpansionProposalPreview';
 import { CADGNegotiationBriefPreview, NegotiationBriefData, CustomerData as NegotiationBriefCustomerData } from './CADGNegotiationBriefPreview';
+import { CADGRiskAssessmentPreview, RiskAssessmentData, CustomerData as RiskAssessmentCustomerData } from './CADGRiskAssessmentPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -252,6 +253,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [negotiationBriefPreviewData, setNegotiationBriefPreviewData] = useState<{
     negotiationBrief: NegotiationBriefData;
     customer: NegotiationBriefCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Risk assessment preview state for HITL workflow
+  const [showRiskAssessmentPreview, setShowRiskAssessmentPreview] = useState(false);
+  const [riskAssessmentPreviewData, setRiskAssessmentPreviewData] = useState<{
+    riskAssessment: RiskAssessmentData;
+    customer: RiskAssessmentCustomerData;
     planId: string;
   } | null>(null);
 
@@ -673,6 +682,37 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowNegotiationBriefPreview(true);
         setStatus('pending'); // Keep in pending until negotiation brief is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a risk assessment preview (HITL workflow)
+      if (data.isRiskAssessmentPreview && data.preview) {
+        setRiskAssessmentPreviewData({
+          riskAssessment: {
+            title: data.preview.title || 'Risk Assessment',
+            assessmentDate: data.preview.assessmentDate || new Date().toISOString().slice(0, 10),
+            overallRiskScore: data.preview.overallRiskScore || 50,
+            riskLevel: data.preview.riskLevel || 'medium',
+            healthScore: data.preview.healthScore || 0,
+            daysUntilRenewal: data.preview.daysUntilRenewal || 0,
+            arr: data.preview.arr || 0,
+            riskFactors: data.preview.riskFactors || [],
+            mitigationActions: data.preview.mitigationActions || [],
+            executiveSummary: data.preview.executiveSummary || '',
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowRiskAssessmentPreview(true);
+        setStatus('pending'); // Keep in pending until risk assessment is saved
         setIsApproving(false);
         return;
       }
@@ -1657,6 +1697,73 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving risk assessment from preview
+  const handleRiskAssessmentSave = async (riskAssessment: RiskAssessmentData) => {
+    if (!riskAssessmentPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/risk-assessment/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: riskAssessmentPreviewData.planId,
+        title: riskAssessment.title,
+        assessmentDate: riskAssessment.assessmentDate,
+        overallRiskScore: riskAssessment.overallRiskScore,
+        riskLevel: riskAssessment.riskLevel,
+        healthScore: riskAssessment.healthScore,
+        daysUntilRenewal: riskAssessment.daysUntilRenewal,
+        arr: riskAssessment.arr,
+        riskFactors: riskAssessment.riskFactors,
+        mitigationActions: riskAssessment.mitigationActions,
+        executiveSummary: riskAssessment.executiveSummary,
+        notes: riskAssessment.notes,
+        customerId: riskAssessmentPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save risk assessment');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowRiskAssessmentPreview(false);
+    setRiskAssessmentPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'risk-assessment',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+        additionalFiles: result.sheetsId ? [{
+          type: 'spreadsheet',
+          fileId: result.sheetsId,
+          url: result.sheetsUrl,
+          title: 'Risk Assessment Tracker',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'risk-assessment');
+  };
+
+  // Handle canceling risk assessment preview
+  const handleRiskAssessmentCancel = () => {
+    setShowRiskAssessmentPreview(false);
+    setRiskAssessmentPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1977,6 +2084,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={negotiationBriefPreviewData.customer}
         onSave={handleNegotiationBriefSave}
         onCancel={handleNegotiationBriefCancel}
+      />
+    );
+  }
+
+  // Risk assessment preview mode
+  if (showRiskAssessmentPreview && riskAssessmentPreviewData) {
+    return (
+      <CADGRiskAssessmentPreview
+        riskAssessment={riskAssessmentPreviewData.riskAssessment}
+        customer={riskAssessmentPreviewData.customer}
+        onSave={handleRiskAssessmentSave}
+        onCancel={handleRiskAssessmentCancel}
       />
     );
   }

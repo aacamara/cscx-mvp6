@@ -5529,6 +5529,302 @@ Format your response as JSON:
   }
 }
 
+// ============================================
+// Risk Assessment Types
+// ============================================
+
+interface AssessmentRiskFactor {
+  id: string;
+  name: string;
+  description: string;
+  category: 'health' | 'engagement' | 'support' | 'nps' | 'usage' | 'relationship' | 'financial' | 'competitive';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  weight: number; // 0-100
+  enabled: boolean;
+  evidence: string;
+}
+
+interface AssessmentMitigationAction {
+  id: string;
+  action: string;
+  description: string;
+  owner: 'CSM' | 'Customer' | 'Support' | 'Product' | 'Leadership' | 'Implementation';
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  priority: 'high' | 'medium' | 'low';
+  relatedRiskIds: string[];
+}
+
+interface RiskAssessmentPreviewResult {
+  title: string;
+  assessmentDate: string;
+  overallRiskScore: number; // 0-100
+  riskLevel: 'critical' | 'high' | 'medium' | 'low';
+  healthScore: number;
+  daysUntilRenewal: number;
+  arr: number;
+  riskFactors: AssessmentRiskFactor[];
+  mitigationActions: AssessmentMitigationAction[];
+  executiveSummary: string;
+  notes: string;
+}
+
+/**
+ * Generate a risk assessment preview for at-risk customers
+ * Provides editable HITL preview before creating final document
+ */
+async function generateRiskAssessmentPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<RiskAssessmentPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 65;
+  const arr = customer?.arr || 100000;
+  const tier = customer?.tier || 'Growth';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 45;
+  const loginFrequency = engagement?.loginFrequency || 2.0;
+  const dauMau = engagement?.dauMau || 0.3;
+
+  // Get NPS data
+  const npsScore = customer?.npsScore || 25;
+
+  // Get risk signals from context
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high' || r.type === 'churn_risk');
+
+  // Calculate days until renewal
+  const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+  // Build prompt for risk assessment generation
+  const prompt = `You are a customer success manager preparing a comprehensive risk assessment for a customer showing warning signs. Generate a detailed risk assessment with specific factors, evidence, and mitigation actions.
+
+Customer: ${customerName}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100
+Current ARR: $${arr.toLocaleString()}
+Days Until Renewal: ${daysUntilRenewal}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+DAU/MAU Ratio: ${(dauMau * 100).toFixed(1)}%
+NPS Score: ${npsScore}
+Known Risk Signals: ${hasHighRisk ? 'High risk detected' : 'Moderate concerns'}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a risk assessment with:
+1. 6-8 risk factors categorized by type (health, engagement, support, nps, usage, relationship, financial, competitive) with severity levels and evidence
+2. 5-7 mitigation actions with owners, priorities, and related risk factors
+3. A brief executive summary (2-3 sentences)
+
+Format your response as JSON:
+{
+  "riskFactors": [
+    {
+      "name": "Risk factor name",
+      "description": "What this risk means",
+      "category": "health|engagement|support|nps|usage|relationship|financial|competitive",
+      "severity": "critical|high|medium|low",
+      "weight": 85,
+      "evidence": "Specific data or observation supporting this risk"
+    }
+  ],
+  "mitigationActions": [
+    {
+      "action": "Action title",
+      "description": "Detailed action steps",
+      "owner": "CSM|Customer|Support|Product|Leadership|Implementation",
+      "priority": "high|medium|low",
+      "relatedRiskFactors": ["Risk factor name 1", "Risk factor name 2"]
+    }
+  ],
+  "executiveSummary": "2-3 sentence summary of overall risk posture and recommended approach"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Process risk factors
+    const riskFactors: AssessmentRiskFactor[] = (parsed.riskFactors || []).map((r: any, idx: number) => ({
+      id: `risk-${idx + 1}`,
+      name: r.name || `Risk Factor ${idx + 1}`,
+      description: r.description || '',
+      category: (r.category as AssessmentRiskFactor['category']) || 'health',
+      severity: (r.severity as AssessmentRiskFactor['severity']) || 'medium',
+      weight: typeof r.weight === 'number' ? r.weight : 50,
+      enabled: true,
+      evidence: r.evidence || '',
+    }));
+
+    // Ensure minimum risk factors
+    if (riskFactors.length < 6) {
+      const defaultRisks: AssessmentRiskFactor[] = [
+        { id: 'risk-1', name: 'Declining Health Score', description: 'Health score has dropped below acceptable threshold', category: 'health', severity: healthScore < 50 ? 'critical' : 'high', weight: 90, enabled: true, evidence: `Current health score: ${healthScore}/100` },
+        { id: 'risk-2', name: 'Low Feature Adoption', description: 'Customer is not utilizing key product features', category: 'usage', severity: featureAdoption < 40 ? 'high' : 'medium', weight: 75, enabled: true, evidence: `Feature adoption at ${featureAdoption}%, target is 70%` },
+        { id: 'risk-3', name: 'Reduced Engagement', description: 'Login frequency has declined significantly', category: 'engagement', severity: loginFrequency < 3 ? 'high' : 'medium', weight: 70, enabled: true, evidence: `Login frequency: ${loginFrequency}x/week, down from average` },
+        { id: 'risk-4', name: 'Low NPS Score', description: 'Customer satisfaction below benchmark', category: 'nps', severity: npsScore < 0 ? 'critical' : npsScore < 30 ? 'high' : 'medium', weight: 80, enabled: true, evidence: `NPS score: ${npsScore}, benchmark is 40+` },
+        { id: 'risk-5', name: 'Renewal Timeline Pressure', description: 'Limited time to address issues before renewal', category: 'financial', severity: daysUntilRenewal < 60 ? 'critical' : daysUntilRenewal < 90 ? 'high' : 'medium', weight: 85, enabled: true, evidence: `${daysUntilRenewal} days until renewal` },
+        { id: 'risk-6', name: 'Champion Risk', description: 'Key stakeholder engagement has decreased', category: 'relationship', severity: 'medium', weight: 65, enabled: true, evidence: 'Primary contact response time has increased' },
+        { id: 'risk-7', name: 'Competitive Pressure', description: 'Customer may be evaluating alternatives', category: 'competitive', severity: 'medium', weight: 60, enabled: true, evidence: 'Industry reports show increased competitive activity' },
+        { id: 'risk-8', name: 'Support Escalations', description: 'Recent support tickets indicate frustration', category: 'support', severity: 'medium', weight: 55, enabled: true, evidence: 'Multiple escalated tickets in past 30 days' },
+      ];
+
+      // Add missing risks
+      defaultRisks.forEach((defaultRisk, idx) => {
+        if (!riskFactors.find(r => r.category === defaultRisk.category)) {
+          riskFactors.push({ ...defaultRisk, id: `risk-${riskFactors.length + 1}` });
+        }
+      });
+    }
+
+    // Process mitigation actions with risk ID mapping
+    const mitigationActions: AssessmentMitigationAction[] = (parsed.mitigationActions || []).map((m: any, idx: number) => {
+      // Map related risk factor names to IDs
+      const relatedRiskIds = (m.relatedRiskFactors || []).map((riskName: string) => {
+        const matchedRisk = riskFactors.find(r =>
+          r.name.toLowerCase().includes(riskName.toLowerCase()) ||
+          riskName.toLowerCase().includes(r.name.toLowerCase())
+        );
+        return matchedRisk?.id || '';
+      }).filter(Boolean);
+
+      return {
+        id: `action-${idx + 1}`,
+        action: m.action || `Action ${idx + 1}`,
+        description: m.description || '',
+        owner: (m.owner as AssessmentMitigationAction['owner']) || 'CSM',
+        dueDate: new Date(Date.now() + (14 + idx * 7) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: 'pending' as const,
+        priority: (m.priority as AssessmentMitigationAction['priority']) || 'medium',
+        relatedRiskIds,
+      };
+    });
+
+    // Ensure minimum mitigation actions
+    if (mitigationActions.length < 5) {
+      const defaultActions: AssessmentMitigationAction[] = [
+        { id: 'action-1', action: 'Executive Business Review', description: 'Schedule urgent EBR with key stakeholders to discuss value delivered and address concerns', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-1', 'risk-4'] },
+        { id: 'action-2', action: 'Adoption Workshop', description: 'Conduct targeted training on underutilized features to improve adoption', owner: 'CSM', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-2', 'risk-3'] },
+        { id: 'action-3', action: 'Support Escalation Review', description: 'Review open tickets with Support team and create resolution plan', owner: 'Support', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-8'] },
+        { id: 'action-4', action: 'Champion Engagement', description: 'Re-engage executive sponsor and identify additional champions', owner: 'CSM', dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedRiskIds: ['risk-6'] },
+        { id: 'action-5', action: 'Competitive Analysis', description: 'Prepare competitive differentiation materials and address specific concerns', owner: 'CSM', dueDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedRiskIds: ['risk-7'] },
+        { id: 'action-6', action: 'Product Roadmap Review', description: 'Share relevant roadmap items and gather feedback on priorities', owner: 'Product', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedRiskIds: ['risk-2', 'risk-7'] },
+        { id: 'action-7', action: 'Renewal Strategy Session', description: 'Internal meeting to align on negotiation strategy and timeline', owner: 'Leadership', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-5'] },
+      ];
+
+      // Add missing actions
+      defaultActions.forEach((defaultAction, idx) => {
+        if (mitigationActions.length < 5 + idx) {
+          mitigationActions.push({ ...defaultAction, id: `action-${mitigationActions.length + 1}` });
+        }
+      });
+    }
+
+    // Calculate overall risk score (weighted average of enabled factors)
+    const enabledFactors = riskFactors.filter(r => r.enabled);
+    const severityScores: Record<string, number> = {
+      critical: 100,
+      high: 75,
+      medium: 50,
+      low: 25,
+    };
+
+    let weightedSum = 0;
+    let totalWeight = 0;
+    enabledFactors.forEach(factor => {
+      const severityScore = severityScores[factor.severity];
+      weightedSum += severityScore * factor.weight;
+      totalWeight += factor.weight;
+    });
+
+    const overallRiskScore = totalWeight > 0 ? Math.round(weightedSum / totalWeight) : 50;
+
+    // Determine risk level
+    let riskLevel: RiskAssessmentPreviewResult['riskLevel'] = 'low';
+    if (overallRiskScore >= 80) riskLevel = 'critical';
+    else if (overallRiskScore >= 60) riskLevel = 'high';
+    else if (overallRiskScore >= 40) riskLevel = 'medium';
+
+    // Get executive summary
+    const executiveSummary = parsed.executiveSummary ||
+      `${customerName} presents a ${riskLevel} risk profile with an overall risk score of ${overallRiskScore}/100. ` +
+      `Key concerns include ${riskFactors.filter(r => r.severity === 'critical' || r.severity === 'high').map(r => r.name.toLowerCase()).join(', ') || 'multiple moderate risk factors'}. ` +
+      `Immediate action is recommended to address these issues before the renewal in ${daysUntilRenewal} days.`;
+
+    return {
+      title: `Risk Assessment: ${customerName}`,
+      assessmentDate: new Date().toISOString().slice(0, 10),
+      overallRiskScore,
+      riskLevel,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      riskFactors,
+      mitigationActions,
+      executiveSummary,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Risk assessment preview generation error:', error);
+
+    // Return fallback risk assessment
+    const overallRiskScore = healthScore < 50 ? 75 : healthScore < 70 ? 60 : 45;
+    const riskLevel: RiskAssessmentPreviewResult['riskLevel'] = overallRiskScore >= 70 ? 'high' : overallRiskScore >= 50 ? 'medium' : 'low';
+
+    const fallbackRiskFactors: AssessmentRiskFactor[] = [
+      { id: 'risk-1', name: 'Health Score Decline', description: 'Health score below target threshold', category: 'health', severity: healthScore < 50 ? 'critical' : 'high', weight: 90, enabled: true, evidence: `Current score: ${healthScore}/100` },
+      { id: 'risk-2', name: 'Low Feature Adoption', description: 'Key features not being utilized', category: 'usage', severity: 'high', weight: 75, enabled: true, evidence: `Adoption at ${featureAdoption}%` },
+      { id: 'risk-3', name: 'Engagement Drop', description: 'Reduced platform usage', category: 'engagement', severity: 'medium', weight: 70, enabled: true, evidence: `Login frequency: ${loginFrequency}x/week` },
+      { id: 'risk-4', name: 'NPS Concern', description: 'Customer satisfaction below benchmark', category: 'nps', severity: npsScore < 0 ? 'critical' : 'high', weight: 80, enabled: true, evidence: `NPS: ${npsScore}` },
+      { id: 'risk-5', name: 'Renewal Pressure', description: 'Limited time before renewal', category: 'financial', severity: daysUntilRenewal < 60 ? 'critical' : 'high', weight: 85, enabled: true, evidence: `${daysUntilRenewal} days remaining` },
+      { id: 'risk-6', name: 'Stakeholder Risk', description: 'Champion engagement declining', category: 'relationship', severity: 'medium', weight: 65, enabled: true, evidence: 'Decreased response rates' },
+    ];
+
+    const fallbackMitigationActions: AssessmentMitigationAction[] = [
+      { id: 'action-1', action: 'Executive Business Review', description: 'Urgent meeting with stakeholders', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-1', 'risk-4'] },
+      { id: 'action-2', action: 'Adoption Workshop', description: 'Training on underutilized features', owner: 'CSM', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-2', 'risk-3'] },
+      { id: 'action-3', action: 'Support Review', description: 'Review and resolve open tickets', owner: 'Support', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: [] },
+      { id: 'action-4', action: 'Champion Re-engagement', description: 'Connect with executive sponsor', owner: 'CSM', dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedRiskIds: ['risk-6'] },
+      { id: 'action-5', action: 'Renewal Strategy', description: 'Internal alignment on approach', owner: 'Leadership', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedRiskIds: ['risk-5'] },
+    ];
+
+    return {
+      title: `Risk Assessment: ${customerName}`,
+      assessmentDate: new Date().toISOString().slice(0, 10),
+      overallRiskScore,
+      riskLevel,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      riskFactors: fallbackRiskFactors,
+      mitigationActions: fallbackMitigationActions,
+      executiveSummary: `${customerName} presents a ${riskLevel} risk profile with key concerns around health score (${healthScore}), feature adoption (${featureAdoption}%), and upcoming renewal in ${daysUntilRenewal} days. Immediate executive engagement and adoption workshop are recommended.`,
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -5547,4 +5843,5 @@ export const artifactGenerator = {
   generateValueSummaryPreview,
   generateExpansionProposalPreview,
   generateNegotiationBriefPreview,
+  generateRiskAssessmentPreview,
 };

@@ -878,6 +878,60 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a risk assessment artifact - return preview for HITL
+    const isRiskAssessmentArtifact = finalPlan.taskType === 'risk_assessment' ||
+                                      planRow.user_query?.toLowerCase().includes('risk assessment') ||
+                                      planRow.user_query?.toLowerCase().includes('risk analysis') ||
+                                      planRow.user_query?.toLowerCase().includes('churn risk') ||
+                                      planRow.user_query?.toLowerCase().includes('at-risk') ||
+                                      planRow.user_query?.toLowerCase().includes('at risk') ||
+                                      planRow.user_query?.toLowerCase().includes('assess risk') ||
+                                      planRow.user_query?.toLowerCase().includes('evaluate risk') ||
+                                      planRow.user_query?.toLowerCase().includes('risk profile') ||
+                                      planRow.user_query?.toLowerCase().includes('risk factors') ||
+                                      planRow.user_query?.toLowerCase().includes('mitigation plan') ||
+                                      planRow.user_query?.toLowerCase().includes('health risk');
+
+    if (isRiskAssessmentArtifact) {
+      // Generate risk assessment content but don't finalize - return preview for HITL
+      const riskAssessmentPreview = await artifactGenerator.generateRiskAssessmentPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isRiskAssessmentPreview: true,
+        preview: {
+          title: riskAssessmentPreview.title,
+          assessmentDate: riskAssessmentPreview.assessmentDate,
+          overallRiskScore: riskAssessmentPreview.overallRiskScore,
+          riskLevel: riskAssessmentPreview.riskLevel,
+          healthScore: riskAssessmentPreview.healthScore,
+          daysUntilRenewal: riskAssessmentPreview.daysUntilRenewal,
+          arr: riskAssessmentPreview.arr,
+          riskFactors: riskAssessmentPreview.riskFactors,
+          mitigationActions: riskAssessmentPreview.mitigationActions,
+          executiveSummary: riskAssessmentPreview.executiveSummary,
+          notes: riskAssessmentPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -4095,6 +4149,257 @@ ${internalNotes ? `\n---\n\n## Internal Notes\n\n${internalNotes}` : ''}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save negotiation brief',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/risk-assessment/save
+ * Save finalized risk assessment after user review
+ */
+router.post('/risk-assessment/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      assessmentDate,
+      overallRiskScore,
+      riskLevel,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      riskFactors,
+      mitigationActions,
+      executiveSummary,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import services
+    const { docsService } = await import('../services/google/docs.js');
+    const { sheetsService } = await import('../services/google/sheets.js');
+
+    // Filter to only enabled risk factors
+    const enabledRiskFactors = (riskFactors || []).filter((r: any) => r.enabled);
+
+    // Severity labels and icons
+    const severityLabels: Record<string, string> = {
+      critical: '🔴 Critical',
+      high: '🟠 High',
+      medium: '🟡 Medium',
+      low: '🟢 Low',
+    };
+
+    const categoryLabels: Record<string, string> = {
+      health: 'Health',
+      engagement: 'Engagement',
+      support: 'Support',
+      nps: 'NPS',
+      usage: 'Usage',
+      relationship: 'Relationship',
+      financial: 'Financial',
+      competitive: 'Competitive',
+    };
+
+    const priorityLabels: Record<string, string> = {
+      high: '🔴 High',
+      medium: '🟡 Medium',
+      low: '🟢 Low',
+    };
+
+    const statusLabels: Record<string, string> = {
+      pending: '⏳ Pending',
+      in_progress: '🔄 In Progress',
+      completed: '✅ Completed',
+      blocked: '🚫 Blocked',
+    };
+
+    // Build risk factors content
+    const riskFactorsContent = enabledRiskFactors.map((r: any) =>
+      `### ${r.name}\n**Severity:** ${severityLabels[r.severity] || r.severity} | **Category:** ${categoryLabels[r.category] || r.category} | **Weight:** ${r.weight}%\n${r.description}\n**Evidence:** ${r.evidence}`
+    ).join('\n\n');
+
+    // Build mitigation actions content
+    const actionsContent = (mitigationActions || []).map((a: any) =>
+      `### ${a.action}\n**Priority:** ${priorityLabels[a.priority] || a.priority} | **Owner:** ${a.owner} | **Due:** ${a.dueDate} | **Status:** ${statusLabels[a.status] || a.status}\n${a.description}`
+    ).join('\n\n');
+
+    // Build full document content
+    const documentContent = `# ${title}
+
+**Assessment Date:** ${assessmentDate || new Date().toISOString().slice(0, 10)}
+**Overall Risk Score:** ${overallRiskScore}/100
+**Risk Level:** ${severityLabels[riskLevel] || riskLevel}
+**Health Score:** ${healthScore}/100
+**Days Until Renewal:** ${daysUntilRenewal}
+**ARR:** $${(arr || 0).toLocaleString()}
+
+---
+
+## Executive Summary
+
+${executiveSummary || 'No executive summary provided.'}
+
+---
+
+## Risk Factors (${enabledRiskFactors.length} identified)
+
+${riskFactorsContent || 'No risk factors identified.'}
+
+---
+
+## Mitigation Actions (${(mitigationActions || []).length} planned)
+
+${actionsContent || 'No mitigation actions defined.'}
+
+${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
+
+---
+
+*Generated by CSCX.AI - Risk Assessment*`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create risk assessment document:', docsErr);
+    }
+
+    // Create Google Sheets tracker for mitigation actions
+    let sheetsResult: { spreadsheetId?: string; spreadsheetUrl?: string } | null = null;
+    try {
+      // Build sheet data
+      const sheetHeaders = ['Action', 'Description', 'Priority', 'Owner', 'Due Date', 'Status', 'Related Risks'];
+      const sheetRows = (mitigationActions || []).map((a: any) => [
+        a.action,
+        a.description,
+        a.priority,
+        a.owner,
+        a.dueDate,
+        a.status,
+        (a.relatedRiskIds || []).map((riskId: string) => {
+          const risk = enabledRiskFactors.find((r: any) => r.id === riskId);
+          return risk?.name || riskId;
+        }).join(', '),
+      ]);
+
+      // Add risk factors sheet
+      const riskHeaders = ['Risk Factor', 'Category', 'Severity', 'Weight', 'Evidence'];
+      const riskRows = enabledRiskFactors.map((r: any) => [
+        r.name,
+        categoryLabels[r.category] || r.category,
+        r.severity,
+        `${r.weight}%`,
+        r.evidence,
+      ]);
+
+      // Create spreadsheet with sheet names and headers
+      const createdSheet = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Tracker`,
+        sheets: ['Mitigation Actions', 'Risk Factors'],
+        headers: [sheetHeaders, riskHeaders],
+      });
+
+      // Add data to sheets if creation succeeded
+      if (createdSheet?.id) {
+        try {
+          // Add action rows to first sheet
+          if (sheetRows.length > 0) {
+            await sheetsService.updateValues(userId, createdSheet.id, {
+              range: `'Mitigation Actions'!A2`,
+              values: sheetRows,
+            });
+          }
+          // Add risk factor rows to second sheet
+          if (riskRows.length > 0) {
+            await sheetsService.updateValues(userId, createdSheet.id, {
+              range: `'Risk Factors'!A2`,
+              values: riskRows,
+            });
+          }
+        } catch (updateErr) {
+          console.warn('[CADG] Could not populate risk assessment sheets:', updateErr);
+        }
+      }
+
+      sheetsResult = {
+        spreadsheetId: createdSheet?.id,
+        spreadsheetUrl: createdSheet?.webViewLink,
+      };
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create risk assessment tracker:', sheetsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'risk_assessment_created',
+            description: `Risk assessment created: ${title} - Risk Score: ${overallRiskScore}/100 (${riskLevel})`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              sheetsId: sheetsResult?.spreadsheetId,
+              sheetsUrl: sheetsResult?.spreadsheetUrl,
+              overallRiskScore,
+              riskLevel,
+              healthScore,
+              daysUntilRenewal,
+              arr,
+              riskFactorsCount: enabledRiskFactors.length,
+              actionsCount: (mitigationActions || []).length,
+              createdVia: 'cadg_risk_assessment_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log risk assessment activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      sheetsId: sheetsResult?.spreadsheetId,
+      sheetsUrl: sheetsResult?.spreadsheetUrl,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Risk assessment save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save risk assessment',
     });
   }
 });
