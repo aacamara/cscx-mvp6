@@ -1334,6 +1334,55 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a team metrics artifact - return preview for HITL (General Mode)
+    const isTeamMetricsArtifact = finalPlan.taskType === 'team_metrics' ||
+                                  planRow.user_query?.toLowerCase().includes('team metrics') ||
+                                  planRow.user_query?.toLowerCase().includes('team performance') ||
+                                  planRow.user_query?.toLowerCase().includes('csm metrics') ||
+                                  planRow.user_query?.toLowerCase().includes('csm performance') ||
+                                  planRow.user_query?.toLowerCase().includes('team dashboard') ||
+                                  planRow.user_query?.toLowerCase().includes('manager dashboard') ||
+                                  planRow.user_query?.toLowerCase().includes('team report') ||
+                                  planRow.user_query?.toLowerCase().includes('csm report') ||
+                                  planRow.user_query?.toLowerCase().includes('team kpis') ||
+                                  planRow.user_query?.toLowerCase().includes('csm kpis') ||
+                                  planRow.user_query?.toLowerCase().includes('team health') ||
+                                  planRow.user_query?.toLowerCase().includes('compare csms') ||
+                                  planRow.user_query?.toLowerCase().includes('csm comparison') ||
+                                  planRow.user_query?.toLowerCase().includes('my team');
+
+    if (isTeamMetricsArtifact) {
+      // Generate team metrics content - this works in General Mode (no customer required)
+      const teamMetricsPreview = await artifactGenerator.generateTeamMetricsPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: null, // General Mode - no specific customer
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isTeamMetricsPreview: true,
+        preview: {
+          title: teamMetricsPreview.title,
+          createdDate: teamMetricsPreview.createdDate,
+          lastUpdated: teamMetricsPreview.lastUpdated,
+          summary: teamMetricsPreview.summary,
+          csms: teamMetricsPreview.csms,
+          metrics: teamMetricsPreview.metrics,
+          filters: teamMetricsPreview.filters,
+          columns: teamMetricsPreview.columns,
+          availableCsms: teamMetricsPreview.availableCsms,
+          notes: teamMetricsPreview.notes,
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -6629,6 +6678,246 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save portfolio dashboard',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/team-metrics/save
+ * Save finalized team metrics report after user review and create Google Sheets + Slides
+ */
+router.post('/team-metrics/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      lastUpdated,
+      summary,
+      csms,
+      metrics,
+      filters,
+      columns,
+      notes,
+    } = req.body;
+
+    // Get userId from auth context or request
+    const userId = (req as any).userId || req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID required',
+      });
+    }
+
+    // Filter enabled CSMs and columns
+    const enabledCsms = (csms || []).filter((c: any) => c.enabled);
+    const enabledColumns = (columns || []).filter((c: any) => c.enabled);
+    const enabledMetrics = (metrics || []).filter((m: any) => m.enabled);
+
+    // Format labels for team metrics
+    const TREND_ICONS: Record<string, string> = {
+      up: '↑',
+      down: '↓',
+      stable: '→',
+    };
+
+    // Build document content
+    const documentContent = `# ${title || 'Team Metrics Dashboard'}
+
+**Generated:** ${createdDate || new Date().toISOString().slice(0, 10)}
+**Last Updated:** ${lastUpdated || new Date().toISOString().slice(0, 10)}
+
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| Total CSMs | ${summary?.totalCsms || enabledCsms.length} |
+| Total Customers | ${summary?.totalCustomers || 0} |
+| Total ARR | $${(summary?.totalArr || 0).toLocaleString()} |
+| Average Health Score | ${summary?.avgHealthScore || 0}/100 |
+| Average NPS | ${summary?.avgNps || 0} |
+| Renewal Rate | ${summary?.renewalRate || 0}% |
+| Expansion Rate | ${summary?.expansionRate || 0}% |
+| Churn Rate | ${summary?.churnRate || 0}% |
+
+### Customer Health Distribution
+
+- **Healthy:** ${summary?.healthyCount || 0} customers
+- **At Risk:** ${summary?.atRiskCount || 0} customers
+- **Critical:** ${summary?.criticalCount || 0} customers
+
+---
+
+## Key Metrics
+
+${enabledMetrics.map((m: any) => `### ${m.name} ${TREND_ICONS[m.trend] || ''}
+
+- **Value:** ${m.unit === '$' ? '$' + (m.value / 1000000).toFixed(1) + 'M' : m.value + m.unit}
+${m.benchmark !== null ? `- **Benchmark:** ${m.unit === '$' ? '$' + (m.benchmark / 1000000).toFixed(1) + 'M' : m.benchmark + m.unit}` : ''}
+- *${m.description}*
+`).join('\n')}
+
+---
+
+## CSM Performance
+
+${enabledCsms.map((c: any, idx: number) => `### ${idx + 1}. ${c.name}
+
+- **Email:** ${c.email}
+- **Customers:** ${c.customerCount}
+- **ARR:** $${(c.totalArr || 0).toLocaleString()}
+- **Average Health Score:** ${c.avgHealthScore}/100
+- **Health Distribution:** ${c.healthyCount} Healthy / ${c.atRiskCount} At Risk / ${c.criticalCount} Critical
+- **Renewal Rate:** ${c.renewalRate}%
+- **Expansion Rate:** ${c.expansionRate}%
+- **Churn Rate:** ${c.churnRate}%
+- **NPS Score:** ${c.npsScore !== null ? c.npsScore : 'N/A'}
+- **Activities This Week:** ${c.activitiesThisWeek}
+- **Open Tickets:** ${c.openTickets}
+- **Avg Response Time:** ${c.avgResponseTime} hours
+`).join('\n')}
+
+---
+
+${notes ? `## Notes
+
+${notes}
+
+---
+
+` : ''}
+*Team metrics report generated via CSCX.AI Team Metrics Dashboard*
+`;
+
+    // Create Google Sheets with team data
+    let sheetsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { sheetsService } = await import('../services/google/sheets.js');
+
+      // Create spreadsheet
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: title,
+      });
+
+      if (sheetsResult?.id) {
+        // Build header row based on enabled columns
+        const columnHeaders = enabledColumns.map((col: any) => col.name);
+
+        // Build data rows
+        const dataRows = enabledCsms.map((c: any) => {
+          const row: any[] = [];
+          enabledColumns.forEach((col: any) => {
+            switch (col.id) {
+              case 'name': row.push(c.name); break;
+              case 'customerCount': row.push(c.customerCount); break;
+              case 'totalArr': row.push(c.totalArr); break;
+              case 'avgHealthScore': row.push(c.avgHealthScore); break;
+              case 'healthDistribution': row.push(`${c.healthyCount}/${c.atRiskCount}/${c.criticalCount}`); break;
+              case 'renewalRate': row.push(c.renewalRate + '%'); break;
+              case 'expansionRate': row.push(c.expansionRate + '%'); break;
+              case 'churnRate': row.push(c.churnRate + '%'); break;
+              case 'npsScore': row.push(c.npsScore !== null ? c.npsScore : 'N/A'); break;
+              case 'activitiesThisWeek': row.push(c.activitiesThisWeek); break;
+              case 'openTickets': row.push(c.openTickets); break;
+              case 'avgResponseTime': row.push(c.avgResponseTime + 'h'); break;
+              default: row.push(''); break;
+            }
+          });
+          return row;
+        });
+
+        // Update sheet with data
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1',
+          values: [columnHeaders, ...dataRows],
+        });
+      }
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create team metrics spreadsheet:', sheetsErr);
+    }
+
+    // Create Google Doc with report
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: `${title} - Report`,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create team metrics document:', docsErr);
+    }
+
+    // Try to create Google Slides presentation (optional)
+    let slidesResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { slidesService } = await import('../services/google/slides.js');
+      if (slidesService?.createPresentation) {
+        slidesResult = await slidesService.createPresentation(userId, {
+          title: `${title} - Presentation`,
+        });
+      }
+    } catch (slidesErr) {
+      console.warn('[CADG] Could not create team metrics slides:', slidesErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity (no customer ID for General Mode)
+    try {
+      const { config } = await import('../config/index.js');
+      const { createClient } = await import('@supabase/supabase-js');
+      if (config.supabaseUrl && config.supabaseServiceKey) {
+        const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+        await supabase.from('agent_activities').insert({
+          user_id: userId,
+          customer_id: null, // General Mode - no specific customer
+          activity_type: 'team_metrics_created',
+          description: `Team metrics report created: ${title} - ${enabledCsms.length} CSMs, $${(summary?.totalArr || 0).toLocaleString()} ARR`,
+          metadata: {
+            sheetsId: sheetsResult?.id,
+            sheetsUrl: sheetsResult?.webViewLink,
+            docId: docsResult?.id,
+            docUrl: docsResult?.webViewLink,
+            slidesId: slidesResult?.id,
+            slidesUrl: slidesResult?.webViewLink,
+            totalCsms: summary?.totalCsms,
+            totalCustomers: summary?.totalCustomers,
+            totalArr: summary?.totalArr,
+            avgHealthScore: summary?.avgHealthScore,
+            avgNps: summary?.avgNps,
+            renewalRate: summary?.renewalRate,
+            expansionRate: summary?.expansionRate,
+            churnRate: summary?.churnRate,
+            createdVia: 'cadg_team_metrics_preview',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not log team metrics activity:', err);
+    }
+
+    res.json({
+      success: true,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      slidesId: slidesResult?.id,
+      slidesUrl: slidesResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Team metrics save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save team metrics',
     });
   }
 });

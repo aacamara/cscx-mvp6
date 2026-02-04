@@ -29,6 +29,7 @@ import { CADGExecutiveBriefingPreview, ExecutiveBriefingData, CustomerData as Ex
 import { CADGAccountPlanPreview, AccountPlanData, CustomerData as AccountPlanCustomerData } from './CADGAccountPlanPreview';
 import { CADGTransformationRoadmapPreview, TransformationRoadmapData, CustomerData as TransformationRoadmapCustomerData } from './CADGTransformationRoadmapPreview';
 import { CADGPortfolioDashboardPreview, PortfolioDashboardData, CustomerData as PortfolioDashboardCustomerData } from './CADGPortfolioDashboardPreview';
+import { CADGTeamMetricsPreview, TeamMetricsData } from './CADGTeamMetricsPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -323,6 +324,13 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [showPortfolioDashboardPreview, setShowPortfolioDashboardPreview] = useState(false);
   const [portfolioDashboardPreviewData, setPortfolioDashboardPreviewData] = useState<{
     dashboard: PortfolioDashboardData;
+    planId: string;
+  } | null>(null);
+
+  // Team metrics preview state for HITL workflow (General Mode)
+  const [showTeamMetricsPreview, setShowTeamMetricsPreview] = useState(false);
+  const [teamMetricsPreviewData, setTeamMetricsPreviewData] = useState<{
+    teamMetrics: TeamMetricsData;
     planId: string;
   } | null>(null);
 
@@ -1025,6 +1033,47 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowPortfolioDashboardPreview(true);
         setStatus('pending'); // Keep in pending until dashboard is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a team metrics preview (HITL workflow - General Mode)
+      if (data.isTeamMetricsPreview && data.preview) {
+        setTeamMetricsPreviewData({
+          teamMetrics: {
+            title: data.preview.title || 'Team Metrics Dashboard',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            lastUpdated: data.preview.lastUpdated || new Date().toISOString().slice(0, 10),
+            summary: data.preview.summary || {
+              totalCsms: 0,
+              totalCustomers: 0,
+              totalArr: 0,
+              avgHealthScore: 0,
+              avgNps: 0,
+              renewalRate: 0,
+              expansionRate: 0,
+              churnRate: 0,
+              healthyCount: 0,
+              atRiskCount: 0,
+              criticalCount: 0,
+            },
+            csms: data.preview.csms || [],
+            metrics: data.preview.metrics || [],
+            filters: data.preview.filters || {
+              csms: [],
+              timeRange: { type: 'last_30_days' },
+              showBenchmarks: true,
+              sortBy: 'health',
+              sortDirection: 'desc',
+            },
+            columns: data.preview.columns || [],
+            availableCsms: data.preview.availableCsms || [],
+            notes: data.preview.notes || '',
+          },
+          planId: data.planId,
+        });
+        setShowTeamMetricsPreview(true);
+        setStatus('pending'); // Keep in pending until team metrics is saved
         setIsApproving(false);
         return;
       }
@@ -2557,6 +2606,69 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving team metrics preview (General Mode)
+  const handleTeamMetricsSave = async (teamMetrics: TeamMetricsData) => {
+    const response = await fetch(`${API_URL}/api/cadg/team-metrics/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: teamMetricsPreviewData?.planId,
+        title: teamMetrics.title,
+        createdDate: teamMetrics.createdDate,
+        lastUpdated: teamMetrics.lastUpdated,
+        summary: teamMetrics.summary,
+        csms: teamMetrics.csms,
+        metrics: teamMetrics.metrics,
+        filters: teamMetrics.filters,
+        columns: teamMetrics.columns,
+        notes: teamMetrics.notes,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save team metrics');
+    }
+
+    const result = await response.json();
+
+    // Close preview and show completion
+    setShowTeamMetricsPreview(false);
+    setTeamMetricsPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.sheetsId || 'team-metrics',
+      status: 'completed',
+      preview: `# ${teamMetrics.title}\n\nTeam metrics report with ${teamMetrics.csms.filter(c => c.enabled).length} CSMs, $${(teamMetrics.summary.totalArr / 1000000).toFixed(1)}M ARR`,
+      storage: {
+        driveFileId: result.sheetsId,
+        driveUrl: result.sheetsUrl,
+        additionalFiles: result.docId ? [{
+          type: 'document',
+          fileId: result.docId,
+          url: result.docUrl,
+          title: 'Team Metrics Report',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.sheetsId || 'team-metrics');
+  };
+
+  // Handle canceling team metrics preview
+  const handleTeamMetricsCancel = () => {
+    setShowTeamMetricsPreview(false);
+    setTeamMetricsPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2972,6 +3084,17 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         dashboard={portfolioDashboardPreviewData.dashboard}
         onSave={handlePortfolioDashboardSave}
         onCancel={handlePortfolioDashboardCancel}
+      />
+    );
+  }
+
+  // Team metrics preview mode (General Mode - no customer context)
+  if (showTeamMetricsPreview && teamMetricsPreviewData) {
+    return (
+      <CADGTeamMetricsPreview
+        teamMetrics={teamMetricsPreviewData.teamMetrics}
+        onSave={handleTeamMetricsSave}
+        onCancel={handleTeamMetricsCancel}
       />
     );
   }

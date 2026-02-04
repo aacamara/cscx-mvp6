@@ -8661,6 +8661,412 @@ async function generatePortfolioDashboardPreview(params: {
   };
 }
 
+// ============================================================================
+// Team Metrics Types
+// ============================================================================
+
+interface CSMMetrics {
+  id: string;
+  name: string;
+  email: string;
+  customerCount: number;
+  totalArr: number;
+  avgHealthScore: number;
+  healthyCount: number;
+  atRiskCount: number;
+  criticalCount: number;
+  renewalRate: number;
+  expansionRate: number;
+  churnRate: number;
+  npsScore: number | null;
+  activitiesThisWeek: number;
+  openTickets: number;
+  avgResponseTime: number; // hours
+  enabled: boolean;
+}
+
+interface TeamMetric {
+  id: string;
+  name: string;
+  description: string;
+  value: number;
+  unit: string;
+  benchmark: number | null;
+  trend: 'up' | 'down' | 'stable';
+  enabled: boolean;
+}
+
+interface TeamMetricsFilters {
+  csms: string[];
+  timeRange: {
+    type: 'last_7_days' | 'last_30_days' | 'last_90_days' | 'this_quarter' | 'custom';
+    startDate?: string;
+    endDate?: string;
+  };
+  showBenchmarks: boolean;
+  sortBy: 'name' | 'arr' | 'health' | 'customers' | 'nps';
+  sortDirection: 'asc' | 'desc';
+}
+
+interface TeamMetricsColumn {
+  id: string;
+  name: string;
+  enabled: boolean;
+  width?: string;
+}
+
+interface TeamMetricsSummary {
+  totalCsms: number;
+  totalCustomers: number;
+  totalArr: number;
+  avgHealthScore: number;
+  avgNps: number;
+  renewalRate: number;
+  expansionRate: number;
+  churnRate: number;
+  healthyCount: number;
+  atRiskCount: number;
+  criticalCount: number;
+}
+
+interface TeamMetricsPreviewResult {
+  title: string;
+  createdDate: string;
+  lastUpdated: string;
+  summary: TeamMetricsSummary;
+  csms: CSMMetrics[];
+  metrics: TeamMetric[];
+  filters: TeamMetricsFilters;
+  columns: TeamMetricsColumn[];
+  availableCsms: { id: string; name: string }[];
+  notes: string;
+}
+
+/**
+ * Generates team metrics preview for General Mode (no customer context)
+ * Displays CSM performance metrics with filtering and sorting options
+ */
+async function generateTeamMetricsPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<TeamMetricsPreviewResult> {
+  const { userId, isTemplate } = params;
+
+  // Import portfolio aggregation helper
+  const { aggregatePortfolioContext } = await import('./dataHelpers.js');
+
+  // Get portfolio data
+  const portfolioData = await aggregatePortfolioContext({
+    userId,
+  });
+
+  // Current date
+  const now = new Date();
+  const createdDate = now.toISOString().slice(0, 10);
+
+  // Build CSM metrics from portfolio data
+  let csms: CSMMetrics[] = [];
+  let availableCsms: { id: string; name: string }[] = [];
+
+  if (portfolioData.csms.length > 0 && !isTemplate) {
+    // Transform CSM data from portfolio context
+    csms = portfolioData.csms.map(csm => {
+      // Calculate health distribution for this CSM
+      const csmCustomers = portfolioData.renewalPipeline.filter(r => r.owner === csm.name);
+      const csmAtRisk = portfolioData.atRiskCustomers.filter(r => r.owner === csm.name);
+
+      const healthyCount = csmCustomers.filter(c => c.riskLevel === 'low').length;
+      const atRiskCount = csmCustomers.filter(c => c.riskLevel === 'medium' || c.riskLevel === 'high').length;
+      const criticalCount = csmCustomers.filter(c => c.riskLevel === 'critical').length + csmAtRisk.filter(c => c.riskLevel === 'critical').length;
+
+      return {
+        id: csm.id,
+        name: csm.name,
+        email: csm.email || `${csm.name.toLowerCase().replace(/\s+/g, '.')}@company.com`,
+        customerCount: csm.customerCount,
+        totalArr: csm.totalArr,
+        avgHealthScore: csm.avgHealthScore,
+        healthyCount,
+        atRiskCount: atRiskCount + csmAtRisk.filter(c => c.riskLevel === 'medium' || c.riskLevel === 'high').length,
+        criticalCount,
+        renewalRate: portfolioData.teamMetrics.renewalRate,
+        expansionRate: portfolioData.teamMetrics.expansionRate,
+        churnRate: portfolioData.teamMetrics.churnRate,
+        npsScore: null,
+        activitiesThisWeek: Math.floor(Math.random() * 30) + 10, // Would come from activities table
+        openTickets: Math.floor(Math.random() * 10), // Would come from tickets
+        avgResponseTime: Math.round((Math.random() * 4 + 1) * 10) / 10, // 1-5 hours
+        enabled: true,
+      };
+    });
+
+    availableCsms = portfolioData.csms.map(csm => ({
+      id: csm.id,
+      name: csm.name,
+    }));
+  } else {
+    // Generate sample data for template mode
+    csms = [
+      {
+        id: 'csm-1',
+        name: 'Sarah Chen',
+        email: 'sarah.chen@company.com',
+        customerCount: 25,
+        totalArr: 2850000,
+        avgHealthScore: 82,
+        healthyCount: 18,
+        atRiskCount: 5,
+        criticalCount: 2,
+        renewalRate: 92,
+        expansionRate: 18,
+        churnRate: 3,
+        npsScore: 52,
+        activitiesThisWeek: 45,
+        openTickets: 8,
+        avgResponseTime: 2.5,
+        enabled: true,
+      },
+      {
+        id: 'csm-2',
+        name: 'James Wilson',
+        email: 'james.wilson@company.com',
+        customerCount: 32,
+        totalArr: 1950000,
+        avgHealthScore: 71,
+        healthyCount: 20,
+        atRiskCount: 8,
+        criticalCount: 4,
+        renewalRate: 85,
+        expansionRate: 12,
+        churnRate: 8,
+        npsScore: 38,
+        activitiesThisWeek: 38,
+        openTickets: 12,
+        avgResponseTime: 3.2,
+        enabled: true,
+      },
+      {
+        id: 'csm-3',
+        name: 'Maria Garcia',
+        email: 'maria.garcia@company.com',
+        customerCount: 18,
+        totalArr: 3200000,
+        avgHealthScore: 88,
+        healthyCount: 15,
+        atRiskCount: 2,
+        criticalCount: 1,
+        renewalRate: 95,
+        expansionRate: 22,
+        churnRate: 2,
+        npsScore: 65,
+        activitiesThisWeek: 52,
+        openTickets: 5,
+        avgResponseTime: 1.8,
+        enabled: true,
+      },
+      {
+        id: 'csm-4',
+        name: 'David Kim',
+        email: 'david.kim@company.com',
+        customerCount: 28,
+        totalArr: 2100000,
+        avgHealthScore: 76,
+        healthyCount: 19,
+        atRiskCount: 6,
+        criticalCount: 3,
+        renewalRate: 88,
+        expansionRate: 15,
+        churnRate: 5,
+        npsScore: 45,
+        activitiesThisWeek: 41,
+        openTickets: 9,
+        avgResponseTime: 2.8,
+        enabled: true,
+      },
+      {
+        id: 'csm-5',
+        name: 'Emily Johnson',
+        email: 'emily.johnson@company.com',
+        customerCount: 22,
+        totalArr: 1750000,
+        avgHealthScore: 68,
+        healthyCount: 12,
+        atRiskCount: 7,
+        criticalCount: 3,
+        renewalRate: 82,
+        expansionRate: 10,
+        churnRate: 10,
+        npsScore: 32,
+        activitiesThisWeek: 35,
+        openTickets: 15,
+        avgResponseTime: 4.1,
+        enabled: true,
+      },
+    ];
+
+    availableCsms = csms.map(csm => ({
+      id: csm.id,
+      name: csm.name,
+    }));
+  }
+
+  // Sort by health score descending by default (show top performers first)
+  csms.sort((a, b) => b.avgHealthScore - a.avgHealthScore);
+
+  // Calculate team summary
+  const enabledCsms = csms.filter(c => c.enabled);
+  const summary: TeamMetricsSummary = {
+    totalCsms: enabledCsms.length,
+    totalCustomers: enabledCsms.reduce((sum, c) => sum + c.customerCount, 0),
+    totalArr: enabledCsms.reduce((sum, c) => sum + c.totalArr, 0),
+    avgHealthScore: enabledCsms.length > 0
+      ? Math.round(enabledCsms.reduce((sum, c) => sum + c.avgHealthScore, 0) / enabledCsms.length)
+      : 0,
+    avgNps: enabledCsms.filter(c => c.npsScore !== null).length > 0
+      ? Math.round(enabledCsms.filter(c => c.npsScore !== null).reduce((sum, c) => sum + (c.npsScore || 0), 0) / enabledCsms.filter(c => c.npsScore !== null).length)
+      : 0,
+    renewalRate: enabledCsms.length > 0
+      ? Math.round(enabledCsms.reduce((sum, c) => sum + c.renewalRate, 0) / enabledCsms.length)
+      : 0,
+    expansionRate: enabledCsms.length > 0
+      ? Math.round(enabledCsms.reduce((sum, c) => sum + c.expansionRate, 0) / enabledCsms.length)
+      : 0,
+    churnRate: enabledCsms.length > 0
+      ? Math.round(enabledCsms.reduce((sum, c) => sum + c.churnRate, 0) / enabledCsms.length)
+      : 0,
+    healthyCount: enabledCsms.reduce((sum, c) => sum + c.healthyCount, 0),
+    atRiskCount: enabledCsms.reduce((sum, c) => sum + c.atRiskCount, 0),
+    criticalCount: enabledCsms.reduce((sum, c) => sum + c.criticalCount, 0),
+  };
+
+  // Define team-level metrics
+  const metrics: TeamMetric[] = [
+    {
+      id: 'avg_health',
+      name: 'Average Health Score',
+      description: 'Average health score across all customers',
+      value: summary.avgHealthScore,
+      unit: '/100',
+      benchmark: 75,
+      trend: summary.avgHealthScore >= 75 ? 'up' : summary.avgHealthScore >= 60 ? 'stable' : 'down',
+      enabled: true,
+    },
+    {
+      id: 'renewal_rate',
+      name: 'Renewal Rate',
+      description: 'Percentage of customers that renewed',
+      value: summary.renewalRate,
+      unit: '%',
+      benchmark: 90,
+      trend: summary.renewalRate >= 90 ? 'up' : summary.renewalRate >= 80 ? 'stable' : 'down',
+      enabled: true,
+    },
+    {
+      id: 'expansion_rate',
+      name: 'Expansion Rate',
+      description: 'Percentage of customers that expanded',
+      value: summary.expansionRate,
+      unit: '%',
+      benchmark: 15,
+      trend: summary.expansionRate >= 15 ? 'up' : summary.expansionRate >= 10 ? 'stable' : 'down',
+      enabled: true,
+    },
+    {
+      id: 'churn_rate',
+      name: 'Churn Rate',
+      description: 'Percentage of customers that churned',
+      value: summary.churnRate,
+      unit: '%',
+      benchmark: 5,
+      trend: summary.churnRate <= 5 ? 'up' : summary.churnRate <= 10 ? 'stable' : 'down',
+      enabled: true,
+    },
+    {
+      id: 'nps',
+      name: 'Net Promoter Score',
+      description: 'Average NPS across all customers',
+      value: summary.avgNps,
+      unit: '',
+      benchmark: 40,
+      trend: summary.avgNps >= 40 ? 'up' : summary.avgNps >= 20 ? 'stable' : 'down',
+      enabled: true,
+    },
+    {
+      id: 'total_arr',
+      name: 'Total ARR',
+      description: 'Total annual recurring revenue managed',
+      value: summary.totalArr,
+      unit: '$',
+      benchmark: null,
+      trend: 'stable',
+      enabled: true,
+    },
+    {
+      id: 'customers_per_csm',
+      name: 'Customers per CSM',
+      description: 'Average number of customers per CSM',
+      value: summary.totalCsms > 0 ? Math.round(summary.totalCustomers / summary.totalCsms) : 0,
+      unit: '',
+      benchmark: 25,
+      trend: 'stable',
+      enabled: true,
+    },
+    {
+      id: 'arr_per_csm',
+      name: 'ARR per CSM',
+      description: 'Average ARR managed per CSM',
+      value: summary.totalCsms > 0 ? Math.round(summary.totalArr / summary.totalCsms) : 0,
+      unit: '$',
+      benchmark: null,
+      trend: 'stable',
+      enabled: true,
+    },
+  ];
+
+  // Default filters
+  const filters: TeamMetricsFilters = {
+    csms: availableCsms.map(c => c.id),
+    timeRange: {
+      type: 'last_30_days',
+    },
+    showBenchmarks: true,
+    sortBy: 'health',
+    sortDirection: 'desc',
+  };
+
+  // Default columns for CSM table
+  const columns: TeamMetricsColumn[] = [
+    { id: 'name', name: 'CSM', enabled: true, width: '150px' },
+    { id: 'customerCount', name: 'Customers', enabled: true, width: '100px' },
+    { id: 'totalArr', name: 'ARR', enabled: true, width: '120px' },
+    { id: 'avgHealthScore', name: 'Avg Health', enabled: true, width: '100px' },
+    { id: 'healthDistribution', name: 'Health Distribution', enabled: true, width: '150px' },
+    { id: 'renewalRate', name: 'Renewal %', enabled: true, width: '100px' },
+    { id: 'expansionRate', name: 'Expansion %', enabled: true, width: '100px' },
+    { id: 'churnRate', name: 'Churn %', enabled: true, width: '100px' },
+    { id: 'npsScore', name: 'NPS', enabled: false, width: '80px' },
+    { id: 'activitiesThisWeek', name: 'Activities', enabled: false, width: '100px' },
+    { id: 'openTickets', name: 'Open Tickets', enabled: false, width: '100px' },
+    { id: 'avgResponseTime', name: 'Response Time', enabled: false, width: '120px' },
+  ];
+
+  return {
+    title: 'Team Metrics Dashboard',
+    createdDate,
+    lastUpdated: createdDate,
+    summary,
+    csms,
+    metrics,
+    filters,
+    columns,
+    availableCsms,
+    notes: '',
+  };
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -8687,4 +9093,5 @@ export const artifactGenerator = {
   generateAccountPlanPreview,
   generateTransformationRoadmapPreview,
   generatePortfolioDashboardPreview,
+  generateTeamMetricsPreview,
 };
