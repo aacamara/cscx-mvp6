@@ -210,3 +210,39 @@
   - Creating both Doc and Sheet for plans provides document + tracking benefits
   - Query detection patterns should match multiple variations: '30-60-90', '30 60 90', 'milestone plan', 'first 90 days'
 ---
+
+## 2026-02-04 - US-009
+- **What was implemented**: Stakeholder map generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateStakeholderMapPreview()` function (~250 lines)
+  - `server/src/routes/cadg.ts` - Added stakeholder_map detection and `/api/cadg/stakeholder-map/save` endpoint
+  - `components/AIPanel/CADGStakeholderMapPreview.tsx` (created, ~550 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added stakeholder map preview state and handlers
+- **Features**:
+  - **generateStakeholderMapPreview()**: Uses Claude to generate stakeholder map with:
+    - Stakeholder list with name, title, email
+    - Role classification: Champion, Sponsor, Blocker, Evaluator, User
+    - Influence level (1-5 slider)
+    - Engagement level: High, Medium, Low
+    - Notes per stakeholder
+    - Relationships between stakeholders
+  - **CADGStakeholderMapPreview component**:
+    - Expandable contact cards with full editing
+    - Role dropdown with color-coded styling per role
+    - Influence slider with visual feedback
+    - Engagement level dropdown
+    - Relationship management (add/remove/edit)
+    - Role legend with icons
+    - Unsaved changes warning
+    - Orange accent color theme
+  - **Backend endpoint**: POST `/api/cadg/stakeholder-map/save`:
+    - Creates Google Doc with formatted stakeholder details table
+    - Attempts to create Google Slides visual (simplified version)
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Stakeholder maps use `isStakeholderMapPreview: true` response type
+  - Color-coded role classifications help identify stakeholder types at a glance
+  - Expandable cards work well for detailed stakeholder info (click to expand)
+  - Relationships need name-to-ID mapping when parsing AI response
+  - Query detection patterns: 'stakeholder map', 'stakeholder analysis', 'key contacts', 'org chart', 'contact map'
+---
