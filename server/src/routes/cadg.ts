@@ -572,6 +572,60 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a renewal forecast artifact - return preview for HITL
+    const isRenewalForecastArtifact = finalPlan.taskType === 'renewal_forecast' ||
+                                       planRow.user_query?.toLowerCase().includes('renewal forecast') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal prediction') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal probability') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal likelihood') ||
+                                       planRow.user_query?.toLowerCase().includes('forecast renewal') ||
+                                       planRow.user_query?.toLowerCase().includes('predict renewal') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal outlook') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal projections') ||
+                                       planRow.user_query?.toLowerCase().includes('will they renew') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal risk') ||
+                                       planRow.user_query?.toLowerCase().includes('renewal chance');
+
+    if (isRenewalForecastArtifact) {
+      // Generate renewal forecast content but don't finalize - return preview for HITL
+      const renewalForecastPreview = await artifactGenerator.generateRenewalForecastPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isRenewalForecastPreview: true,
+        preview: {
+          title: renewalForecastPreview.title,
+          renewalDate: renewalForecastPreview.renewalDate,
+          currentProbability: renewalForecastPreview.currentProbability,
+          targetProbability: renewalForecastPreview.targetProbability,
+          arr: renewalForecastPreview.arr,
+          contractTerm: renewalForecastPreview.contractTerm,
+          probabilityFactors: renewalForecastPreview.probabilityFactors,
+          riskFactors: renewalForecastPreview.riskFactors,
+          positiveSignals: renewalForecastPreview.positiveSignals,
+          recommendedActions: renewalForecastPreview.recommendedActions,
+          historicalContext: renewalForecastPreview.historicalContext,
+          notes: renewalForecastPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -3076,6 +3130,178 @@ ${notes || 'No additional notes.'}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save training program',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/renewal-forecast/save
+ * Save finalized renewal forecast after user review
+ */
+router.post('/renewal-forecast/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      renewalDate,
+      currentProbability,
+      targetProbability,
+      arr,
+      contractTerm,
+      probabilityFactors,
+      riskFactors,
+      positiveSignals,
+      recommendedActions,
+      historicalContext,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import sheets service
+    const { sheetsService } = await import('../services/google/sheets.js');
+
+    // Filter to only enabled risk factors and positive signals
+    const enabledRisks = (riskFactors || []).filter((r: any) => r.enabled);
+    const enabledSignals = (positiveSignals || []).filter((s: any) => s.enabled);
+
+    // Calculate weighted probability from factors
+    const weightedProb = (probabilityFactors || []).reduce((acc: number, f: any) =>
+      acc + (f.score * f.weight / 100), 0);
+    const riskImpact = enabledRisks.reduce((acc: number, r: any) => acc + r.impact, 0);
+    const signalImpact = enabledSignals.reduce((acc: number, s: any) => acc + s.impact, 0);
+    const finalProbability = Math.max(0, Math.min(100, Math.round(weightedProb + riskImpact + signalImpact)));
+
+    // Build factors content
+    const factorsContent = (probabilityFactors || []).map((f: any) =>
+      `| ${f.name} | ${f.weight}% | ${f.score} | ${f.description || '-'} |`
+    ).join('\n');
+
+    // Build risks content
+    const risksContent = enabledRisks.map((r: any) =>
+      `| ${r.name} | ${r.severity} | ${r.impact}% | ${r.description || '-'} |`
+    ).join('\n');
+
+    // Build signals content
+    const signalsContent = enabledSignals.map((s: any) =>
+      `| ${s.name} | ${s.strength} | +${s.impact}% | ${s.description || '-'} |`
+    ).join('\n');
+
+    // Build actions content
+    const actionsContent = (recommendedActions || []).map((a: any) =>
+      `| ${a.action} | ${a.priority} | ${a.owner} | ${a.dueDate} | ${a.status} |`
+    ).join('\n');
+
+    // Create Google Sheets forecast model
+    let sheetsResult = null;
+    try {
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Forecast Model`,
+      });
+
+      if (sheetsResult) {
+        // Probability Factors sheet
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1:E1',
+          values: [['Factor', 'Weight (%)', 'Score', 'Contribution', 'Description']],
+        });
+
+        const factorRows = (probabilityFactors || []).map((f: any) => [
+          f.name,
+          f.weight,
+          f.score,
+          Math.round(f.score * f.weight / 100),
+          f.description || '',
+        ]);
+
+        if (factorRows.length > 0) {
+          await sheetsService.updateValues(userId, sheetsResult.id, {
+            range: 'Sheet1!A2',
+            values: factorRows,
+          });
+        }
+
+        // Summary row
+        const summaryRowNum = factorRows.length + 3;
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: `Sheet1!A${summaryRowNum}:E${summaryRowNum + 5}`,
+          values: [
+            ['SUMMARY', '', '', '', ''],
+            ['Base Probability', '', '', weightedProb.toFixed(1), ''],
+            ['Risk Impact', '', '', riskImpact, `${enabledRisks.length} factors`],
+            ['Signal Impact', '', '', `+${signalImpact}`, `${enabledSignals.length} factors`],
+            ['Final Probability', '', '', finalProbability, ''],
+            ['Target Probability', '', '', targetProbability, ''],
+          ],
+        });
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not create forecast sheet:', err);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'renewal_forecast_created',
+            description: `Renewal forecast created: ${title} - ${finalProbability}% probability`,
+            metadata: {
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              renewalDate,
+              finalProbability,
+              targetProbability,
+              arr,
+              contractTerm,
+              riskFactorsCount: enabledRisks.length,
+              positiveSignalsCount: enabledSignals.length,
+              actionsCount: (recommendedActions || []).length,
+              createdVia: 'cadg_renewal_forecast_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log renewal forecast activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      finalProbability,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Renewal forecast save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save renewal forecast',
     });
   }
 });

@@ -4132,6 +4132,362 @@ Format your response as JSON:
   }
 }
 
+// ============================================================================
+// Renewal Forecast Preview Generator
+// ============================================================================
+
+interface RiskFactor {
+  id: string;
+  name: string;
+  description: string;
+  severity: 'high' | 'medium' | 'low';
+  impact: number; // -10 to -30 for negative factors
+  enabled: boolean;
+}
+
+interface PositiveSignal {
+  id: string;
+  name: string;
+  description: string;
+  strength: 'strong' | 'moderate' | 'weak';
+  impact: number; // +5 to +20 for positive factors
+  enabled: boolean;
+}
+
+interface RecommendedAction {
+  id: string;
+  action: string;
+  priority: 'high' | 'medium' | 'low';
+  owner: string;
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
+
+interface ProbabilityFactor {
+  id: string;
+  name: string;
+  weight: number; // 0-100
+  score: number; // 0-100
+  description: string;
+}
+
+interface RenewalForecastPreviewResult {
+  title: string;
+  renewalDate: string;
+  currentProbability: number;
+  targetProbability: number;
+  arr: number;
+  contractTerm: string;
+  probabilityFactors: ProbabilityFactor[];
+  riskFactors: RiskFactor[];
+  positiveSignals: PositiveSignal[];
+  recommendedActions: RecommendedAction[];
+  historicalContext: string;
+  notes: string;
+}
+
+async function generateRenewalForecastPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<RenewalForecastPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+  const arr = customer?.arr || 100000;
+  const renewalDate = customer?.renewalDate || (() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 6);
+    return d.toISOString().split('T')[0];
+  })();
+
+  // Get risk signals and health trends from context
+  const riskSignals = context.platformData.riskSignals || [];
+  const healthTrends = context.platformData.healthTrends || [];
+  const engagement = context.platformData.engagementMetrics;
+
+  // Build prompt for renewal forecast generation
+  const prompt = `You are a customer success manager creating a renewal forecast for a customer account. Generate a comprehensive renewal probability analysis with risk factors, positive signals, and recommended actions.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+ARR: $${arr.toLocaleString()}
+Renewal Date: ${renewalDate}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+${engagement ? `Engagement Metrics:
+- Feature Adoption: ${engagement.featureAdoption}%
+- Login Frequency: ${engagement.loginFrequency} per week
+- Last Activity: ${engagement.lastActivityDays} days ago` : ''}
+
+${riskSignals.length > 0 ? `Known Risk Signals:
+${riskSignals.map((r: any) => `- ${r.type}: ${r.description} (${r.severity})`).join('\n')}` : ''}
+
+${healthTrends.length > 0 ? `Recent Health Score: ${healthTrends[healthTrends.length - 1]?.score || 'N/A'}` : ''}
+
+Generate a renewal forecast with:
+1. Overall renewal probability (0-100%)
+2. 4-6 probability scoring factors with weights
+3. 3-5 risk factors that could impact renewal negatively
+4. 3-5 positive signals that support renewal
+5. 4-6 recommended actions to improve renewal probability
+6. Historical context note
+
+Format your response as JSON:
+{
+  "currentProbability": number (0-100),
+  "targetProbability": number (0-100, always higher than current),
+  "contractTerm": "12 months",
+  "probabilityFactors": [
+    {
+      "name": "Factor name",
+      "weight": number (0-100, all weights should sum to 100),
+      "score": number (0-100),
+      "description": "Why this score"
+    }
+  ],
+  "riskFactors": [
+    {
+      "name": "Risk name",
+      "description": "Detailed description",
+      "severity": "high|medium|low",
+      "impact": number (-10 to -30)
+    }
+  ],
+  "positiveSignals": [
+    {
+      "name": "Signal name",
+      "description": "Detailed description",
+      "strength": "strong|moderate|weak",
+      "impact": number (5 to 20)
+    }
+  ],
+  "recommendedActions": [
+    {
+      "action": "Action description",
+      "priority": "high|medium|low",
+      "owner": "CSM|Account Executive|Support|Product|Executive",
+      "dueDate": "YYYY-MM-DD"
+    }
+  ],
+  "historicalContext": "Brief note about renewal history or patterns"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const forecastContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      currentProbability?: number;
+      targetProbability?: number;
+      contractTerm?: string;
+      probabilityFactors?: Array<{
+        name: string;
+        weight?: number;
+        score?: number;
+        description?: string;
+      }>;
+      riskFactors?: Array<{
+        name: string;
+        description?: string;
+        severity?: string;
+        impact?: number;
+      }>;
+      positiveSignals?: Array<{
+        name: string;
+        description?: string;
+        strength?: string;
+        impact?: number;
+      }>;
+      recommendedActions?: Array<{
+        action: string;
+        priority?: string;
+        owner?: string;
+        dueDate?: string;
+      }>;
+      historicalContext?: string;
+    } = {};
+
+    try {
+      const jsonMatch = forecastContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Calculate days until renewal
+    const today = new Date();
+    const renewal = new Date(renewalDate);
+    const daysUntilRenewal = Math.ceil((renewal.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    // Default probability factors
+    const defaultProbabilityFactors = [
+      { name: 'Health Score', weight: 25, score: healthScore, description: `Current health score: ${healthScore}` },
+      { name: 'Product Usage', weight: 20, score: engagement?.featureAdoption || 65, description: 'Based on feature adoption and login frequency' },
+      { name: 'Stakeholder Engagement', weight: 20, score: 70, description: 'Executive and champion engagement levels' },
+      { name: 'Value Realization', weight: 20, score: 75, description: 'Achievement of stated success criteria' },
+      { name: 'Support Experience', weight: 15, score: 80, description: 'Support ticket resolution and satisfaction' },
+    ];
+
+    // Default risk factors
+    const defaultRiskFactors = [
+      { name: 'Budget Constraints', description: 'Potential budget cuts or reallocation', severity: 'medium' as const, impact: -15 },
+      { name: 'Executive Changes', description: 'Recent or upcoming leadership changes', severity: 'low' as const, impact: -10 },
+      { name: 'Competitor Activity', description: 'Active competitor engagement', severity: 'medium' as const, impact: -12 },
+    ];
+
+    // Default positive signals
+    const defaultPositiveSignals = [
+      { name: 'Active Champion', description: 'Strong internal champion advocating for product', strength: 'strong' as const, impact: 15 },
+      { name: 'Expanding Use Cases', description: 'Customer exploring additional features', strength: 'moderate' as const, impact: 10 },
+      { name: 'Positive Feedback', description: 'Recent positive feedback from stakeholders', strength: 'moderate' as const, impact: 8 },
+    ];
+
+    // Default recommended actions
+    const actionDueDate = new Date();
+    actionDueDate.setDate(actionDueDate.getDate() + 14);
+    const defaultActions = [
+      { action: 'Schedule QBR with executive sponsor', priority: 'high' as const, owner: 'CSM', dueDate: actionDueDate.toISOString().split('T')[0] },
+      { action: 'Prepare value summary document', priority: 'high' as const, owner: 'CSM', dueDate: new Date(actionDueDate.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { action: 'Address open support tickets', priority: 'medium' as const, owner: 'Support', dueDate: new Date(actionDueDate.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+      { action: 'Engage additional stakeholders', priority: 'medium' as const, owner: 'CSM', dueDate: new Date(actionDueDate.getTime() + 21 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] },
+    ];
+
+    // Process probability factors
+    const probabilityFactors = (parsed.probabilityFactors && parsed.probabilityFactors.length > 0
+      ? parsed.probabilityFactors
+      : defaultProbabilityFactors
+    ).map((f, idx) => ({
+      id: `factor-${idx + 1}`,
+      name: f.name || `Factor ${idx + 1}`,
+      weight: f.weight || 20,
+      score: f.score || 70,
+      description: f.description || '',
+    }));
+
+    // Process risk factors
+    const riskFactors = (parsed.riskFactors && parsed.riskFactors.length > 0
+      ? parsed.riskFactors
+      : defaultRiskFactors
+    ).map((r, idx) => ({
+      id: `risk-${idx + 1}`,
+      name: r.name || `Risk ${idx + 1}`,
+      description: r.description || '',
+      severity: (r.severity as 'high' | 'medium' | 'low') || 'medium',
+      impact: r.impact || -15,
+      enabled: true,
+    }));
+
+    // Process positive signals
+    const positiveSignals = (parsed.positiveSignals && parsed.positiveSignals.length > 0
+      ? parsed.positiveSignals
+      : defaultPositiveSignals
+    ).map((s, idx) => ({
+      id: `signal-${idx + 1}`,
+      name: s.name || `Signal ${idx + 1}`,
+      description: s.description || '',
+      strength: (s.strength as 'strong' | 'moderate' | 'weak') || 'moderate',
+      impact: s.impact || 10,
+      enabled: true,
+    }));
+
+    // Process recommended actions
+    const recommendedActions = (parsed.recommendedActions && parsed.recommendedActions.length > 0
+      ? parsed.recommendedActions
+      : defaultActions
+    ).map((a, idx) => ({
+      id: `action-${idx + 1}`,
+      action: a.action || `Action ${idx + 1}`,
+      priority: (a.priority as 'high' | 'medium' | 'low') || 'medium',
+      owner: a.owner || 'CSM',
+      dueDate: a.dueDate || actionDueDate.toISOString().split('T')[0],
+      status: 'pending' as const,
+    }));
+
+    // Calculate weighted probability
+    const weightedProbability = Math.round(
+      probabilityFactors.reduce((acc, f) => acc + (f.score * f.weight / 100), 0)
+    );
+
+    return {
+      title: `Renewal Forecast: ${customerName}`,
+      renewalDate,
+      currentProbability: parsed.currentProbability || weightedProbability,
+      targetProbability: parsed.targetProbability || Math.min(95, weightedProbability + 15),
+      arr,
+      contractTerm: parsed.contractTerm || '12 months',
+      probabilityFactors,
+      riskFactors,
+      positiveSignals,
+      recommendedActions,
+      historicalContext: parsed.historicalContext || `${daysUntilRenewal} days until renewal. Focus on demonstrating value and addressing identified risks.`,
+      notes: 'Review factors, toggle risks/signals that apply, and prioritize actions to improve renewal probability.',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Renewal forecast preview generation error:', error);
+
+    // Calculate days until renewal for fallback
+    const today = new Date();
+    const renewal = new Date(renewalDate);
+    const daysUntilRenewal = Math.ceil((renewal.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    const actionDueDate = new Date();
+    actionDueDate.setDate(actionDueDate.getDate() + 14);
+
+    // Return fallback renewal forecast
+    return {
+      title: `Renewal Forecast: ${customerName}`,
+      renewalDate,
+      currentProbability: 70,
+      targetProbability: 85,
+      arr,
+      contractTerm: '12 months',
+      probabilityFactors: [
+        { id: 'factor-1', name: 'Health Score', weight: 25, score: healthScore, description: `Current health score: ${healthScore}` },
+        { id: 'factor-2', name: 'Product Usage', weight: 25, score: 65, description: 'Based on feature adoption' },
+        { id: 'factor-3', name: 'Stakeholder Engagement', weight: 25, score: 70, description: 'Champion and sponsor engagement' },
+        { id: 'factor-4', name: 'Value Realization', weight: 25, score: 75, description: 'Success criteria achievement' },
+      ],
+      riskFactors: [
+        { id: 'risk-1', name: 'Budget Uncertainty', description: 'Upcoming budget review cycle', severity: 'medium', impact: -15, enabled: true },
+        { id: 'risk-2', name: 'Low Engagement', description: 'Executive sponsor engagement declining', severity: 'medium', impact: -12, enabled: true },
+        { id: 'risk-3', name: 'Competitor Presence', description: 'Active competitor evaluation', severity: 'low', impact: -8, enabled: true },
+      ],
+      positiveSignals: [
+        { id: 'signal-1', name: 'Active Champion', description: 'Strong champion advocating internally', strength: 'strong', impact: 15, enabled: true },
+        { id: 'signal-2', name: 'Recent Success', description: 'Recent successful project completion', strength: 'moderate', impact: 10, enabled: true },
+        { id: 'signal-3', name: 'Expansion Interest', description: 'Interest in additional features', strength: 'moderate', impact: 8, enabled: true },
+      ],
+      recommendedActions: [
+        { id: 'action-1', action: 'Schedule executive business review', priority: 'high', owner: 'CSM', dueDate: actionDueDate.toISOString().split('T')[0], status: 'pending' },
+        { id: 'action-2', action: 'Prepare comprehensive value summary', priority: 'high', owner: 'CSM', dueDate: new Date(actionDueDate.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'pending' },
+        { id: 'action-3', action: 'Address open support issues', priority: 'medium', owner: 'Support', dueDate: new Date(actionDueDate.getTime() + 3 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'pending' },
+        { id: 'action-4', action: 'Expand stakeholder engagement', priority: 'medium', owner: 'CSM', dueDate: new Date(actionDueDate.getTime() + 21 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], status: 'pending' },
+      ],
+      historicalContext: `${daysUntilRenewal} days until renewal. Focus on demonstrating value and addressing identified risks.`,
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -4146,4 +4502,5 @@ export const artifactGenerator = {
   generateFeatureCampaignPreview,
   generateChampionDevelopmentPreview,
   generateTrainingProgramPreview,
+  generateRenewalForecastPreview,
 };

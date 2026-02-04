@@ -17,6 +17,7 @@ import { CADGUsageAnalysisPreview, UsageAnalysisData, CustomerData as UsageAnaly
 import { CADGFeatureCampaignPreview, FeatureCampaignData, CustomerData as FeatureCampaignCustomerData } from './CADGFeatureCampaignPreview';
 import { CADGChampionDevelopmentPreview, ChampionDevelopmentData, CustomerData as ChampionDevelopmentCustomerData } from './CADGChampionDevelopmentPreview';
 import { CADGTrainingProgramPreview, TrainingProgramData, CustomerData as TrainingProgramCustomerData } from './CADGTrainingProgramPreview';
+import { CADGRenewalForecastPreview, RenewalForecastData, CustomerData as RenewalForecastCustomerData } from './CADGRenewalForecastPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -216,6 +217,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [trainingProgramPreviewData, setTrainingProgramPreviewData] = useState<{
     trainingProgram: TrainingProgramData;
     customer: TrainingProgramCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Renewal forecast preview state for HITL workflow
+  const [showRenewalForecastPreview, setShowRenewalForecastPreview] = useState(false);
+  const [renewalForecastPreviewData, setRenewalForecastPreviewData] = useState<{
+    renewalForecast: RenewalForecastData;
+    customer: RenewalForecastCustomerData;
     planId: string;
   } | null>(null);
 
@@ -531,6 +540,37 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowTrainingProgramPreview(true);
         setStatus('pending'); // Keep in pending until training program is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a renewal forecast preview (HITL workflow)
+      if (data.isRenewalForecastPreview && data.preview) {
+        setRenewalForecastPreviewData({
+          renewalForecast: {
+            title: data.preview.title || 'Renewal Forecast',
+            renewalDate: data.preview.renewalDate || '',
+            currentProbability: data.preview.currentProbability || 70,
+            targetProbability: data.preview.targetProbability || 85,
+            arr: data.preview.arr || 0,
+            contractTerm: data.preview.contractTerm || '12 months',
+            probabilityFactors: data.preview.probabilityFactors || [],
+            riskFactors: data.preview.riskFactors || [],
+            positiveSignals: data.preview.positiveSignals || [],
+            recommendedActions: data.preview.recommendedActions || [],
+            historicalContext: data.preview.historicalContext || '',
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowRenewalForecastPreview(true);
+        setStatus('pending'); // Keep in pending until renewal forecast is saved
         setIsApproving(false);
         return;
       }
@@ -1237,6 +1277,68 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving renewal forecast from preview
+  const handleRenewalForecastSave = async (renewalForecast: RenewalForecastData) => {
+    if (!renewalForecastPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/renewal-forecast/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: renewalForecastPreviewData.planId,
+        title: renewalForecast.title,
+        renewalDate: renewalForecast.renewalDate,
+        currentProbability: renewalForecast.currentProbability,
+        targetProbability: renewalForecast.targetProbability,
+        arr: renewalForecast.arr,
+        contractTerm: renewalForecast.contractTerm,
+        probabilityFactors: renewalForecast.probabilityFactors,
+        riskFactors: renewalForecast.riskFactors,
+        positiveSignals: renewalForecast.positiveSignals,
+        recommendedActions: renewalForecast.recommendedActions,
+        historicalContext: renewalForecast.historicalContext,
+        notes: renewalForecast.notes,
+        customerId: renewalForecastPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save renewal forecast');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowRenewalForecastPreview(false);
+    setRenewalForecastPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.sheetsId || 'renewal-forecast',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.sheetsUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.sheetsId || 'renewal-forecast');
+  };
+
+  // Handle canceling renewal forecast preview
+  const handleRenewalForecastCancel = () => {
+    setShowRenewalForecastPreview(false);
+    setRenewalForecastPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1509,6 +1611,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={trainingProgramPreviewData.customer}
         onSave={handleTrainingProgramSave}
         onCancel={handleTrainingProgramCancel}
+      />
+    );
+  }
+
+  // Renewal forecast preview for HITL workflow
+  if (showRenewalForecastPreview && renewalForecastPreviewData) {
+    return (
+      <CADGRenewalForecastPreview
+        renewalForecast={renewalForecastPreviewData.renewalForecast}
+        customer={renewalForecastPreviewData.customer}
+        onSave={handleRenewalForecastSave}
+        onCancel={handleRenewalForecastCancel}
       />
     );
   }
