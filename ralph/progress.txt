@@ -773,3 +773,44 @@
   - Content summary in Overview helps users see what will be included
   - Query detection patterns: 'executive briefing', 'exec briefing', 'executive summary', 'leadership briefing', 'board briefing', 'executive deck', 'executive presentation', 'brief leadership', 'leadership presentation', 'stakeholder briefing', 'account overview for exec', 'account brief'
 ---
+
+## 2026-02-04 - US-024
+- **What was implemented**: Account plan generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateAccountPlanPreview()` function (~450 lines) with types for AccountObjective, AccountAction, AccountMilestone, AccountResource, AccountPlanPreviewResult
+  - `server/src/routes/cadg.ts` - Added account_plan detection and `/api/cadg/account-plan/save` endpoint (~395 lines)
+  - `components/AIPanel/CADGAccountPlanPreview.tsx` (created, ~1300 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added account plan preview state and handlers (~127 lines)
+- **Features**:
+  - **generateAccountPlanPreview()**: Uses Claude to generate strategic account plan with:
+    - Plan title, plan period, created date
+    - Account overview (strategic summary)
+    - Strategic objectives with categories (growth, retention, expansion, adoption, risk_mitigation, strategic)
+    - Action items with owners, priorities, due dates, status tracking, and linked objectives
+    - Milestones with target dates and status
+    - Resource requirements (budget, headcount, tooling, training, support, other)
+    - Success criteria list
+    - Identified risks list
+    - Timeline description
+  - **CADGAccountPlanPreview component**:
+    - Tab-based navigation for Overview, Objectives, Actions, Milestones, Resources, Criteria & Risks
+    - Summary cards showing objectives, actions, milestones, resources counts
+    - Expandable objective cards with category/priority badges, metrics management
+    - Action items with reordering, related objectives linking (click to toggle)
+    - Milestone cards with numbered badges, status tracking
+    - Resources with type icons and allocation editing
+    - Success criteria and identified risks list management
+    - Unsaved changes warning
+    - Indigo/purple accent color theme
+  - **Backend endpoint**: POST `/api/cadg/account-plan/save`:
+    - Creates Google Doc with formatted markdown content
+    - Creates Google Sheets tracker with objectives, actions, milestones tabs
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Account plan uses `isAccountPlanPreview: true` response type
+  - Tab-based UI with 6 tabs provides comprehensive account planning interface
+  - sheetsService.updateValues requires 3 args: (userId, spreadsheetId, options) not 2
+  - Related objectives linking in actions uses click-to-toggle pattern
+  - Success criteria and risks are simple string lists vs complex objects
+  - Query detection patterns: 'account plan', 'strategic plan', 'strategic account plan', 'account strategy', 'account roadmap', 'strategic roadmap', 'customer plan', 'annual plan', 'success plan', 'growth plan', 'engagement plan', 'partnership plan', 'relationship plan'
+---
