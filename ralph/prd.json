@@ -35,8 +35,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in commit b8598d5"
     },
     {
       "id": "US-003",
