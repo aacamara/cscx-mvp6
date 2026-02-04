@@ -31,8 +31,8 @@ export const config = {
     clientId: process.env.GOOGLE_CLIENT_ID || '',
     clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
     redirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3001/api/google/auth/callback',
-    // Default folder for all generated documents
-    defaultFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '12nTNYmBb4MbvOUyVZrm-kTGZuGr8982B',
+    // Default folder for all generated documents (optional - uses user's root if not set)
+    defaultFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || '',
   },
 
   // App URLs

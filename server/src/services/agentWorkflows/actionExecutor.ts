@@ -79,8 +79,8 @@ async function getCustomerFolders(customerId: string) {
   return data;
 }
 
-// Master folder for all customer workspaces
-const CSCX_MASTER_FOLDER_ID = '12nTNYmBb4MbvOUyVZrm-kTGZuGr8982B';
+// Master folder for all customer workspaces (optional - falls back to user's root if not accessible)
+const CSCX_MASTER_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID || null;
 
 // Helper to get or create customer workspace with folders
 async function getCustomerWorkspace(userId: string, customerId: string, customerName: string) {
@@ -89,15 +89,32 @@ async function getCustomerWorkspace(userId: string, customerId: string, customer
     let workspace = await customerWorkspaceService.getWorkspace(customerId, userId);
 
     if (!workspace) {
-      // Create new workspace inside the master CSCX folder
-      workspace = await customerWorkspaceService.createWorkspace({
-        customerId,
-        customerName,
-        userId,
-        parentFolderId: CSCX_MASTER_FOLDER_ID, // All workspaces go here
-        createTemplates: false, // Skip templates for faster creation
-        createAutomations: false,
-      });
+      // Create new workspace - try master folder first, fall back to user's root Drive
+      try {
+        workspace = await customerWorkspaceService.createWorkspace({
+          customerId,
+          customerName,
+          userId,
+          parentFolderId: CSCX_MASTER_FOLDER_ID || undefined, // Use master folder if set, otherwise root
+          createTemplates: false, // Skip templates for faster creation
+          createAutomations: false,
+        });
+      } catch (folderError: any) {
+        // If master folder not accessible, create in user's root Drive
+        if (folderError?.message?.includes('File not found') || folderError?.code === 404) {
+          console.log('[Workspace] Master folder not accessible, creating in user root Drive');
+          workspace = await customerWorkspaceService.createWorkspace({
+            customerId,
+            customerName,
+            userId,
+            parentFolderId: undefined, // Create in root
+            createTemplates: false,
+            createAutomations: false,
+          });
+        } else {
+          throw folderError;
+        }
+      }
     }
     return workspace;
   } catch (error) {
