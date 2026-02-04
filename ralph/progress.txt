@@ -433,3 +433,41 @@
   - Skill level visualization with color-coded badges works well (green/blue/purple for beginner/intermediate/advanced)
   - Query detection patterns: 'training program', 'training curriculum', 'learning program', 'training modules', 'training course', 'learning path', 'onboarding curriculum', 'certification program'
 ---
+
+## 2026-02-04 - US-015
+- **What was implemented**: Renewal forecast generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateRenewalForecastPreview()` function (~350 lines)
+  - `server/src/routes/cadg.ts` - Added renewal_forecast detection and `/api/cadg/renewal-forecast/save` endpoint
+  - `components/AIPanel/CADGRenewalForecastPreview.tsx` (created, ~1200 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added renewal forecast preview state and handlers
+- **Features**:
+  - **generateRenewalForecastPreview()**: Uses Claude to generate renewal probability analysis with:
+    - Overall renewal probability (0-100%)
+    - Probability scoring factors with weights
+    - Risk factors with severity and negative impacts
+    - Positive signals with strength and positive impacts
+    - Recommended actions with priority, owner, due date, status
+    - Historical context note
+  - **CADGRenewalForecastPreview component**:
+    - Tab-based navigation for Overview, Factors, Risks, Signals, Actions
+    - Real-time probability calculation based on factors and toggled risks/signals
+    - Probability overview card with probability bar and target indicator
+    - Key metrics cards: ARR, days until renewal, contract term, gap to target
+    - Probability factors with weight/score sliders and contribution display
+    - Toggleable risk factors with severity badges and negative impact values
+    - Toggleable positive signals with strength badges and positive impact values
+    - Recommended actions with priority/owner/due date/status management
+    - Action reordering with up/down controls
+    - Unsaved changes warning
+    - Teal/cyan accent color theme
+  - **Backend endpoint**: POST `/api/cadg/renewal-forecast/save`:
+    - Creates Google Sheets forecast model with probability factors, summary calculations
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Renewal forecast uses `isRenewalForecastPreview: true` response type
+  - Real-time probability calculation: base (weighted factors) + risk impacts (negative) + signal impacts (positive)
+  - Toggle-based risks/signals allow users to selectively include factors that apply
+  - HealthTrend type doesn't have 'trend' property - use 'score' instead for recent health data
+  - Query detection patterns: 'renewal forecast', 'renewal prediction', 'renewal probability', 'renewal likelihood', 'forecast renewal', 'predict renewal', 'renewal outlook', 'renewal projections', 'will they renew', 'renewal risk', 'renewal chance'
+---
