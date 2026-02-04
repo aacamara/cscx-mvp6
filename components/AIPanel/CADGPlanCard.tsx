@@ -11,6 +11,7 @@ import { CADGMeetingPrepPreview, MeetingPrepData, AgendaItem, TalkingPoint, Risk
 import { CADGMeetingBookingModal, MeetingBookingData, BookedMeeting } from './CADGMeetingBookingModal';
 import { CADGKickoffPlanPreview, KickoffPlanData, CustomerData as KickoffCustomerData } from './CADGKickoffPlanPreview';
 import { CADGMilestonePlanPreview, MilestonePlanData, CustomerData as MilestoneCustomerData } from './CADGMilestonePlanPreview';
+import { CADGStakeholderMapPreview, StakeholderMapData, CustomerData as StakeholderCustomerData } from './CADGStakeholderMapPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -162,6 +163,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [milestonePlanPreviewData, setMilestonePlanPreviewData] = useState<{
     milestonePlan: MilestonePlanData;
     customer: MilestoneCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Stakeholder map preview state for HITL workflow
+  const [showStakeholderMapPreview, setShowStakeholderMapPreview] = useState(false);
+  const [stakeholderMapPreviewData, setStakeholderMapPreviewData] = useState<{
+    stakeholderMap: StakeholderMapData;
+    customer: StakeholderCustomerData;
     planId: string;
   } | null>(null);
 
@@ -318,6 +327,29 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowMilestonePlanPreview(true);
         setStatus('pending'); // Keep in pending until milestone plan is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a stakeholder map preview (HITL workflow)
+      if (data.isStakeholderMapPreview && data.preview) {
+        setStakeholderMapPreviewData({
+          stakeholderMap: {
+            title: data.preview.title || 'Stakeholder Map',
+            stakeholders: data.preview.stakeholders || [],
+            relationships: data.preview.relationships || [],
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowStakeholderMapPreview(true);
+        setStatus('pending'); // Keep in pending until stakeholder map is saved
         setIsApproving(false);
         return;
       }
@@ -660,6 +692,66 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving stakeholder map from preview
+  const handleStakeholderMapSave = async (stakeholderMap: StakeholderMapData) => {
+    if (!stakeholderMapPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/stakeholder-map/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: stakeholderMapPreviewData.planId,
+        title: stakeholderMap.title,
+        stakeholders: stakeholderMap.stakeholders,
+        relationships: stakeholderMap.relationships,
+        notes: stakeholderMap.notes,
+        customerId: stakeholderMapPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save stakeholder map');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowStakeholderMapPreview(false);
+    setStakeholderMapPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+        additionalFiles: result.slidesUrl ? [{
+          type: 'slides',
+          fileId: result.slidesId,
+          url: result.slidesUrl,
+          title: 'Stakeholder Map Visual',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling stakeholder map preview
+  const handleStakeholderMapCancel = () => {
+    setShowStakeholderMapPreview(false);
+    setStakeholderMapPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -860,6 +952,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={milestonePlanPreviewData.customer}
         onSave={handleMilestonePlanSave}
         onCancel={handleMilestonePlanCancel}
+      />
+    );
+  }
+
+  // Stakeholder map preview for HITL workflow
+  if (showStakeholderMapPreview && stakeholderMapPreviewData) {
+    return (
+      <CADGStakeholderMapPreview
+        stakeholderMap={stakeholderMapPreviewData.stakeholderMap}
+        customer={stakeholderMapPreviewData.customer}
+        onSave={handleStakeholderMapSave}
+        onCancel={handleStakeholderMapCancel}
       />
     );
   }

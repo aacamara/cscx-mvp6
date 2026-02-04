@@ -343,6 +343,47 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a stakeholder map artifact - return preview for HITL
+    const isStakeholderMapArtifact = finalPlan.taskType === 'stakeholder_map' ||
+                                      planRow.user_query?.toLowerCase().includes('stakeholder map') ||
+                                      planRow.user_query?.toLowerCase().includes('stakeholder analysis') ||
+                                      planRow.user_query?.toLowerCase().includes('map stakeholders') ||
+                                      planRow.user_query?.toLowerCase().includes('key contacts') ||
+                                      planRow.user_query?.toLowerCase().includes('org chart') ||
+                                      planRow.user_query?.toLowerCase().includes('contact map');
+
+    if (isStakeholderMapArtifact) {
+      // Generate stakeholder map content but don't finalize - return preview for HITL
+      const stakeholderMapPreview = await artifactGenerator.generateStakeholderMapPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isStakeholderMapPreview: true,
+        preview: {
+          title: stakeholderMapPreview.title,
+          stakeholders: stakeholderMapPreview.stakeholders,
+          relationships: stakeholderMapPreview.relationships,
+          notes: stakeholderMapPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a kickoff plan artifact - return preview for HITL
     const isKickoffPlanArtifact = finalPlan.taskType === 'kickoff_plan' ||
                                    planRow.user_query?.toLowerCase().includes('kickoff plan') ||
@@ -1600,6 +1641,173 @@ ${notes || 'No additional notes.'}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save milestone plan',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/stakeholder-map/save
+ * Save finalized stakeholder map after user review
+ */
+router.post('/stakeholder-map/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      stakeholders,
+      relationships,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import slides service for visual org chart
+    const { slidesService } = await import('../services/google/slides.js');
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Build stakeholder map document content
+    const documentContent = `# ${title}
+
+---
+
+## Key Stakeholders
+
+${(stakeholders || []).map((s: {
+  name: string;
+  title: string;
+  email: string;
+  role: string;
+  influenceLevel: number;
+  engagementLevel: string;
+  notes: string;
+}) => `### ${s.name}
+- **Title:** ${s.title || 'N/A'}
+- **Email:** ${s.email || 'N/A'}
+- **Role:** ${s.role || 'User'}
+- **Influence Level:** ${'★'.repeat(s.influenceLevel || 3)}${'☆'.repeat(5 - (s.influenceLevel || 3))} (${s.influenceLevel || 3}/5)
+- **Engagement:** ${s.engagementLevel || 'Medium'}
+${s.notes ? `- **Notes:** ${s.notes}` : ''}
+`).join('\n')}
+
+---
+
+## Relationships
+
+| From | Relationship | To |
+|------|--------------|-----|
+${(relationships || []).map((r: {
+  fromId: string;
+  toId: string;
+  relationship: string;
+}) => {
+  const fromStakeholder = (stakeholders || []).find((s: { id: string }) => s.id === r.fromId);
+  const toStakeholder = (stakeholders || []).find((s: { id: string }) => s.id === r.toId);
+  return `| ${fromStakeholder?.name || 'Unknown'} | ${r.relationship || '-'} | ${toStakeholder?.name || 'Unknown'} |`;
+}).join('\n') || '| No relationships defined | - | - |'}
+
+---
+
+## Role Legend
+
+| Role | Description |
+|------|-------------|
+| Champion | Internal advocate, actively promotes the partnership |
+| Sponsor | Executive decision maker, budget authority |
+| Evaluator | Assesses value and ROI |
+| User | Active user of the product |
+| Blocker | Potential obstacle to adoption or renewal |
+
+---
+
+## Notes
+
+${notes || 'No additional notes.'}
+
+---
+
+*Generated by CSCX.AI on ${new Date().toLocaleDateString()}*
+`;
+
+    // Create document in Google Docs
+    const docResult = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+    });
+
+    // Also try to create a visual org chart in Google Slides
+    let slidesResult: { id: string; webViewLink?: string } | null = null;
+    try {
+      // Create a simple slides presentation with stakeholder cards
+      slidesResult = await slidesService.createPresentation(userId, {
+        title: `${title} - Visual Map`,
+      });
+      // Note: For a full implementation, you would add slides with stakeholder cards
+      // arranged in an org chart layout. This is a simplified version.
+    } catch (err) {
+      console.warn('[CADG] Could not create stakeholder slides:', err);
+      // Continue without slides
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'stakeholder_map_created',
+            description: `Stakeholder map created: ${title}`,
+            metadata: {
+              documentId: docResult.id,
+              documentUrl: docResult.webViewLink,
+              slidesId: slidesResult?.id,
+              slidesUrl: slidesResult?.webViewLink,
+              stakeholderCount: (stakeholders || []).length,
+              relationshipCount: (relationships || []).length,
+              createdVia: 'cadg_stakeholder_map_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log stakeholder map activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: docResult.id,
+      documentUrl: docResult.webViewLink,
+      slidesId: slidesResult?.id,
+      slidesUrl: slidesResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Stakeholder map save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save stakeholder map',
     });
   }
 });

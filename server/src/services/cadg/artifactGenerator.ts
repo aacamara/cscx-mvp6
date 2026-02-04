@@ -1306,6 +1306,30 @@ interface MilestonePlanPreviewResult {
 }
 
 /**
+ * Stakeholder map preview result for HITL review
+ */
+interface StakeholderMapPreviewResult {
+  title: string;
+  stakeholders: Array<{
+    id: string;
+    name: string;
+    title: string;
+    email: string;
+    role: 'Champion' | 'Sponsor' | 'Blocker' | 'Evaluator' | 'User';
+    influenceLevel: number; // 1-5
+    engagementLevel: 'High' | 'Medium' | 'Low';
+    notes: string;
+  }>;
+  relationships: Array<{
+    id: string;
+    fromId: string;
+    toId: string;
+    relationship: string;
+  }>;
+  notes: string;
+}
+
+/**
  * Generate milestone plan (30-60-90 day) preview for HITL review
  * Returns editable preview with phase-based goals, milestones, and success criteria
  */
@@ -1757,6 +1781,251 @@ Format your response as JSON:
   }
 }
 
+/**
+ * Generate stakeholder map preview for HITL review
+ * Returns editable preview with contact cards, roles, and relationships
+ */
+async function generateStakeholderMapPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<StakeholderMapPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Get interaction history for stakeholder hints
+  const interactions = context.platformData.interactionHistory || [];
+
+  // Build prompt for stakeholder map generation
+  const prompt = `You are a customer success manager creating a stakeholder map. Generate a comprehensive stakeholder map with key contacts.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+${interactions.length > 0 ? `Recent Interactions:
+${interactions.slice(0, 5).map((i: any) => `- ${i.type}: ${i.summary || i.description || 'Interaction'}`).join('\n')}` : ''}
+
+Generate a stakeholder map with 4-6 key stakeholders. For each stakeholder include:
+1. Name and job title
+2. Email (use example.com domain for templates)
+3. Role classification: Champion, Sponsor, Blocker, Evaluator, or User
+4. Influence level (1-5, where 5 is highest)
+5. Engagement level: High, Medium, or Low
+6. Brief notes about this person
+
+Also identify 2-4 key relationships between stakeholders.
+
+Format your response as JSON:
+{
+  "title": "Stakeholder Map title",
+  "stakeholders": [
+    {
+      "name": "Full Name",
+      "title": "Job Title",
+      "email": "email@example.com",
+      "role": "Champion|Sponsor|Blocker|Evaluator|User",
+      "influenceLevel": 1-5,
+      "engagementLevel": "High|Medium|Low",
+      "notes": "Brief notes"
+    }
+  ],
+  "relationships": [
+    {
+      "from": "Name1",
+      "to": "Name2",
+      "relationship": "Reports to|Works with|Influences|etc."
+    }
+  ],
+  "notes": "Overall notes about the stakeholder landscape"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const stakeholderContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      stakeholders?: Array<{
+        name: string;
+        title?: string;
+        email?: string;
+        role?: string;
+        influenceLevel?: number;
+        engagementLevel?: string;
+        notes?: string;
+      }>;
+      relationships?: Array<{
+        from: string;
+        to: string;
+        relationship?: string;
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = stakeholderContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default stakeholders if not parsed
+    const defaultStakeholders = [
+      {
+        name: 'Sarah Chen',
+        title: 'VP of Operations',
+        email: 'sarah.chen@acme-example.com',
+        role: 'Champion' as const,
+        influenceLevel: 5,
+        engagementLevel: 'High' as const,
+        notes: 'Primary advocate for the partnership',
+      },
+      {
+        name: 'James Rodriguez',
+        title: 'Director of IT',
+        email: 'james.r@acme-example.com',
+        role: 'Sponsor' as const,
+        influenceLevel: 4,
+        engagementLevel: 'Medium' as const,
+        notes: 'Technical decision maker',
+      },
+      {
+        name: 'Maria Thompson',
+        title: 'Product Manager',
+        email: 'maria.t@acme-example.com',
+        role: 'User' as const,
+        influenceLevel: 3,
+        engagementLevel: 'High' as const,
+        notes: 'Power user and internal advocate',
+      },
+      {
+        name: 'David Kim',
+        title: 'CFO',
+        email: 'david.kim@acme-example.com',
+        role: 'Evaluator' as const,
+        influenceLevel: 5,
+        engagementLevel: 'Low' as const,
+        notes: 'Budget authority, needs ROI justification',
+      },
+    ];
+
+    // Build stakeholders with IDs
+    const stakeholders = (parsed.stakeholders && parsed.stakeholders.length > 0
+      ? parsed.stakeholders
+      : defaultStakeholders
+    ).map((s, idx) => ({
+      id: `stakeholder-${idx + 1}`,
+      name: s.name || `Stakeholder ${idx + 1}`,
+      title: s.title || 'Unknown Title',
+      email: s.email || '',
+      role: (s.role as any) || 'User',
+      influenceLevel: s.influenceLevel || 3,
+      engagementLevel: (s.engagementLevel as any) || 'Medium',
+      notes: s.notes || '',
+    }));
+
+    // Build stakeholder name to ID map for relationships
+    const nameToId = new Map<string, string>();
+    stakeholders.forEach(s => nameToId.set(s.name.toLowerCase(), s.id));
+
+    // Build relationships with IDs
+    const defaultRelationships = [
+      { from: stakeholders[0]?.name || '', to: stakeholders[1]?.name || '', relationship: 'Works closely with' },
+      { from: stakeholders[1]?.name || '', to: stakeholders[3]?.name || '', relationship: 'Reports to' },
+    ];
+
+    const relationships = (parsed.relationships && parsed.relationships.length > 0
+      ? parsed.relationships
+      : defaultRelationships
+    ).map((r, idx) => {
+      const fromId = nameToId.get(r.from.toLowerCase()) || stakeholders[0]?.id || '';
+      const toId = nameToId.get(r.to.toLowerCase()) || stakeholders[1]?.id || '';
+      return {
+        id: `rel-${idx + 1}`,
+        fromId,
+        toId,
+        relationship: r.relationship || 'Related to',
+      };
+    }).filter(r => r.fromId && r.toId);
+
+    return {
+      title: parsed.title || `Stakeholder Map: ${customerName}`,
+      stakeholders,
+      relationships,
+      notes: parsed.notes || 'Update stakeholder roles and engagement levels as the relationship evolves.',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Stakeholder map preview generation error:', error);
+
+    // Return fallback stakeholder map
+    return {
+      title: `Stakeholder Map: ${customerName}`,
+      stakeholders: [
+        {
+          id: 'stakeholder-1',
+          name: 'Executive Sponsor',
+          title: 'VP/Director',
+          email: '',
+          role: 'Sponsor',
+          influenceLevel: 5,
+          engagementLevel: 'Medium',
+          notes: 'Budget and strategic decision maker',
+        },
+        {
+          id: 'stakeholder-2',
+          name: 'Project Champion',
+          title: 'Manager',
+          email: '',
+          role: 'Champion',
+          influenceLevel: 4,
+          engagementLevel: 'High',
+          notes: 'Internal advocate and primary contact',
+        },
+        {
+          id: 'stakeholder-3',
+          name: 'Power User',
+          title: 'Analyst/Specialist',
+          email: '',
+          role: 'User',
+          influenceLevel: 2,
+          engagementLevel: 'High',
+          notes: 'Daily user, provides feedback',
+        },
+      ],
+      relationships: [
+        {
+          id: 'rel-1',
+          fromId: 'stakeholder-2',
+          toId: 'stakeholder-1',
+          relationship: 'Reports to',
+        },
+      ],
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -1765,4 +2034,5 @@ export const artifactGenerator = {
   generateMeetingPrepPreview,
   generateKickoffPlanPreview,
   generateMilestonePlanPreview,
+  generateStakeholderMapPreview,
 };
