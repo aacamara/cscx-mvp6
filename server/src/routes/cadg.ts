@@ -430,6 +430,53 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a feature campaign artifact - return preview for HITL
+    const isFeatureCampaignArtifact = finalPlan.taskType === 'feature_campaign' ||
+                                       planRow.user_query?.toLowerCase().includes('feature campaign') ||
+                                       planRow.user_query?.toLowerCase().includes('drive adoption') ||
+                                       planRow.user_query?.toLowerCase().includes('increase adoption') ||
+                                       planRow.user_query?.toLowerCase().includes('adoption campaign') ||
+                                       planRow.user_query?.toLowerCase().includes('feature rollout') ||
+                                       planRow.user_query?.toLowerCase().includes('promote feature') ||
+                                       planRow.user_query?.toLowerCase().includes('underutilized features') ||
+                                       planRow.user_query?.toLowerCase().includes('boost usage');
+
+    if (isFeatureCampaignArtifact) {
+      // Generate feature campaign content but don't finalize - return preview for HITL
+      const featureCampaignPreview = await artifactGenerator.generateFeatureCampaignPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isFeatureCampaignPreview: true,
+        preview: {
+          title: featureCampaignPreview.title,
+          campaignGoal: featureCampaignPreview.campaignGoal,
+          targetFeatures: featureCampaignPreview.targetFeatures,
+          userSegments: featureCampaignPreview.userSegments,
+          timeline: featureCampaignPreview.timeline,
+          messaging: featureCampaignPreview.messaging,
+          successMetrics: featureCampaignPreview.successMetrics,
+          notes: featureCampaignPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -2342,6 +2389,203 @@ ${notes || 'No additional notes.'}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save usage analysis',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/feature-campaign/save
+ * Save finalized feature campaign after user review
+ */
+router.post('/feature-campaign/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      campaignGoal,
+      targetFeatures,
+      userSegments,
+      timeline,
+      messaging,
+      successMetrics,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import docs service
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Filter to only included items
+    const includedFeatures = (targetFeatures || []).filter((f: { included: boolean }) => f.included);
+    const includedSegments = (userSegments || []).filter((s: { included: boolean }) => s.included);
+
+    // Build feature campaign document content
+    const documentContent = `# ${title}
+
+**Campaign Goal:** ${campaignGoal || 'Drive feature adoption'}
+
+**Timeline:** ${timeline?.startDate || 'TBD'} to ${timeline?.endDate || 'TBD'}
+
+---
+
+## Executive Summary
+
+This feature adoption campaign aims to increase utilization of key platform capabilities by targeting specific user segments with personalized messaging and training. The campaign consists of ${(timeline?.phases || []).length} phases designed to maximize adoption through awareness, education, and reinforcement.
+
+---
+
+## Target Features
+
+| Feature | Current Adoption | Target Adoption | Priority |
+|---------|-----------------|-----------------|----------|
+${includedFeatures.map((f: {
+  name: string;
+  currentAdoption: number;
+  targetAdoption: number;
+  priority: string;
+}) => `| ${f.name} | ${f.currentAdoption}% | ${f.targetAdoption}% | ${f.priority.toUpperCase()} |`).join('\n') || '| No features selected | - | - | - |'}
+
+---
+
+## Target Segments
+
+| Segment | Size | Current Usage | Potential |
+|---------|------|---------------|-----------|
+${includedSegments.map((s: {
+  name: string;
+  size: number;
+  currentUsage: number;
+  potential: string;
+}) => `| ${s.name} | ${s.size} users | ${s.currentUsage}% | ${s.potential.toUpperCase()} |`).join('\n') || '| No segments selected | - | - | - |'}
+
+---
+
+## Campaign Timeline
+
+${(timeline?.phases || []).map((phase: {
+  name: string;
+  startDate: string;
+  endDate: string;
+  activities: string[];
+}, index: number) => `### Phase ${index + 1}: ${phase.name}
+
+**Duration:** ${phase.startDate} to ${phase.endDate}
+
+**Key Activities:**
+${(phase.activities || []).map((activity: string) => `- ${activity}`).join('\n') || '- No activities defined'}
+`).join('\n') || 'No phases defined.'}
+
+---
+
+## Messaging Strategy
+
+${(messaging || []).map((msg: {
+  channel: string;
+  subject: string;
+  content: string;
+  timing: string;
+  segment: string;
+}, index: number) => `### Message ${index + 1}: ${msg.channel.toUpperCase()}
+
+**Target Segment:** ${msg.segment}
+**Timing:** ${msg.timing}
+**Subject:** ${msg.subject}
+
+**Content:**
+${msg.content}
+`).join('\n---\n\n') || 'No messaging templates defined.'}
+
+---
+
+## Success Metrics
+
+| Metric | Current | Target | Unit |
+|--------|---------|--------|------|
+${(successMetrics || []).map((m: {
+  name: string;
+  current: number;
+  target: number;
+  unit: string;
+}) => `| ${m.name} | ${m.current} | ${m.target} | ${m.unit} |`).join('\n') || '| No metrics defined | - | - | - |'}
+
+---
+
+## Notes
+
+${notes || 'No additional notes.'}
+
+---
+
+*Generated by CSCX.AI on ${new Date().toLocaleDateString()}*
+`;
+
+    // Create document in Google Docs
+    const docResult = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+    });
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'feature_campaign_created',
+            description: `Feature campaign created: ${title}`,
+            metadata: {
+              documentId: docResult.id,
+              documentUrl: docResult.webViewLink,
+              featuresCount: includedFeatures.length,
+              segmentsCount: includedSegments.length,
+              phasesCount: (timeline?.phases || []).length,
+              messagingCount: (messaging || []).length,
+              metricsCount: (successMetrics || []).length,
+              timeline,
+              createdVia: 'cadg_feature_campaign_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log feature campaign activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: docResult.id,
+      documentUrl: docResult.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Feature campaign save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save feature campaign',
     });
   }
 });

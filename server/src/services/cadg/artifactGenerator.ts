@@ -2629,6 +2629,447 @@ Format your response as JSON:
   }
 }
 
+/**
+ * Feature campaign preview result for HITL review
+ */
+interface FeatureCampaignPreviewResult {
+  title: string;
+  campaignGoal: string;
+  targetFeatures: Array<{
+    id: string;
+    name: string;
+    currentAdoption: number;
+    targetAdoption: number;
+    priority: 'high' | 'medium' | 'low';
+    included: boolean;
+  }>;
+  userSegments: Array<{
+    id: string;
+    name: string;
+    size: number;
+    currentUsage: number;
+    potential: 'high' | 'medium' | 'low';
+    included: boolean;
+  }>;
+  timeline: {
+    startDate: string;
+    endDate: string;
+    phases: Array<{
+      id: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+      activities: string[];
+    }>;
+  };
+  messaging: Array<{
+    id: string;
+    channel: 'email' | 'in-app' | 'webinar' | 'training' | 'slack' | 'other';
+    subject: string;
+    content: string;
+    timing: string;
+    segment: string;
+  }>;
+  successMetrics: Array<{
+    id: string;
+    name: string;
+    current: number;
+    target: number;
+    unit: string;
+  }>;
+  notes: string;
+}
+
+/**
+ * Generate feature campaign preview for HITL review
+ * Returns editable preview with target features, user segments, messaging, and success metrics
+ */
+async function generateFeatureCampaignPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<FeatureCampaignPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Get engagement metrics from context
+  const engagement = context.platformData.engagementMetrics;
+
+  // Build prompt for feature campaign generation
+  const prompt = `You are a customer success manager creating a feature adoption campaign plan. Generate a comprehensive campaign to drive adoption of underutilized features.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+${engagement ? `Current Engagement Data:
+- Feature Adoption: ${engagement.featureAdoption}%
+- Login Frequency: ${engagement.loginFrequency} per week
+- Last Activity: ${engagement.lastActivityDays} days ago` : ''}
+
+Generate a feature campaign plan with:
+1. Campaign title and primary goal
+2. 3-5 target features with current/target adoption rates and priority
+3. 3-4 user segments to target with potential impact
+4. Campaign timeline with 2-3 phases and specific activities
+5. 3-4 messaging templates for different channels
+6. 4-6 success metrics with current baselines and targets
+
+Format your response as JSON:
+{
+  "title": "Campaign title",
+  "campaignGoal": "Primary goal description",
+  "targetFeatures": [
+    {
+      "name": "Feature name",
+      "currentAdoption": number (0-100),
+      "targetAdoption": number (0-100),
+      "priority": "high|medium|low"
+    }
+  ],
+  "userSegments": [
+    {
+      "name": "Segment name",
+      "size": number,
+      "currentUsage": number (0-100),
+      "potential": "high|medium|low"
+    }
+  ],
+  "timeline": {
+    "startDate": "YYYY-MM-DD",
+    "endDate": "YYYY-MM-DD",
+    "phases": [
+      {
+        "name": "Phase name",
+        "startDate": "YYYY-MM-DD",
+        "endDate": "YYYY-MM-DD",
+        "activities": ["Activity 1", "Activity 2"]
+      }
+    ]
+  },
+  "messaging": [
+    {
+      "channel": "email|in-app|webinar|training|slack|other",
+      "subject": "Message subject",
+      "content": "Message content/script",
+      "timing": "When to send (e.g., Week 1, Day 3)",
+      "segment": "Target segment name"
+    }
+  ],
+  "successMetrics": [
+    {
+      "name": "Metric name",
+      "current": number,
+      "target": number,
+      "unit": "percent|users|sessions|count"
+    }
+  ],
+  "notes": "Additional campaign notes"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const campaignContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      campaignGoal?: string;
+      targetFeatures?: Array<{
+        name: string;
+        currentAdoption?: number;
+        targetAdoption?: number;
+        priority?: string;
+      }>;
+      userSegments?: Array<{
+        name: string;
+        size?: number;
+        currentUsage?: number;
+        potential?: string;
+      }>;
+      timeline?: {
+        startDate?: string;
+        endDate?: string;
+        phases?: Array<{
+          name: string;
+          startDate?: string;
+          endDate?: string;
+          activities?: string[];
+        }>;
+      };
+      messaging?: Array<{
+        channel?: string;
+        subject?: string;
+        content?: string;
+        timing?: string;
+        segment?: string;
+      }>;
+      successMetrics?: Array<{
+        name: string;
+        current?: number;
+        target?: number;
+        unit?: string;
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = campaignContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default dates (campaign starts in 1 week, runs 8 weeks)
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 7);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 56); // 8 weeks
+
+    // Build default target features if not parsed
+    const defaultTargetFeatures = [
+      { name: 'Advanced Analytics', currentAdoption: 28, targetAdoption: 60, priority: 'high' as const },
+      { name: 'Workflow Automations', currentAdoption: 35, targetAdoption: 55, priority: 'high' as const },
+      { name: 'Integrations Hub', currentAdoption: 42, targetAdoption: 65, priority: 'medium' as const },
+      { name: 'Custom Reports', currentAdoption: 45, targetAdoption: 70, priority: 'medium' as const },
+      { name: 'API Access', currentAdoption: 22, targetAdoption: 40, priority: 'low' as const },
+    ];
+
+    const defaultUserSegments = [
+      { name: 'Power Users', size: 125, currentUsage: 85, potential: 'high' as const },
+      { name: 'Regular Users', size: 450, currentUsage: 55, potential: 'high' as const },
+      { name: 'Occasional Users', size: 280, currentUsage: 25, potential: 'medium' as const },
+      { name: 'New Users (< 30 days)', size: 95, currentUsage: 40, potential: 'medium' as const },
+    ];
+
+    const phase1Start = new Date(startDate);
+    const phase1End = new Date(startDate);
+    phase1End.setDate(phase1End.getDate() + 14);
+    const phase2Start = new Date(phase1End);
+    phase2Start.setDate(phase2Start.getDate() + 1);
+    const phase2End = new Date(phase2Start);
+    phase2End.setDate(phase2End.getDate() + 21);
+    const phase3Start = new Date(phase2End);
+    phase3Start.setDate(phase3Start.getDate() + 1);
+
+    const defaultTimeline = {
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+      phases: [
+        {
+          name: 'Awareness & Education',
+          startDate: phase1Start.toISOString().split('T')[0],
+          endDate: phase1End.toISOString().split('T')[0],
+          activities: [
+            'Launch announcement email to all users',
+            'Create feature spotlight in-app banners',
+            'Publish help center articles and tutorials',
+          ],
+        },
+        {
+          name: 'Activation & Training',
+          startDate: phase2Start.toISOString().split('T')[0],
+          endDate: phase2End.toISOString().split('T')[0],
+          activities: [
+            'Host live webinar series (2 sessions)',
+            'Send personalized adoption recommendations',
+            'Offer 1:1 training sessions for key accounts',
+            'Launch in-app guided tours',
+          ],
+        },
+        {
+          name: 'Reinforcement & Optimization',
+          startDate: phase3Start.toISOString().split('T')[0],
+          endDate: endDate.toISOString().split('T')[0],
+          activities: [
+            'Share success stories and case studies',
+            'Send progress reports to users',
+            'Recognize and reward adoption champions',
+          ],
+        },
+      ],
+    };
+
+    const defaultMessaging = [
+      {
+        channel: 'email' as const,
+        subject: 'Unlock the Full Potential of [Product] - New Features You\'re Missing',
+        content: 'Hi {{first_name}},\n\nWe noticed you haven\'t explored some of our most powerful features yet. Here\'s what you\'re missing:\n\n• Advanced Analytics - Get deeper insights into your data\n• Workflow Automations - Save hours every week\n\nReady to level up? Join our exclusive training session this Thursday.\n\nBest,\nYour Customer Success Team',
+        timing: 'Week 1, Day 1',
+        segment: 'All Users',
+      },
+      {
+        channel: 'in-app' as const,
+        subject: 'Did you know? Feature Spotlight',
+        content: 'Discover how Advanced Analytics can help you make better decisions. Click here for a quick 2-minute tour.',
+        timing: 'Week 1-2, On login',
+        segment: 'Users not using Analytics',
+      },
+      {
+        channel: 'webinar' as const,
+        subject: 'Live Training: Master Advanced Features in 30 Minutes',
+        content: 'Webinar script: Welcome attendees, demo key features, Q&A session, share resources, next steps.',
+        timing: 'Week 3, Thursday 2pm',
+        segment: 'Registered Users',
+      },
+      {
+        channel: 'slack' as const,
+        subject: 'Weekly Tip: Feature of the Week',
+        content: 'This week\'s feature spotlight: Workflow Automations. Did you know you can automate repetitive tasks and save 5+ hours per week? Here\'s how: [link]',
+        timing: 'Weekly, Monday morning',
+        segment: 'Slack-connected Users',
+      },
+    ];
+
+    const defaultSuccessMetrics = [
+      { name: 'Overall Feature Adoption', current: 35, target: 55, unit: 'percent' },
+      { name: 'Analytics Daily Active Users', current: 145, target: 300, unit: 'users' },
+      { name: 'Automations Created', current: 89, target: 250, unit: 'count' },
+      { name: 'Webinar Attendance', current: 0, target: 150, unit: 'users' },
+      { name: 'Training Completion Rate', current: 25, target: 60, unit: 'percent' },
+      { name: 'Feature NPS', current: 42, target: 60, unit: 'count' },
+    ];
+
+    const targetFeatures = (parsed.targetFeatures && parsed.targetFeatures.length > 0
+      ? parsed.targetFeatures
+      : defaultTargetFeatures
+    ).map((f, idx) => ({
+      id: `feature-${idx + 1}`,
+      name: f.name || `Feature ${idx + 1}`,
+      currentAdoption: f.currentAdoption || 30,
+      targetAdoption: f.targetAdoption || 60,
+      priority: (f.priority as 'high' | 'medium' | 'low') || 'medium',
+      included: true,
+    }));
+
+    const userSegments = (parsed.userSegments && parsed.userSegments.length > 0
+      ? parsed.userSegments
+      : defaultUserSegments
+    ).map((s, idx) => ({
+      id: `segment-${idx + 1}`,
+      name: s.name || `Segment ${idx + 1}`,
+      size: s.size || 100,
+      currentUsage: s.currentUsage || 50,
+      potential: (s.potential as 'high' | 'medium' | 'low') || 'medium',
+      included: true,
+    }));
+
+    const timeline = parsed.timeline && parsed.timeline.phases && parsed.timeline.phases.length > 0
+      ? {
+          startDate: parsed.timeline.startDate || defaultTimeline.startDate,
+          endDate: parsed.timeline.endDate || defaultTimeline.endDate,
+          phases: parsed.timeline.phases.map((p, idx) => ({
+            id: `phase-${idx + 1}`,
+            name: p.name || `Phase ${idx + 1}`,
+            startDate: p.startDate || defaultTimeline.phases[idx]?.startDate || defaultTimeline.startDate,
+            endDate: p.endDate || defaultTimeline.phases[idx]?.endDate || defaultTimeline.endDate,
+            activities: p.activities || [],
+          })),
+        }
+      : {
+          ...defaultTimeline,
+          phases: defaultTimeline.phases.map((p, idx) => ({
+            id: `phase-${idx + 1}`,
+            ...p,
+          })),
+        };
+
+    const messaging = (parsed.messaging && parsed.messaging.length > 0
+      ? parsed.messaging
+      : defaultMessaging
+    ).map((m, idx) => ({
+      id: `message-${idx + 1}`,
+      channel: (m.channel as 'email' | 'in-app' | 'webinar' | 'training' | 'slack' | 'other') || 'email',
+      subject: m.subject || '',
+      content: m.content || '',
+      timing: m.timing || '',
+      segment: m.segment || 'All Users',
+    }));
+
+    const successMetrics = (parsed.successMetrics && parsed.successMetrics.length > 0
+      ? parsed.successMetrics
+      : defaultSuccessMetrics
+    ).map((m, idx) => ({
+      id: `metric-${idx + 1}`,
+      name: m.name || `Metric ${idx + 1}`,
+      current: m.current || 0,
+      target: m.target || 50,
+      unit: m.unit || 'percent',
+    }));
+
+    return {
+      title: parsed.title || `Feature Adoption Campaign: ${customerName}`,
+      campaignGoal: parsed.campaignGoal || 'Drive adoption of underutilized features to improve customer value realization and reduce churn risk.',
+      targetFeatures,
+      userSegments,
+      timeline,
+      messaging,
+      successMetrics,
+      notes: parsed.notes || 'Review target features, user segments, and messaging. Customize timeline and success metrics as needed.',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Feature campaign preview generation error:', error);
+
+    // Return fallback feature campaign
+    const fallbackStart = new Date();
+    fallbackStart.setDate(fallbackStart.getDate() + 7);
+    const fallbackEnd = new Date(fallbackStart);
+    fallbackEnd.setDate(fallbackEnd.getDate() + 56);
+
+    return {
+      title: `Feature Adoption Campaign: ${customerName}`,
+      campaignGoal: 'Drive adoption of underutilized features to improve customer value realization.',
+      targetFeatures: [
+        { id: 'feature-1', name: 'Advanced Analytics', currentAdoption: 30, targetAdoption: 60, priority: 'high', included: true },
+        { id: 'feature-2', name: 'Workflow Automations', currentAdoption: 35, targetAdoption: 55, priority: 'high', included: true },
+        { id: 'feature-3', name: 'Integrations', currentAdoption: 40, targetAdoption: 65, priority: 'medium', included: true },
+      ],
+      userSegments: [
+        { id: 'segment-1', name: 'Power Users', size: 100, currentUsage: 80, potential: 'high', included: true },
+        { id: 'segment-2', name: 'Regular Users', size: 400, currentUsage: 50, potential: 'high', included: true },
+        { id: 'segment-3', name: 'Low Activity Users', size: 200, currentUsage: 20, potential: 'medium', included: true },
+      ],
+      timeline: {
+        startDate: fallbackStart.toISOString().split('T')[0],
+        endDate: fallbackEnd.toISOString().split('T')[0],
+        phases: [
+          { id: 'phase-1', name: 'Awareness', startDate: fallbackStart.toISOString().split('T')[0], endDate: fallbackStart.toISOString().split('T')[0], activities: ['Launch announcement', 'Create content'] },
+          { id: 'phase-2', name: 'Training', startDate: fallbackStart.toISOString().split('T')[0], endDate: fallbackEnd.toISOString().split('T')[0], activities: ['Host webinars', 'Offer 1:1 sessions'] },
+        ],
+      },
+      messaging: [
+        { id: 'message-1', channel: 'email', subject: 'Discover New Features', content: 'Email content here...', timing: 'Week 1', segment: 'All Users' },
+        { id: 'message-2', channel: 'in-app', subject: 'Feature Spotlight', content: 'In-app message...', timing: 'Ongoing', segment: 'Low Adoption Users' },
+      ],
+      successMetrics: [
+        { id: 'metric-1', name: 'Feature Adoption Rate', current: 35, target: 55, unit: 'percent' },
+        { id: 'metric-2', name: 'Training Completion', current: 20, target: 50, unit: 'percent' },
+        { id: 'metric-3', name: 'Active Users', current: 500, target: 700, unit: 'users' },
+      ],
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -2640,4 +3081,5 @@ export const artifactGenerator = {
   generateStakeholderMapPreview,
   generateTrainingSchedulePreview,
   generateUsageAnalysisPreview,
+  generateFeatureCampaignPreview,
 };

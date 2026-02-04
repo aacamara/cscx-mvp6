@@ -14,6 +14,7 @@ import { CADGMilestonePlanPreview, MilestonePlanData, CustomerData as MilestoneC
 import { CADGStakeholderMapPreview, StakeholderMapData, CustomerData as StakeholderCustomerData } from './CADGStakeholderMapPreview';
 import { CADGTrainingSchedulePreview, TrainingScheduleData, CustomerData as TrainingCustomerData } from './CADGTrainingSchedulePreview';
 import { CADGUsageAnalysisPreview, UsageAnalysisData, CustomerData as UsageAnalysisCustomerData } from './CADGUsageAnalysisPreview';
+import { CADGFeatureCampaignPreview, FeatureCampaignData, CustomerData as FeatureCampaignCustomerData } from './CADGFeatureCampaignPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -189,6 +190,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [usageAnalysisPreviewData, setUsageAnalysisPreviewData] = useState<{
     usageAnalysis: UsageAnalysisData;
     customer: UsageAnalysisCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Feature campaign preview state for HITL workflow
+  const [showFeatureCampaignPreview, setShowFeatureCampaignPreview] = useState(false);
+  const [featureCampaignPreviewData, setFeatureCampaignPreviewData] = useState<{
+    featureCampaign: FeatureCampaignData;
+    customer: FeatureCampaignCustomerData;
     planId: string;
   } | null>(null);
 
@@ -423,6 +432,33 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowUsageAnalysisPreview(true);
         setStatus('pending'); // Keep in pending until usage analysis is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a feature campaign preview (HITL workflow)
+      if (data.isFeatureCampaignPreview && data.preview) {
+        setFeatureCampaignPreviewData({
+          featureCampaign: {
+            title: data.preview.title || 'Feature Adoption Campaign',
+            campaignGoal: data.preview.campaignGoal || '',
+            targetFeatures: data.preview.targetFeatures || [],
+            userSegments: data.preview.userSegments || [],
+            timeline: data.preview.timeline || { startDate: '', endDate: '', phases: [] },
+            messaging: data.preview.messaging || [],
+            successMetrics: data.preview.successMetrics || [],
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowFeatureCampaignPreview(true);
+        setStatus('pending'); // Keep in pending until feature campaign is saved
         setIsApproving(false);
         return;
       }
@@ -949,6 +985,64 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving feature campaign from preview
+  const handleFeatureCampaignSave = async (featureCampaign: FeatureCampaignData) => {
+    if (!featureCampaignPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/feature-campaign/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: featureCampaignPreviewData.planId,
+        title: featureCampaign.title,
+        campaignGoal: featureCampaign.campaignGoal,
+        targetFeatures: featureCampaign.targetFeatures,
+        userSegments: featureCampaign.userSegments,
+        timeline: featureCampaign.timeline,
+        messaging: featureCampaign.messaging,
+        successMetrics: featureCampaign.successMetrics,
+        notes: featureCampaign.notes,
+        customerId: featureCampaignPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save feature campaign');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowFeatureCampaignPreview(false);
+    setFeatureCampaignPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling feature campaign preview
+  const handleFeatureCampaignCancel = () => {
+    setShowFeatureCampaignPreview(false);
+    setFeatureCampaignPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1185,6 +1279,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={usageAnalysisPreviewData.customer}
         onSave={handleUsageAnalysisSave}
         onCancel={handleUsageAnalysisCancel}
+      />
+    );
+  }
+
+  // Feature campaign preview for HITL workflow
+  if (showFeatureCampaignPreview && featureCampaignPreviewData) {
+    return (
+      <CADGFeatureCampaignPreview
+        featureCampaign={featureCampaignPreviewData.featureCampaign}
+        customer={featureCampaignPreviewData.customer}
+        onSave={handleFeatureCampaignSave}
+        onCancel={handleFeatureCampaignCancel}
       />
     );
   }
