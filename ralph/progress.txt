@@ -1,7 +1,14 @@
 # Ralph Progress Log
-# Project: CSCX.AI Chat Fixes V2
-# Branch: ralph/chat-fixes-v2
-# Started: 2026-02-03
+# Project: CSCX.AI CADG Complete Cards
+# Branch: ralph/cadg-complete-cards
+# Started: 2026-02-04
+
+## Codebase Patterns
+- CADG preview components follow a consistent pattern: bg-cscx-gray-800 container, sticky header with gradient, accent colors (teal/purple/blue)
+- Use `useAuth().getAuthHeaders()` for authenticated API calls
+- List operations: always generate unique IDs with `Date.now()` pattern
+- AI suggestions: use `/api/cadg/{type}/suggest` endpoints with `fieldType`, `currentValue`, `customerId`
+- TypeScript: export types alongside component for external use
 
 ---
 
@@ -74,4 +81,26 @@
 - Manual testing of all features
 - Run E2E tests
 
+---
+
+## 2026-02-04 - US-003
+- **What was implemented**: Generic editable preview component (CADGEditablePreview.tsx)
+- **Files changed**:
+  - `components/AIPanel/CADGEditablePreview.tsx` (created, 901 lines)
+- **Features**:
+  - Schema-driven field rendering (text, textarea, date, dropdown, slider, toggle, etc.)
+  - List management: add/remove/reorder items (both simple and complex lists)
+  - Multi-dropdown selection for owner assignments
+  - Date and datetime pickers for timeline fields
+  - Collapsible sections with defaultCollapsed option
+  - AI Enhance button with suggestion apply/dismiss flow
+  - Data sources panel display
+  - Accent color theming (teal, purple, blue, red, green, yellow, orange)
+  - Unsaved changes warning on cancel
+  - Matches MeetingScheduler styling with consistent UI patterns
+- **Learnings for future iterations**:
+  - The component uses a schema-driven approach - define `PreviewSchema` with sections and fields, and it renders automatically
+  - Field types: 'text', 'textarea', 'date', 'datetime', 'dropdown', 'multi-dropdown', 'list', 'list-complex', 'slider', 'toggle', 'number'
+  - AI enhancement calls `/api/cadg/enhance` endpoint - needs backend implementation
+  - Existing TypeScript errors in codebase are pre-existing, not from this change
 ---
