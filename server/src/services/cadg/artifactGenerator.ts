@@ -6548,6 +6548,348 @@ Format your response as JSON:
   }
 }
 
+// ============================================
+// Resolution Plan Types
+// ============================================
+
+interface ResolutionIssue {
+  id: string;
+  title: string;
+  description: string;
+  category: 'product' | 'service' | 'integration' | 'performance' | 'usability' | 'security' | 'compliance' | 'other';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  status: 'open' | 'in_progress' | 'blocked' | 'resolved';
+  reportedDate: string;
+  enabled: boolean;
+}
+
+interface ResolutionAction {
+  id: string;
+  action: string;
+  description: string;
+  owner: 'CSM' | 'Customer' | 'Support' | 'Product' | 'Engineering' | 'Leadership' | 'Implementation';
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  priority: 'high' | 'medium' | 'low';
+  relatedIssueIds: string[];
+}
+
+interface ResolutionDependency {
+  id: string;
+  description: string;
+  type: 'internal' | 'external' | 'customer' | 'vendor';
+  status: 'pending' | 'in_progress' | 'resolved';
+  blockedBy: string;
+  enabled: boolean;
+}
+
+interface ResolutionPlanPreviewResult {
+  title: string;
+  createdDate: string;
+  targetResolutionDate: string;
+  overallStatus: 'on_track' | 'at_risk' | 'blocked' | 'resolved';
+  summary: string;
+  healthScore: number;
+  daysUntilRenewal: number;
+  arr: number;
+  issues: ResolutionIssue[];
+  actionItems: ResolutionAction[];
+  dependencies: ResolutionDependency[];
+  timeline: string;
+  notes: string;
+}
+
+/**
+ * Generate a resolution plan preview for customer issues
+ * Provides editable HITL preview before creating final document
+ */
+async function generateResolutionPlanPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<ResolutionPlanPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 65;
+  const arr = customer?.arr || 100000;
+  const tier = customer?.tier || 'Growth';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 45;
+  const loginFrequency = engagement?.loginFrequency || 2.0;
+
+  // Get support data
+  const supportTickets = context.platformData.interactionHistory?.filter((i: any) => i.type === 'support') || [];
+  const openTicketCount = supportTickets.length;
+
+  // Get risk signals from context
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high');
+
+  // Calculate days until renewal
+  const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+  // Calculate target resolution date (30 days from now or before renewal)
+  const targetResolutionDate = new Date(Date.now() + Math.min(30, daysUntilRenewal - 14) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Determine overall status
+  let overallStatus: ResolutionPlanPreviewResult['overallStatus'] = 'on_track';
+  if (hasHighRisk || healthScore < 40) overallStatus = 'blocked';
+  else if (healthScore < 55 || daysUntilRenewal < 30) overallStatus = 'at_risk';
+
+  // Build prompt for resolution plan generation
+  const prompt = `You are a customer success manager creating a comprehensive resolution plan to address multiple customer issues. Generate a structured plan with issues, action items, dependencies, and timeline.
+
+Customer: ${customerName}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100
+Current ARR: $${arr.toLocaleString()}
+Days Until Renewal: ${daysUntilRenewal}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+Open Support Tickets: ${openTicketCount}
+Overall Status: ${overallStatus.toUpperCase().replace('_', ' ')}
+Target Resolution: ${targetResolutionDate}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a resolution plan with:
+1. A summary describing the situation and resolution approach (2-3 sentences)
+2. 4-6 issues categorized by type (product, service, integration, performance, usability, security, compliance) with severity and status
+3. 6-8 action items with owners, priorities, due dates, and linked issues
+4. 3-5 dependencies that need to be resolved
+5. Expected timeline for resolution
+
+Format your response as JSON:
+{
+  "summary": "2-3 sentence summary of the situation and resolution approach",
+  "issues": [
+    {
+      "title": "Issue title",
+      "description": "Detailed description of the issue",
+      "category": "product|service|integration|performance|usability|security|compliance|other",
+      "severity": "critical|high|medium|low",
+      "status": "open|in_progress|blocked|resolved",
+      "reportedDate": "YYYY-MM-DD"
+    }
+  ],
+  "actionItems": [
+    {
+      "action": "Action title",
+      "description": "What needs to be done",
+      "owner": "CSM|Customer|Support|Product|Engineering|Leadership|Implementation",
+      "priority": "high|medium|low",
+      "relatedIssues": ["Issue title 1", "Issue title 2"]
+    }
+  ],
+  "dependencies": [
+    {
+      "description": "What is the dependency",
+      "type": "internal|external|customer|vendor",
+      "blockedBy": "Who/what is blocking"
+    }
+  ],
+  "timeline": "Expected timeline description (e.g., '4 weeks with weekly checkpoints')"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Get summary
+    const summary = parsed.summary ||
+      `${customerName} has multiple open issues requiring a structured resolution plan. ` +
+      `With ${openTicketCount} support tickets and a health score of ${healthScore}, ` +
+      `a coordinated effort is needed to resolve these issues before renewal in ${daysUntilRenewal} days.`;
+
+    // Process issues
+    const issues: ResolutionIssue[] = (parsed.issues || []).map((issue: any, idx: number) => ({
+      id: `issue-${idx + 1}`,
+      title: issue.title || `Issue ${idx + 1}`,
+      description: issue.description || '',
+      category: (issue.category as ResolutionIssue['category']) || 'other',
+      severity: (issue.severity as ResolutionIssue['severity']) || 'medium',
+      status: (issue.status as ResolutionIssue['status']) || 'open',
+      reportedDate: issue.reportedDate || new Date(Date.now() - (30 - idx * 5) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      enabled: true,
+    }));
+
+    // Ensure minimum issues
+    if (issues.length < 4) {
+      const defaultIssues: ResolutionIssue[] = [
+        { id: 'issue-1', title: 'Performance Degradation', description: 'System response times have increased significantly over the past month', category: 'performance', severity: 'high', status: 'open', reportedDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'issue-2', title: 'Integration Sync Issues', description: 'Data synchronization with CRM is failing intermittently', category: 'integration', severity: 'high', status: 'in_progress', reportedDate: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'issue-3', title: 'Feature Usability Concerns', description: 'Users reporting confusion with recent UI changes', category: 'usability', severity: 'medium', status: 'open', reportedDate: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'issue-4', title: 'Missing Reporting Features', description: 'Customer requested reports not available in current version', category: 'product', severity: 'medium', status: 'open', reportedDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'issue-5', title: 'Support Response Time', description: 'Customer expects faster resolution on critical tickets', category: 'service', severity: 'medium', status: 'in_progress', reportedDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      ];
+
+      // Add missing issues
+      defaultIssues.forEach((defaultIssue) => {
+        if (issues.length < 4) {
+          issues.push({ ...defaultIssue, id: `issue-${issues.length + 1}` });
+        }
+      });
+    }
+
+    // Create issue name to ID mapping
+    const issueNameToId = new Map<string, string>();
+    issues.forEach(issue => {
+      issueNameToId.set(issue.title.toLowerCase(), issue.id);
+    });
+
+    // Process action items
+    const actionItems: ResolutionAction[] = (parsed.actionItems || []).map((action: any, idx: number) => {
+      // Map related issue names to IDs
+      const relatedIssueIds: string[] = [];
+      if (action.relatedIssues) {
+        (action.relatedIssues as string[]).forEach((issueName: string) => {
+          const issueId = issueNameToId.get(issueName.toLowerCase());
+          if (issueId) relatedIssueIds.push(issueId);
+        });
+      }
+
+      return {
+        id: `action-${idx + 1}`,
+        action: action.action || `Action ${idx + 1}`,
+        description: action.description || '',
+        owner: (action.owner as ResolutionAction['owner']) || 'CSM',
+        dueDate: new Date(Date.now() + (7 + idx * 5) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: 'pending' as const,
+        priority: (action.priority as ResolutionAction['priority']) || 'medium',
+        relatedIssueIds: relatedIssueIds.length > 0 ? relatedIssueIds : [issues[Math.min(idx, issues.length - 1)]?.id || 'issue-1'],
+      };
+    });
+
+    // Ensure minimum action items
+    if (actionItems.length < 6) {
+      const defaultActions: ResolutionAction[] = [
+        { id: 'action-1', action: 'Schedule Technical Review', description: 'Set up call with engineering to review performance issues', owner: 'CSM', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedIssueIds: ['issue-1'] },
+        { id: 'action-2', action: 'Integration Health Check', description: 'Run diagnostic on CRM sync and document failures', owner: 'Support', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedIssueIds: ['issue-2'] },
+        { id: 'action-3', action: 'Customer Training Session', description: 'Schedule training on new UI features', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-3'] },
+        { id: 'action-4', action: 'Feature Request Review', description: 'Review missing reports with product team', owner: 'Product', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-4'] },
+        { id: 'action-5', action: 'Escalation Path Setup', description: 'Define dedicated support channel for critical issues', owner: 'Support', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedIssueIds: ['issue-5'] },
+        { id: 'action-6', action: 'Executive Sponsor Check-in', description: 'Schedule call with executive sponsor to review progress', owner: 'Leadership', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-1', 'issue-2'] },
+        { id: 'action-7', action: 'Customer Success Plan Update', description: 'Update success plan with resolution milestones', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-1', 'issue-3', 'issue-4'] },
+      ];
+
+      // Add missing actions
+      defaultActions.forEach((defaultAction) => {
+        if (actionItems.length < 6) {
+          actionItems.push({ ...defaultAction, id: `action-${actionItems.length + 1}` });
+        }
+      });
+    }
+
+    // Process dependencies
+    const dependencies: ResolutionDependency[] = (parsed.dependencies || []).map((dep: any, idx: number) => ({
+      id: `dep-${idx + 1}`,
+      description: dep.description || `Dependency ${idx + 1}`,
+      type: (dep.type as ResolutionDependency['type']) || 'internal',
+      status: 'pending' as const,
+      blockedBy: dep.blockedBy || 'Pending review',
+      enabled: true,
+    }));
+
+    // Ensure minimum dependencies
+    if (dependencies.length < 3) {
+      const defaultDependencies: ResolutionDependency[] = [
+        { id: 'dep-1', description: 'Engineering resource allocation for performance fix', type: 'internal', status: 'pending', blockedBy: 'Sprint planning approval', enabled: true },
+        { id: 'dep-2', description: 'Customer IT team availability for integration testing', type: 'customer', status: 'pending', blockedBy: 'Customer IT calendar', enabled: true },
+        { id: 'dep-3', description: 'Third-party API documentation update', type: 'vendor', status: 'pending', blockedBy: 'Vendor support response', enabled: true },
+        { id: 'dep-4', description: 'Product roadmap prioritization for feature request', type: 'internal', status: 'pending', blockedBy: 'Product leadership review', enabled: true },
+      ];
+
+      // Add missing dependencies
+      defaultDependencies.forEach((defaultDep) => {
+        if (dependencies.length < 3) {
+          dependencies.push({ ...defaultDep, id: `dep-${dependencies.length + 1}` });
+        }
+      });
+    }
+
+    // Get timeline
+    const timeline = parsed.timeline ||
+      `4-week resolution plan with weekly status updates. Week 1: Immediate triage and critical fixes. Week 2: Integration and performance remediation. Week 3: User training and adoption support. Week 4: Validation and closure.`;
+
+    return {
+      title: `Resolution Plan: ${customerName}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      targetResolutionDate,
+      overallStatus,
+      summary,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      issues,
+      actionItems,
+      dependencies,
+      timeline,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Resolution plan preview generation error:', error);
+
+    // Return fallback resolution plan
+    const fallbackSummary = `${customerName} has multiple open issues requiring a structured resolution plan. With a health score of ${healthScore} and renewal in ${daysUntilRenewal} days, a coordinated effort is needed to resolve these issues.`;
+
+    const fallbackIssues: ResolutionIssue[] = [
+      { id: 'issue-1', title: 'Performance Issues', description: 'System response times need improvement', category: 'performance', severity: 'high', status: 'open', reportedDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'issue-2', title: 'Integration Problems', description: 'Data sync issues with external systems', category: 'integration', severity: 'high', status: 'in_progress', reportedDate: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'issue-3', title: 'Usability Feedback', description: 'Users need additional training support', category: 'usability', severity: 'medium', status: 'open', reportedDate: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'issue-4', title: 'Feature Gaps', description: 'Missing functionality requested by customer', category: 'product', severity: 'medium', status: 'open', reportedDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+    ];
+
+    const fallbackActionItems: ResolutionAction[] = [
+      { id: 'action-1', action: 'Technical Review', description: 'Review performance issues', owner: 'Engineering', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedIssueIds: ['issue-1'] },
+      { id: 'action-2', action: 'Integration Fix', description: 'Resolve sync issues', owner: 'Support', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedIssueIds: ['issue-2'] },
+      { id: 'action-3', action: 'Training Session', description: 'User training', owner: 'CSM', dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-3'] },
+      { id: 'action-4', action: 'Product Roadmap Review', description: 'Review feature requests', owner: 'Product', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-4'] },
+      { id: 'action-5', action: 'Status Update', description: 'Weekly progress update', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-1', 'issue-2'] },
+      { id: 'action-6', action: 'Exec Check-in', description: 'Executive status review', owner: 'Leadership', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedIssueIds: ['issue-1', 'issue-2', 'issue-3', 'issue-4'] },
+    ];
+
+    const fallbackDependencies: ResolutionDependency[] = [
+      { id: 'dep-1', description: 'Engineering resources', type: 'internal', status: 'pending', blockedBy: 'Sprint planning', enabled: true },
+      { id: 'dep-2', description: 'Customer IT availability', type: 'customer', status: 'pending', blockedBy: 'Schedule coordination', enabled: true },
+      { id: 'dep-3', description: 'Product prioritization', type: 'internal', status: 'pending', blockedBy: 'Roadmap review', enabled: true },
+    ];
+
+    return {
+      title: `Resolution Plan: ${customerName}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      targetResolutionDate,
+      overallStatus,
+      summary: fallbackSummary,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      issues: fallbackIssues,
+      actionItems: fallbackActionItems,
+      dependencies: fallbackDependencies,
+      timeline: '4-week resolution plan with weekly status updates',
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -6569,4 +6911,5 @@ export const artifactGenerator = {
   generateRiskAssessmentPreview,
   generateSavePlayPreview,
   generateEscalationReportPreview,
+  generateResolutionPlanPreview,
 };

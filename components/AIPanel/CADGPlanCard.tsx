@@ -24,6 +24,7 @@ import { CADGNegotiationBriefPreview, NegotiationBriefData, CustomerData as Nego
 import { CADGRiskAssessmentPreview, RiskAssessmentData, CustomerData as RiskAssessmentCustomerData } from './CADGRiskAssessmentPreview';
 import { CADGSavePlayPreview, SavePlayData, CustomerData as SavePlayCustomerData } from './CADGSavePlayPreview';
 import { CADGEscalationReportPreview, EscalationReportData, CustomerData as EscalationReportCustomerData } from './CADGEscalationReportPreview';
+import { CADGResolutionPlanPreview, ResolutionPlanData, CustomerData as ResolutionPlanCustomerData } from './CADGResolutionPlanPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -279,6 +280,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [escalationReportPreviewData, setEscalationReportPreviewData] = useState<{
     escalationReport: EscalationReportData;
     customer: EscalationReportCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Resolution plan preview state for HITL workflow
+  const [showResolutionPlanPreview, setShowResolutionPlanPreview] = useState(false);
+  const [resolutionPlanPreviewData, setResolutionPlanPreviewData] = useState<{
+    resolutionPlan: ResolutionPlanData;
+    customer: ResolutionPlanCustomerData;
     planId: string;
   } | null>(null);
 
@@ -799,6 +808,39 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowEscalationReportPreview(true);
         setStatus('pending'); // Keep in pending until escalation report is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a resolution plan preview (HITL workflow)
+      if (data.isResolutionPlanPreview && data.preview) {
+        setResolutionPlanPreviewData({
+          resolutionPlan: {
+            title: data.preview.title || 'Resolution Plan',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            targetResolutionDate: data.preview.targetResolutionDate || '',
+            overallStatus: data.preview.overallStatus || 'on_track',
+            summary: data.preview.summary || '',
+            healthScore: data.preview.healthScore || 0,
+            daysUntilRenewal: data.preview.daysUntilRenewal || 0,
+            arr: data.preview.arr || 0,
+            issues: data.preview.issues || [],
+            actionItems: data.preview.actionItems || [],
+            dependencies: data.preview.dependencies || [],
+            timeline: data.preview.timeline || '',
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowResolutionPlanPreview(true);
+        setStatus('pending'); // Keep in pending until resolution plan is saved
         setIsApproving(false);
         return;
       }
@@ -1984,6 +2026,75 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving resolution plan from preview
+  const handleResolutionPlanSave = async (resolutionPlan: ResolutionPlanData) => {
+    if (!resolutionPlanPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/resolution-plan/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: resolutionPlanPreviewData.planId,
+        title: resolutionPlan.title,
+        createdDate: resolutionPlan.createdDate,
+        targetResolutionDate: resolutionPlan.targetResolutionDate,
+        overallStatus: resolutionPlan.overallStatus,
+        summary: resolutionPlan.summary,
+        healthScore: resolutionPlan.healthScore,
+        daysUntilRenewal: resolutionPlan.daysUntilRenewal,
+        arr: resolutionPlan.arr,
+        issues: resolutionPlan.issues,
+        actionItems: resolutionPlan.actionItems,
+        dependencies: resolutionPlan.dependencies,
+        timeline: resolutionPlan.timeline,
+        notes: resolutionPlan.notes,
+        customerId: resolutionPlanPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save resolution plan');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowResolutionPlanPreview(false);
+    setResolutionPlanPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'resolution-plan',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+        additionalFiles: result.sheetId ? [{
+          type: 'spreadsheet',
+          fileId: result.sheetId,
+          url: result.sheetUrl,
+          title: 'Resolution Plan Tracker',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'resolution-plan');
+  };
+
+  // Handle canceling resolution plan preview
+  const handleResolutionPlanCancel = () => {
+    setShowResolutionPlanPreview(false);
+    setResolutionPlanPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2340,6 +2451,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={escalationReportPreviewData.customer}
         onSave={handleEscalationReportSave}
         onCancel={handleEscalationReportCancel}
+      />
+    );
+  }
+
+  // Resolution plan preview mode
+  if (showResolutionPlanPreview && resolutionPlanPreviewData) {
+    return (
+      <CADGResolutionPlanPreview
+        resolutionPlan={resolutionPlanPreviewData.resolutionPlan}
+        customer={resolutionPlanPreviewData.customer}
+        onSave={handleResolutionPlanSave}
+        onCancel={handleResolutionPlanCancel}
       />
     );
   }

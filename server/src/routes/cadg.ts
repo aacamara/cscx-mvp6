@@ -1048,6 +1048,62 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a resolution plan artifact - return preview for HITL
+    const isResolutionPlanArtifact = finalPlan.taskType === 'resolution_plan' ||
+                                     planRow.user_query?.toLowerCase().includes('resolution plan') ||
+                                     planRow.user_query?.toLowerCase().includes('action plan') ||
+                                     planRow.user_query?.toLowerCase().includes('issue resolution') ||
+                                     planRow.user_query?.toLowerCase().includes('problem resolution') ||
+                                     planRow.user_query?.toLowerCase().includes('fix plan') ||
+                                     planRow.user_query?.toLowerCase().includes('remediation plan') ||
+                                     planRow.user_query?.toLowerCase().includes('corrective action') ||
+                                     planRow.user_query?.toLowerCase().includes('resolve issues') ||
+                                     planRow.user_query?.toLowerCase().includes('address issues') ||
+                                     planRow.user_query?.toLowerCase().includes('issue tracker') ||
+                                     planRow.user_query?.toLowerCase().includes('action tracker');
+
+    if (isResolutionPlanArtifact) {
+      // Generate resolution plan content but don't finalize - return preview for HITL
+      const resolutionPlanPreview = await artifactGenerator.generateResolutionPlanPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isResolutionPlanPreview: true,
+        preview: {
+          title: resolutionPlanPreview.title,
+          createdDate: resolutionPlanPreview.createdDate,
+          targetResolutionDate: resolutionPlanPreview.targetResolutionDate,
+          overallStatus: resolutionPlanPreview.overallStatus,
+          summary: resolutionPlanPreview.summary,
+          healthScore: resolutionPlanPreview.healthScore,
+          daysUntilRenewal: resolutionPlanPreview.daysUntilRenewal,
+          arr: resolutionPlanPreview.arr,
+          issues: resolutionPlanPreview.issues,
+          actionItems: resolutionPlanPreview.actionItems,
+          dependencies: resolutionPlanPreview.dependencies,
+          timeline: resolutionPlanPreview.timeline,
+          notes: resolutionPlanPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -4991,6 +5047,264 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save escalation report',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/resolution-plan/save
+ * Save finalized resolution plan after user review
+ */
+router.post('/resolution-plan/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      targetResolutionDate,
+      overallStatus,
+      summary,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      issues,
+      actionItems,
+      dependencies,
+      timeline,
+      notes,
+      customerId,
+    } = req.body;
+
+    // Get userId from session or request
+    const userId = (req as any).userId || req.body.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Filter enabled items
+    const enabledIssues = (issues || []).filter((i: any) => i.enabled);
+    const enabledDependencies = (dependencies || []).filter((d: any) => d.enabled);
+
+    // Status colors for display
+    const STATUS_LABELS: Record<string, string> = {
+      on_track: 'On Track',
+      at_risk: 'At Risk',
+      blocked: 'Blocked',
+      resolved: 'Resolved',
+    };
+
+    const SEVERITY_LABELS: Record<string, string> = {
+      critical: 'Critical',
+      high: 'High',
+      medium: 'Medium',
+      low: 'Low',
+    };
+
+    const ISSUE_STATUS_LABELS: Record<string, string> = {
+      open: 'Open',
+      in_progress: 'In Progress',
+      blocked: 'Blocked',
+      resolved: 'Resolved',
+    };
+
+    const ACTION_STATUS_LABELS: Record<string, string> = {
+      pending: 'Pending',
+      in_progress: 'In Progress',
+      completed: 'Completed',
+      blocked: 'Blocked',
+    };
+
+    // Build document content
+    const documentContent = `# ${title}
+
+**Created:** ${createdDate}
+**Target Resolution:** ${targetResolutionDate}
+**Overall Status:** ${STATUS_LABELS[overallStatus] || overallStatus}
+
+---
+
+## Executive Summary
+
+${summary}
+
+---
+
+## Key Metrics
+
+| Metric | Value |
+|--------|-------|
+| ARR | $${(arr || 0).toLocaleString()} |
+| Health Score | ${healthScore}/100 |
+| Days to Renewal | ${daysUntilRenewal} |
+| Open Issues | ${enabledIssues.filter((i: any) => i.status !== 'resolved').length} |
+| Pending Actions | ${(actionItems || []).filter((a: any) => a.status === 'pending').length} |
+
+---
+
+## Issues
+
+${enabledIssues.map((issue: any, idx: number) => `### ${idx + 1}. ${issue.title}
+**Category:** ${issue.category}
+**Severity:** ${SEVERITY_LABELS[issue.severity] || issue.severity}
+**Status:** ${ISSUE_STATUS_LABELS[issue.status] || issue.status}
+**Reported:** ${issue.reportedDate}
+
+${issue.description}
+`).join('\n')}
+
+---
+
+## Action Items
+
+| # | Action | Owner | Priority | Due Date | Status |
+|---|--------|-------|----------|----------|--------|
+${(actionItems || []).map((action: any, idx: number) => `| ${idx + 1} | ${action.action} | ${action.owner} | ${action.priority?.toUpperCase()} | ${action.dueDate} | ${ACTION_STATUS_LABELS[action.status] || action.status} |`).join('\n')}
+
+### Action Details
+
+${(actionItems || []).map((action: any, idx: number) => `#### ${idx + 1}. ${action.action}
+**Owner:** ${action.owner}
+**Priority:** ${action.priority?.toUpperCase()}
+**Due Date:** ${action.dueDate}
+**Status:** ${ACTION_STATUS_LABELS[action.status] || action.status}
+**Related Issues:** ${action.relatedIssueIds?.map((id: string) => {
+  const issue = enabledIssues.find((i: any) => i.id === id);
+  return issue ? issue.title : id;
+}).join(', ') || 'None'}
+
+${action.description}
+`).join('\n')}
+
+---
+
+## Dependencies
+
+${enabledDependencies.map((dep: any, idx: number) => `### ${idx + 1}. ${dep.description}
+**Type:** ${dep.type}
+**Status:** ${dep.status}
+**Blocked By:** ${dep.blockedBy}
+`).join('\n')}
+
+---
+
+## Timeline
+
+${timeline}
+
+---
+
+${notes ? `## Internal Notes
+
+${notes}
+
+---
+
+` : ''}
+*Document generated via CSCX.AI Resolution Plan*
+`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create resolution plan document:', docsErr);
+    }
+
+    // Create Google Sheets tracker
+    let sheetsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { sheetsService } = await import('../services/google/sheets.js');
+
+      const sheetResult = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Tracker`,
+      });
+
+      if (sheetResult && sheetResult.id) {
+        // Add Issues sheet data
+        const issuesHeader = ['ID', 'Title', 'Category', 'Severity', 'Status', 'Reported Date', 'Description'];
+        const issuesData = enabledIssues.map((issue: any) => [
+          issue.id,
+          issue.title,
+          issue.category,
+          issue.severity,
+          issue.status,
+          issue.reportedDate,
+          issue.description,
+        ]);
+
+        // Update sheets with data
+        await sheetsService.updateValues(userId, sheetResult.id, {
+          range: 'Sheet1!A1',
+          values: [issuesHeader, ...issuesData],
+        });
+
+        sheetsResult = { id: sheetResult.id, webViewLink: sheetResult.webViewLink };
+      }
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create resolution plan tracker:', sheetsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity
+    if (customerId) {
+      try {
+        const { config } = await import('../config/index.js');
+        const { createClient } = await import('@supabase/supabase-js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'resolution_plan_created',
+            description: `Resolution plan created: ${title} - ${enabledIssues.length} issues, ${(actionItems || []).length} actions`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              sheetId: sheetsResult?.id,
+              sheetUrl: sheetsResult?.webViewLink,
+              overallStatus,
+              healthScore,
+              arr,
+              daysUntilRenewal,
+              issueCount: enabledIssues.length,
+              actionCount: (actionItems || []).length,
+              dependencyCount: enabledDependencies.length,
+              targetResolutionDate,
+              createdVia: 'cadg_resolution_plan_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log resolution plan activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      sheetId: sheetsResult?.id,
+      sheetUrl: sheetsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Resolution plan save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save resolution plan',
     });
   }
 });
