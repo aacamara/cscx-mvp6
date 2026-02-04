@@ -25,6 +25,8 @@ export interface ChatMessage {
   tool_calls?: unknown[];
   session_id: string;
   created_at?: string;
+  status?: 'sending' | 'sent' | 'failed';
+  client_id?: string;
 }
 
 /**
@@ -55,9 +57,10 @@ router.post('/messages', async (req: Request, res: Response) => {
       });
     }
 
+    // Use upsert with client_id for deduplication (prevents duplicate messages on retry)
     const { data, error } = await supabase
       .from('chat_messages')
-      .insert({
+      .upsert({
         customer_id: message.customer_id || null,
         user_id: message.user_id,
         role: message.role,
@@ -65,6 +68,11 @@ router.post('/messages', async (req: Request, res: Response) => {
         agent_type: message.agent_type || null,
         tool_calls: message.tool_calls || [],
         session_id: message.session_id,
+        status: message.status || 'sent',
+        client_id: message.client_id || null,
+      }, {
+        onConflict: 'client_id',
+        ignoreDuplicates: false
       })
       .select()
       .single();
@@ -117,6 +125,8 @@ router.post('/messages/batch', async (req: Request, res: Response) => {
           agent_type: m.agent_type || null,
           tool_calls: m.tool_calls || [],
           session_id: m.session_id,
+          status: m.status || 'sent',
+          client_id: m.client_id || null,
         }))
       )
       .select();
@@ -334,9 +344,10 @@ router.get('/history', async (req: Request, res: Response) => {
 
     // Start building the query - filter by user_id for security
     // Include tool_calls to support attachment metadata display
+    // Include status and client_id for message status tracking
     let query = supabase
       .from('chat_messages')
-      .select('id, customer_id, user_id, role, content, agent_type, tool_calls, session_id, created_at', { count: 'exact' })
+      .select('id, customer_id, user_id, role, content, agent_type, tool_calls, session_id, created_at, status, client_id', { count: 'exact' })
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 

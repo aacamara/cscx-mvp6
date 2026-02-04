@@ -97,46 +97,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   const { connected: wsConnected } = useWebSocket();
   const { isOnline, queuedCount, queueMessage, dequeueMessage, getNextQueuedMessage } = useOnlineStatus();
 
-  // Process queued messages when coming back online
-  useEffect(() => {
-    if (!isOnline) return;
-
-    const processQueue = async () => {
-      let nextMessage = getNextQueuedMessage();
-      while (nextMessage) {
-        try {
-          // Update message status
-          setMessages(prev => prev.map(msg =>
-            msg.id === nextMessage!.id ? { ...msg, status: 'sending' as const } : msg
-          ));
-
-          // Send the message
-          await sendToAgent(nextMessage.content, undefined, nextMessage.id);
-
-          // Remove from queue
-          dequeueMessage(nextMessage.id);
-
-          // Update status to sent
-          setMessages(prev => prev.map(msg =>
-            msg.id === nextMessage!.id ? { ...msg, status: 'sent' as const } : msg
-          ));
-        } catch (error) {
-          console.error('Failed to send queued message:', error);
-          setMessages(prev => prev.map(msg =>
-            msg.id === nextMessage!.id ? { ...msg, status: 'failed' as const } : msg
-          ));
-          break; // Stop processing on error
-        }
-        nextMessage = getNextQueuedMessage();
-      }
-    };
-
-    if (queuedCount > 0) {
-      processQueue();
-    }
-  }, [isOnline, queuedCount]);
-  const [agenticStateId, setAgenticStateId] = useState<string | null>(null);
-  // Persist sessionId per customer in localStorage
+  // Persist sessionId per customer in localStorage (moved before useEffect that needs it)
   const [sessionId] = useState(() => {
     const customerId = customer?.id || customer?.name || 'default';
     const storageKey = `cscx_session_${customerId}`;
@@ -146,6 +107,91 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     localStorage.setItem(storageKey, newId);
     return newId;
   });
+
+  // Track retry counts for queued messages
+  const retryCountsRef = useRef<Record<string, number>>({});
+
+  // Process queued messages when coming back online with exponential backoff
+  useEffect(() => {
+    if (!isOnline) return;
+
+    const processQueue = async () => {
+      const MAX_RETRIES = 3;
+      let nextMessage = getNextQueuedMessage();
+
+      while (nextMessage) {
+        const messageId = nextMessage.id;
+        const retryCount = retryCountsRef.current[messageId] || 0;
+
+        try {
+          // Update message status to sending
+          setMessages(prev => prev.map(msg =>
+            msg.id === messageId ? { ...msg, status: 'sending' as const } : msg
+          ));
+
+          // Exponential backoff with jitter
+          if (retryCount > 0) {
+            const delay = Math.min(1000 * Math.pow(2, retryCount - 1), 10000);
+            const jitter = delay * 0.1 * Math.random();
+            await new Promise(r => setTimeout(r, delay + jitter));
+          }
+
+          // Save directly using the chat API for queued messages
+          const response = await fetch(`${API_URL}/api/chat/messages`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': DEMO_USER_ID
+            },
+            body: JSON.stringify({
+              customer_id: nextMessage.customerId || null,
+              user_id: DEMO_USER_ID,
+              role: 'user',
+              content: nextMessage.content,
+              session_id: sessionId,
+              status: 'sent',
+              client_id: messageId
+            })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            // Remove from queue and update status
+            dequeueMessage(messageId);
+            delete retryCountsRef.current[messageId];
+            setMessages(prev => prev.map(msg =>
+              msg.id === messageId ? { ...msg, id: data.message?.id || msg.id, status: 'sent' as const } : msg
+            ));
+          } else {
+            throw new Error(`HTTP ${response.status}`);
+          }
+        } catch (error) {
+          console.error('Failed to send queued message:', error);
+
+          // Increment retry count
+          retryCountsRef.current[messageId] = retryCount + 1;
+
+          if (retryCountsRef.current[messageId] >= MAX_RETRIES) {
+            // Max retries reached, mark as failed and remove from queue
+            setMessages(prev => prev.map(msg =>
+              msg.id === messageId ? { ...msg, status: 'failed' as const } : msg
+            ));
+            dequeueMessage(messageId);
+            delete retryCountsRef.current[messageId];
+          } else {
+            // Will retry on next processQueue call
+            break;
+          }
+        }
+        nextMessage = getNextQueuedMessage();
+      }
+    };
+
+    if (queuedCount > 0) {
+      processQueue();
+    }
+  }, [isOnline, queuedCount, getNextQueuedMessage, dequeueMessage, sessionId]);
+  const [agenticStateId, setAgenticStateId] = useState<string | null>(null);
   const [csAgentStatuses, setCsAgentStatuses] = useState<Record<CSAgentType, AgentStatus>>({
     onboarding: 'active',
     adoption: 'idle',
@@ -194,8 +240,8 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   }, [messages.length, isUserScrolledUp, rowVirtualizer]);
 
-  // Client-side intent classifier for real-time agent routing preview
-  const classifyIntent = useCallback((text: string): { agent: CSAgentType; confidence: number; keywords: string[] } | null => {
+  // Local fallback intent classifier (used when backend is unavailable)
+  const localClassifyIntent = useCallback((text: string): { agent: CSAgentType; confidence: number; keywords: string[] } | null => {
     if (!text || text.length < 3) return null;
 
     const lowerText = text.toLowerCase();
@@ -247,18 +293,62 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     return bestMatch;
   }, []);
 
-  // Update predicted intent as user types (debounced)
+  // Backend-powered intent classifier with local fallback
+  const classifyIntent = useCallback(async (text: string): Promise<{ agent: CSAgentType; confidence: number; keywords: string[] } | null> => {
+    if (!text || text.length < 3) return null;
+
+    try {
+      const response = await fetch(`${API_URL}/api/agents/intent/classify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: text, customerId: customer?.id })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        // Validate agent type is a known CSAgentType
+        const validAgents: CSAgentType[] = ['onboarding', 'adoption', 'renewal', 'risk', 'strategic'];
+        const agent = validAgents.includes(result.agent) ? result.agent : 'onboarding';
+        return {
+          agent,
+          confidence: result.confidence || 0.7,
+          keywords: [result.reasoning || 'AI classified']
+        };
+      }
+    } catch (error) {
+      console.warn('Backend classification failed, using local fallback:', error);
+    }
+
+    // Fallback to local classifier
+    return localClassifyIntent(text);
+  }, [customer?.id, localClassifyIntent]);
+
+  // Update predicted intent as user types (debounced with AbortController)
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
+    const abortController = new AbortController();
+
+    const timeoutId = setTimeout(async () => {
       if (selectedAgent === 'auto' && input.trim()) {
-        const intent = classifyIntent(input);
-        setPredictedIntent(intent);
+        try {
+          const intent = await classifyIntent(input);
+          if (!abortController.signal.aborted) {
+            setPredictedIntent(intent);
+          }
+        } catch (error) {
+          // Silently handle aborted requests
+          if ((error as Error).name !== 'AbortError') {
+            console.warn('Classification error:', error);
+          }
+        }
       } else {
         setPredictedIntent(null);
       }
-    }, 150);
+    }, 300); // 300ms debounce for API calls
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      abortController.abort();
+    };
   }, [input, selectedAgent, classifyIntent]);
 
   const scrollToTop = () => {
@@ -398,7 +488,8 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     if (!customer?.id) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/agent-activities/customer/${customer.id}`, {
+      // Try the new chat history endpoint first (includes status)
+      const response = await fetch(`${API_URL}/api/chat/history?customerId=${customer.id}`, {
         headers: {
           'x-user-id': DEMO_USER_ID
         }
@@ -406,8 +497,50 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
 
       if (response.ok) {
         const data = await response.json();
+        if (data.messages && data.messages.length > 0) {
+          // Convert chat history to AgentMessage format (messages are DESC, so reverse)
+          const loadedMessages: AgentMessage[] = data.messages
+            .reverse()
+            .map((msg: {
+              id: string;
+              role: string;
+              content: string;
+              agent_type?: string;
+              tool_calls?: unknown[];
+              status?: string;
+              created_at?: string;
+            }) => ({
+              id: msg.id,
+              isUser: msg.role === 'user',
+              agent: msg.agent_type as CSAgentType || activeAgent,
+              message: msg.content,
+              toolResults: msg.tool_calls,
+              status: msg.status as 'sending' | 'sent' | 'failed' || 'sent',
+              timestamp: msg.created_at,
+            }));
+
+          // Only set if we don't already have messages (avoid overwriting new messages)
+          setMessages(prev => {
+            if (prev.length <= 1) {
+              return loadedMessages;
+            }
+            return prev;
+          });
+          console.log(`[AgentControlCenter] Loaded ${loadedMessages.length} messages from history`);
+          return;
+        }
+      }
+
+      // Fallback to agent-activities endpoint if chat history is empty
+      const fallbackResponse = await fetch(`${API_URL}/api/agent-activities/customer/${customer.id}`, {
+        headers: {
+          'x-user-id': DEMO_USER_ID
+        }
+      });
+
+      if (fallbackResponse.ok) {
+        const data = await fallbackResponse.json();
         if (data.chatHistory && data.chatHistory.length > 0) {
-          // Convert chat history to AgentMessage format
           const loadedMessages: AgentMessage[] = data.chatHistory.map((msg: {
             role: string;
             content: string;
@@ -418,16 +551,16 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             agent: msg.agentType as CSAgentType || activeAgent,
             message: msg.content,
             toolResults: msg.toolCalls,
+            status: 'sent' as const, // Legacy messages default to sent
           }));
 
-          // Only set if we don't already have messages (avoid overwriting new messages)
           setMessages(prev => {
             if (prev.length <= 1) {
               return loadedMessages;
             }
             return prev;
           });
-          console.log(`[AgentControlCenter] Loaded ${loadedMessages.length} messages from history`);
+          console.log(`[AgentControlCenter] Loaded ${loadedMessages.length} messages from legacy history`);
         }
       }
     } catch (error) {
@@ -585,15 +718,17 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
 
   // Helper to save chat message to database for Agent Inbox
   // Attachment metadata is stored in toolCalls field as { type: 'attachment', ...attachmentData }
+  // Returns the saved message with server ID for optimistic update reconciliation
   const saveChatMessage = async (
     role: string,
     content: string,
     agentType?: string,
     toolCalls?: any[],
-    attachment?: { name: string; size: number; type: string; hasContent?: boolean }
-  ) => {
+    attachment?: { name: string; size: number; type: string; hasContent?: boolean },
+    clientId?: string,
+    status: 'sending' | 'sent' | 'failed' = 'sent'
+  ): Promise<{ id: string; status: string } | null> => {
     const customerId = customer?.id;
-    if (!customerId) return; // Only save if we have a customer context
 
     // Merge attachment metadata into toolCalls array
     let toolCallsWithAttachment = toolCalls || [];
@@ -605,23 +740,34 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
 
     try {
-      await fetch(`${API_URL}/api/agent-activities/chat-message`, {
+      // Use /api/chat/messages endpoint which supports status and client_id
+      const response = await fetch(`${API_URL}/api/chat/messages`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'x-user-id': DEMO_USER_ID
         },
         body: JSON.stringify({
-          customerId,
-          role,
+          customer_id: customerId || null,
+          user_id: DEMO_USER_ID,
+          role: role === 'assistant' ? 'assistant' : 'user',
           content,
-          agentType,
-          toolCalls: toolCallsWithAttachment.length > 0 ? toolCallsWithAttachment : null,
-          sessionId
+          agent_type: agentType || null,
+          tool_calls: toolCallsWithAttachment.length > 0 ? toolCallsWithAttachment : [],
+          session_id: sessionId,
+          status,
+          client_id: clientId || null
         })
       });
+
+      if (response.ok) {
+        const data = await response.json();
+        return { id: data.message?.id || data.id, status: 'sent' };
+      }
+      return null;
     } catch (err) {
       console.error('Failed to save chat message:', err);
+      return null;
     }
   };
 
@@ -631,22 +777,28 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     attachment?: { name: string; size: number; type: string; hasContent?: boolean },
     messageId?: string
   ) => {
-    // Update message status to sent (optimistic update succeeded)
-    const updateMessageStatus = (status: 'sent' | 'failed') => {
-      if (messageId) {
-        setMessages(prev => prev.map(msg =>
-          msg.id === messageId ? { ...msg, status } : msg
-        ));
-      }
+    // Generate client-side ID for deduplication if not provided
+    const clientId = messageId || `client_${crypto.randomUUID()}`;
+
+    // Update message status with functional setState (prevents race conditions)
+    const updateMessageStatus = (id: string, status: 'sending' | 'sent' | 'failed', serverId?: string) => {
+      setMessages(prev => prev.map(msg =>
+        msg.id === id ? { ...msg, id: serverId || msg.id, status } : msg
+      ));
     };
 
     try {
-      // Save user message to database with attachment metadata
-      saveChatMessage('user', message, undefined, undefined, attachment);
-      updateMessageStatus('sent');
+      // Save user message to database with client_id for deduplication
+      const result = await saveChatMessage('user', message, undefined, undefined, attachment, clientId, 'sent');
+      if (result) {
+        // Update with server ID and sent status
+        updateMessageStatus(messageId || clientId, 'sent', result.id);
+      } else {
+        throw new Error('Failed to save message');
+      }
     } catch (error) {
       console.error('Failed to save message:', error);
-      updateMessageStatus('failed');
+      updateMessageStatus(messageId || clientId, 'failed');
       return;
     }
 

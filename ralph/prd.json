@@ -1,0 +1,137 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "ralph/chat-fixes-v2",
+  "description": "Fix all broken chat production features - wire up backend integrations that are currently UI-only facades",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add intent classification endpoint to backend",
+      "description": "As a developer, I need a backend endpoint that uses Claude AI to classify user message intent into the appropriate CS agent category.",
+      "acceptanceCriteria": [
+        "Create POST /api/agents/intent/classify endpoint in server/src/routes/agents.ts",
+        "Endpoint accepts { message: string, customerId?: string }",
+        "Use claudeService to classify intent with Claude AI",
+        "Return JSON: { agent: string, confidence: number, reasoning: string }",
+        "Agent values: onboarding, adoption, renewal, risk, strategic, general",
+        "Use haiku model for speed (< 500ms response)",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Implemented in server/src/routes/agents.ts with graceful fallback"
+    },
+    {
+      "id": "US-002",
+      "title": "Wire frontend intent classifier to backend API",
+      "description": "As a user, I want the intent prediction shown while typing to use real AI classification from the backend.",
+      "acceptanceCriteria": [
+        "Update components/AgentControlCenter/index.tsx classifyIntent function",
+        "Call /api/agents/intent/classify endpoint with debounce (300ms)",
+        "Display backend classification result in input hint",
+        "Fallback to existing local regex classifier if backend fails",
+        "Show loading indicator while classifying",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Async classifier with AbortController and local fallback"
+    },
+    {
+      "id": "US-003",
+      "title": "Update saveChatMessage to persist status",
+      "description": "As a developer, I need the backend to save message status (sending/sent/failed) to the database.",
+      "acceptanceCriteria": [
+        "Update server/src/services/supabase.ts saveChatMessage method",
+        "Accept status parameter: 'sending' | 'sent' | 'failed'",
+        "Accept client_id parameter for deduplication",
+        "Save status and client_id to chat_messages table",
+        "Return saved message with id and status in response",
+        "Typecheck passes"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Updated in server/src/routes/chat.ts with upsert for deduplication"
+    },
+    {
+      "id": "US-004",
+      "title": "Update getChatHistory to return message status",
+      "description": "As a user, I want to see the correct status of messages when I reload the page.",
+      "acceptanceCriteria": [
+        "Update chat history endpoint to include status field in response",
+        "Update server/src/services/supabase.ts getChatHistory method",
+        "Return status field for each message (default 'sent' for old messages)",
+        "Frontend displays correct status badge from backend data",
+        "Typecheck passes"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Select now includes status and client_id, frontend loads from /api/chat/history"
+    },
+    {
+      "id": "US-005",
+      "title": "Implement real optimistic updates with reconciliation",
+      "description": "As a user, I want my messages to appear instantly and update with real status from the server.",
+      "acceptanceCriteria": [
+        "Generate client-side UUID before sending message",
+        "Add message to UI immediately with status 'sending'",
+        "Send message to backend with client_id for deduplication",
+        "On success: update message with server ID, set status to 'sent'",
+        "On failure: set status to 'failed', keep message in UI",
+        "Update components/AgentControlCenter/index.tsx sendToAgent function",
+        "Typecheck passes"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Uses crypto.randomUUID() and functional setState pattern"
+    },
+    {
+      "id": "US-006",
+      "title": "Wire retry button to actually resend failed messages",
+      "description": "As a user, I want to click retry on a failed message and have it actually resend.",
+      "acceptanceCriteria": [
+        "Failed messages show retry button in Message.tsx",
+        "handleRetryMessage in AgentControlCenter resends to backend",
+        "Resend uses same client_id for deduplication",
+        "Status updates: failed -> sending -> sent/failed",
+        "Retry works for both immediate failures and offline queue items",
+        "Typecheck passes"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "handleRetryMessage calls sendToAgent with existing messageId"
+    },
+    {
+      "id": "US-007",
+      "title": "Fix offline queue to reliably process on reconnect",
+      "description": "As a user, I want messages I sent while offline to automatically send when I reconnect.",
+      "acceptanceCriteria": [
+        "Verify useOnlineStatus hook processes queue on 'online' event",
+        "Each queued message sent with exponential backoff retry",
+        "Success removes message from localStorage queue",
+        "Failure increments retry count (max 3 retries)",
+        "After max retries, mark as failed and remove from queue",
+        "Show visual indicator when queue is processing",
+        "Typecheck passes"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Queue processing with exponential backoff and jitter"
+    },
+    {
+      "id": "US-008",
+      "title": "Remove total_value from contract save or make it optional",
+      "description": "As a developer, I need contract parsing to not fail due to missing database column.",
+      "acceptanceCriteria": [
+        "Update server/src/routes/contracts.ts",
+        "Make total_value column optional in insert (use arr as fallback)",
+        "Make start_date and end_date optional in insert",
+        "Contract parsing saves successfully without migration",
+        "If columns exist, use them; if not, skip them",
+        "Typecheck passes"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "Updated server/src/services/supabase.ts with fallback insert"
+    }
+  ]
+}

@@ -12,6 +12,8 @@ import { approvalService } from '../services/approval.js';
 import { skillExecutor, getAvailableSkills, SKILLS, SkillContext } from '../agents/skills/index.js';
 import { config } from '../config/index.js';
 import { cadgService } from '../services/cadg/index.js';
+import { ClaudeService } from '../services/claude.js';
+const claudeService = new ClaudeService();
 
 const router = Router();
 
@@ -1858,6 +1860,81 @@ router.post('/skills/match', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Match skill error:', error);
     return res.status(500).json({ error: 'Failed to match skill' });
+  }
+});
+
+// ============================================
+// INTENT CLASSIFICATION ENDPOINT
+// ============================================
+
+/**
+ * POST /api/agents/intent/classify
+ * Classify user message intent using Claude AI
+ * Returns: { agent: string, confidence: number, reasoning: string }
+ */
+router.post('/intent/classify', async (req: Request, res: Response) => {
+  try {
+    const { message, customerId } = req.body;
+
+    if (!message) {
+      return res.status(400).json({ error: 'Message required' });
+    }
+
+    // Skip classification for very short messages
+    if (message.length < 3) {
+      return res.json({
+        agent: 'general',
+        confidence: 0.5,
+        reasoning: 'Message too short for classification'
+      });
+    }
+
+    const systemPrompt = `You are an intent classifier for a Customer Success platform.
+Classify the user's message into ONE of these agent categories:
+- onboarding: New customer setup, kickoff, 30-60-90 plans, implementation
+- adoption: Feature usage, training, engagement, product education
+- renewal: Contract renewal, pricing, negotiation, expansion
+- risk: Churn signals, escalation, save plays, at-risk indicators
+- strategic: QBR, executive briefing, account planning, business reviews
+- general: Other inquiries, greetings, unclear intent
+
+Respond with JSON only: {"agent": "category", "confidence": 0.0-1.0, "reasoning": "brief explanation"}`;
+
+    const result = await claudeService.generate(
+      `Classify this customer success message: "${message}"`,
+      systemPrompt,
+      false // Use fast model for speed (< 500ms response)
+    );
+
+    // Parse the JSON response
+    try {
+      const parsed = JSON.parse(result);
+      return res.json({
+        agent: parsed.agent || 'general',
+        confidence: typeof parsed.confidence === 'number' ? parsed.confidence : 0.7,
+        reasoning: parsed.reasoning || 'Classification completed'
+      });
+    } catch (parseError) {
+      // If JSON parsing fails, extract intent from text response
+      console.warn('Intent classification JSON parse failed, extracting from text');
+      const agentTypes = ['onboarding', 'adoption', 'renewal', 'risk', 'strategic', 'general'];
+      const lowerResult = result.toLowerCase();
+      const matchedAgent = agentTypes.find(a => lowerResult.includes(a)) || 'general';
+
+      return res.json({
+        agent: matchedAgent,
+        confidence: 0.6,
+        reasoning: 'Extracted from text response'
+      });
+    }
+  } catch (error) {
+    console.error('Intent classification error:', error);
+    // Return fallback instead of error to ensure graceful degradation
+    return res.json({
+      agent: 'general',
+      confidence: 0.5,
+      reasoning: 'Backend classification failed, using fallback'
+    });
   }
 });
 

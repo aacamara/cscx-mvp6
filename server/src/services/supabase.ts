@@ -197,13 +197,58 @@ export class SupabaseService {
       return { id: `contract_${Date.now()}` };
     }
 
+    // Build insert object with only fields that exist
+    // Required fields
+    const insertData: Record<string, unknown> = {
+      file_name: contract.file_name,
+      company_name: contract.company_name,
+      arr: contract.arr,
+      status: contract.status || 'active',
+    };
+
+    // Copy optional fields if they exist
+    const optionalFields = [
+      'customer_id', 'file_type', 'file_size', 'file_url', 'google_doc_url',
+      'raw_text', 'contract_period', 'contract_term', 'parsed_data', 'confidence',
+      'parsed_at'
+    ];
+    for (const field of optionalFields) {
+      if (contract[field] !== undefined) {
+        insertData[field] = contract[field];
+      }
+    }
+
+    // Try to insert with optional date/value columns first
+    // If it fails due to missing columns, retry without them
+    const extendedData = { ...insertData };
+    if (contract.total_value !== undefined) extendedData.total_value = contract.total_value;
+    if (contract.start_date !== undefined) extendedData.start_date = contract.start_date;
+    if (contract.end_date !== undefined) extendedData.end_date = contract.end_date;
+
     const { data, error } = await this.ensureClient()
       .from('contracts')
-      .insert(contract)
+      .insert(extendedData)
       .select('id')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // Check if error is due to missing columns
+      if (error.message?.includes('total_value') ||
+          error.message?.includes('start_date') ||
+          error.message?.includes('end_date')) {
+        console.warn('[Supabase] Optional columns missing, retrying without them:', error.message);
+        // Retry without the optional date/value columns
+        const { data: retryData, error: retryError } = await this.ensureClient()
+          .from('contracts')
+          .insert(insertData)
+          .select('id')
+          .single();
+
+        if (retryError) throw retryError;
+        return retryData;
+      }
+      throw error;
+    }
     return data;
   }
 
