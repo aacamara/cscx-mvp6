@@ -442,8 +442,8 @@
         "Typecheck passes"
       ],
       "priority": 28,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Created CADGRenewalPipelinePreview component (~900 lines) and generateRenewalPipelinePreview function with tab-based UI for Overview, Renewals, Filters, Columns. Teal/cyan accent theme. Creates Google Sheets + Doc. Works in General Mode (no customer context)."
     },
     {
       "id": "US-029",
