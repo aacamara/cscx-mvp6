@@ -509,3 +509,38 @@
   - createValueSummaryPresentation method in qbrSlides.ts creates multi-slide presentations programmatically
   - Query detection patterns: 'value summary', 'value realization', 'roi summary', 'roi report', 'roi calculation', 'success metrics', 'value delivered', 'business value', 'customer value', 'demonstrate value', 'show value', 'prove value', 'value report'
 ---
+
+## 2026-02-04 - US-017
+- **What was implemented**: Expansion proposal generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateExpansionProposalPreview()` function (~350 lines)
+  - `server/src/routes/cadg.ts` - Added expansion_proposal detection and `/api/cadg/expansion-proposal/save` endpoint (~200 lines)
+  - `components/AIPanel/CADGExpansionProposalPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added expansion proposal preview state and handlers (~120 lines)
+- **Features**:
+  - **generateExpansionProposalPreview()**: Uses Claude to generate expansion proposal with:
+    - Proposal title, dates, current/proposed ARR
+    - Expansion products with category, current/proposed plans, pricing
+    - Pricing options with discounts, terms, recommended flag
+    - Business case items with categories (efficiency, revenue, cost_savings, risk_reduction, competitive)
+    - ROI projection with auto-calculated metrics
+    - Usage gaps and growth signals
+    - Next steps
+  - **CADGExpansionProposalPreview component**:
+    - Tab-based navigation for Overview, Products, Pricing, Business Case, ROI
+    - Expandable product cards with include/exclude toggles
+    - Pricing options with recommended badge management
+    - Business case items with category dropdown and impact editing
+    - Auto-calculated ROI (roiPercentage, paybackMonths from investment/benefit)
+    - Growth signals and usage gaps list editing
+    - Violet/purple accent color theme
+  - **Backend endpoint**: POST `/api/cadg/expansion-proposal/save`:
+    - Creates Google Doc with formatted proposal content
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Expansion proposal uses `isExpansionProposalPreview: true` response type
+  - EngagementMetrics doesn't have `activeUsers` property - use `dauMau` as proxy instead
+  - docsService.createDocument takes (userId, options) - don't pass customerId in options
+  - Calculate totals dynamically from included products in the component
+  - Query detection patterns: 'expansion proposal', 'upsell proposal', 'growth proposal', 'upgrade proposal', 'account expansion', 'pricing proposal', 'cross-sell'
+---
