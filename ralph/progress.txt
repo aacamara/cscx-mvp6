@@ -656,3 +656,42 @@
   - Success metrics use `enabled` toggle for selective inclusion in final document
   - Query detection patterns: 'save play', 'save this customer', 'save the customer', 'save account', 'churn save', 'retention play', 'retention plan', 'prevent churn', 'rescue plan', 'intervention plan', 'turnaround plan', 'win back'
 ---
+
+## 2026-02-04 - US-021
+- **What was implemented**: Escalation report generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateEscalationReportPreview()` function (~390 lines) with types for TimelineEvent, ImpactMetric, SupportingEvidence, ResolutionRequest, EscalationReportPreviewResult
+  - `server/src/routes/cadg.ts` - Added escalation_report detection and `/api/cadg/escalation-report/save` endpoint (~250 lines)
+  - `components/AIPanel/CADGEscalationReportPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added escalation report preview state and handlers (~120 lines)
+- **Features**:
+  - **generateEscalationReportPreview()**: Uses Claude to generate escalation report with:
+    - Title, escalation level (critical/high/medium), issue summary
+    - Customer context (name, ARR, health score, days until renewal)
+    - Primary contact and escalation owner
+    - Timeline events with date, event name, description, severity, actor
+    - Impact metrics with severity and business impact descriptions
+    - Resolution requests with priority (urgent/high/medium/low), owner, due date, status
+    - Supporting evidence with type (email/ticket/meeting/document/screenshot/log/other)
+    - Recommended actions summary
+  - **CADGEscalationReportPreview component**:
+    - Tab-based navigation for Overview, Timeline, Impact, Requests, Evidence
+    - Timeline events with numbered badges, enable/disable checkboxes, severity/actor badges
+    - Impact metrics with expandable cards for editing
+    - Resolution requests with reordering controls, priority/status/owner dropdowns
+    - Supporting evidence with type badges and optional URL links
+    - Recommended actions textarea
+    - Unsaved changes warning
+    - Red/rose accent color theme
+  - **Backend endpoint**: POST `/api/cadg/escalation-report/save`:
+    - Creates Google Doc with formatted markdown content
+    - Tables for timeline, impact metrics, resolution requests
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Escalation report uses `isEscalationReportPreview: true` response type
+  - Timeline events sorted chronologically by date
+  - Resolution requests use `priority: 'urgent'` level (distinct from other cards that use critical/high/medium/low)
+  - Supporting evidence has optional URL field for linking to external resources
+  - Actor types: customer, csm, support, product, leadership, external
+  - Query detection patterns: 'escalation report', 'escalation', 'escalate this', 'escalate issue', 'executive escalation', 'urgent escalation', 'escalate to', 'raise escalation', 'formal escalation', 'critical issue', 'create escalation'
+---
