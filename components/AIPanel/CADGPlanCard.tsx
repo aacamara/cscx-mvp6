@@ -31,6 +31,7 @@ import { CADGTransformationRoadmapPreview, TransformationRoadmapData, CustomerDa
 import { CADGPortfolioDashboardPreview, PortfolioDashboardData, CustomerData as PortfolioDashboardCustomerData } from './CADGPortfolioDashboardPreview';
 import { CADGTeamMetricsPreview, TeamMetricsData } from './CADGTeamMetricsPreview';
 import { CADGRenewalPipelinePreview, RenewalPipelineData } from './CADGRenewalPipelinePreview';
+import { CADGAtRiskOverviewPreview, AtRiskOverviewData } from './CADGAtRiskOverviewPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -339,6 +340,13 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [showRenewalPipelinePreview, setShowRenewalPipelinePreview] = useState(false);
   const [renewalPipelinePreviewData, setRenewalPipelinePreviewData] = useState<{
     pipeline: RenewalPipelineData;
+    planId: string;
+  } | null>(null);
+
+  // At-risk overview preview state for HITL workflow (General Mode)
+  const [showAtRiskOverviewPreview, setShowAtRiskOverviewPreview] = useState(false);
+  const [atRiskOverviewPreviewData, setAtRiskOverviewPreviewData] = useState<{
+    overview: AtRiskOverviewData;
     planId: string;
   } | null>(null);
 
@@ -1129,6 +1137,55 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowRenewalPipelinePreview(true);
         setStatus('pending'); // Keep in pending until renewal pipeline is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is an at-risk overview preview (HITL workflow - General Mode)
+      if (data.isAtRiskOverviewPreview && data.preview) {
+        setAtRiskOverviewPreviewData({
+          overview: {
+            title: data.preview.title || 'At-Risk Customer Overview',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            lastUpdated: data.preview.lastUpdated || new Date().toISOString().slice(0, 10),
+            summary: data.preview.summary || {
+              totalAtRisk: 0,
+              totalArrAtRisk: 0,
+              avgRiskScore: 0,
+              avgHealthScore: 0,
+              mediumRiskCount: 0,
+              highRiskCount: 0,
+              criticalRiskCount: 0,
+              withSavePlayCount: 0,
+              withoutSavePlayCount: 0,
+              renewingWithin30Days: 0,
+              renewingWithin30DaysArr: 0,
+              renewingWithin90Days: 0,
+              renewingWithin90DaysArr: 0,
+            },
+            customers: data.preview.customers || [],
+            filters: data.preview.filters || {
+              riskLevels: ['medium', 'high', 'critical'],
+              riskThreshold: 50,
+              owners: [],
+              tiers: [],
+              segments: [],
+              showSavePlaysOnly: false,
+              showWithoutSavePlayOnly: false,
+              renewalRange: { type: 'all' },
+              sortBy: 'risk_score',
+              sortDirection: 'desc',
+            },
+            columns: data.preview.columns || [],
+            availableOwners: data.preview.availableOwners || [],
+            availableTiers: data.preview.availableTiers || [],
+            availableSegments: data.preview.availableSegments || [],
+            notes: data.preview.notes || '',
+          },
+          planId: data.planId,
+        });
+        setShowAtRiskOverviewPreview(true);
+        setStatus('pending'); // Keep in pending until at-risk overview is saved
         setIsApproving(false);
         return;
       }
@@ -2786,6 +2843,68 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving at-risk overview preview (General Mode)
+  const handleAtRiskOverviewSave = async (overview: AtRiskOverviewData) => {
+    const response = await fetch(`${API_URL}/api/cadg/at-risk-overview/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: atRiskOverviewPreviewData?.planId,
+        title: overview.title,
+        createdDate: overview.createdDate,
+        lastUpdated: overview.lastUpdated,
+        summary: overview.summary,
+        customers: overview.customers,
+        filters: overview.filters,
+        columns: overview.columns,
+        notes: overview.notes,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save at-risk overview');
+    }
+
+    const result = await response.json();
+
+    // Close preview and show completion
+    setShowAtRiskOverviewPreview(false);
+    setAtRiskOverviewPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.sheetsId || 'at-risk-overview',
+      status: 'completed',
+      preview: `# ${overview.title}\n\nAt-risk overview with ${overview.customers.filter(c => c.enabled).length} customers, $${(overview.summary.totalArrAtRisk / 1000000).toFixed(1)}M ARR at risk`,
+      storage: {
+        driveFileId: result.sheetsId,
+        driveUrl: result.sheetsUrl,
+        additionalFiles: result.docId ? [{
+          type: 'document',
+          fileId: result.docId,
+          url: result.docUrl,
+          title: 'At-Risk Overview Report',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.sheetsId || 'at-risk-overview');
+  };
+
+  // Handle canceling at-risk overview preview
+  const handleAtRiskOverviewCancel = () => {
+    setShowAtRiskOverviewPreview(false);
+    setAtRiskOverviewPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -3223,6 +3342,17 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         pipeline={renewalPipelinePreviewData.pipeline}
         onSave={handleRenewalPipelineSave}
         onCancel={handleRenewalPipelineCancel}
+      />
+    );
+  }
+
+  // At-risk overview preview mode (General Mode - no customer context)
+  if (showAtRiskOverviewPreview && atRiskOverviewPreviewData) {
+    return (
+      <CADGAtRiskOverviewPreview
+        overview={atRiskOverviewPreviewData.overview}
+        onSave={handleAtRiskOverviewSave}
+        onCancel={handleAtRiskOverviewCancel}
       />
     );
   }

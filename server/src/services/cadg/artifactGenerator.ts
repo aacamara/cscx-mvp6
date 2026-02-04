@@ -9435,6 +9435,386 @@ async function generateRenewalPipelinePreview(params: {
   };
 }
 
+// ============================================================================
+// At-Risk Overview Types
+// ============================================================================
+
+interface AtRiskCustomerEntry {
+  id: string;
+  customerName: string;
+  arr: number;
+  healthScore: number;
+  riskLevel: 'medium' | 'high' | 'critical';
+  riskScore: number;
+  primaryRiskFactors: string[];
+  daysAtRisk: number;
+  owner: string;
+  tier: string;
+  segment: string;
+  renewalDate: string | null;
+  daysUntilRenewal: number | null;
+  lastContactDate: string;
+  hasSavePlay: boolean;
+  savePlayStatus: 'active' | 'completed' | 'none';
+  npsScore: number | null;
+  enabled: boolean;
+}
+
+interface AtRiskSummary {
+  totalAtRisk: number;
+  totalArrAtRisk: number;
+  avgRiskScore: number;
+  avgHealthScore: number;
+  mediumRiskCount: number;
+  highRiskCount: number;
+  criticalRiskCount: number;
+  withSavePlayCount: number;
+  withoutSavePlayCount: number;
+  renewingWithin30Days: number;
+  renewingWithin30DaysArr: number;
+  renewingWithin90Days: number;
+  renewingWithin90DaysArr: number;
+}
+
+interface AtRiskFilters {
+  riskLevels: ('medium' | 'high' | 'critical')[];
+  riskThreshold: number;
+  owners: string[];
+  tiers: string[];
+  segments: string[];
+  showSavePlaysOnly: boolean;
+  showWithoutSavePlayOnly: boolean;
+  renewalRange: {
+    type: 'all' | 'within_30_days' | 'within_60_days' | 'within_90_days' | 'custom';
+    startDate?: string;
+    endDate?: string;
+  };
+  sortBy: 'risk_score' | 'health_score' | 'arr' | 'days_at_risk' | 'renewal_date' | 'customer_name';
+  sortDirection: 'asc' | 'desc';
+}
+
+interface AtRiskColumn {
+  id: string;
+  name: string;
+  enabled: boolean;
+  width?: string;
+}
+
+interface AtRiskOverviewPreviewResult {
+  title: string;
+  createdDate: string;
+  lastUpdated: string;
+  summary: AtRiskSummary;
+  customers: AtRiskCustomerEntry[];
+  filters: AtRiskFilters;
+  columns: AtRiskColumn[];
+  availableOwners: string[];
+  availableTiers: string[];
+  availableSegments: string[];
+  notes: string;
+}
+
+// ============================================================================
+// Generate At-Risk Overview Preview
+// ============================================================================
+
+/**
+ * Generate at-risk overview preview with editable filters
+ * This is a General Mode card - no customer context required
+ * Shows all at-risk customers with save play status
+ */
+async function generateAtRiskOverviewPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<AtRiskOverviewPreviewResult> {
+  const { userId, isTemplate } = params;
+
+  // Import portfolio aggregation helper
+  const { aggregatePortfolioContext } = await import('./dataHelpers.js');
+
+  // Get portfolio data
+  const portfolioData = await aggregatePortfolioContext({
+    userId,
+  });
+
+  // Current date
+  const now = new Date();
+  const createdDate = now.toISOString().slice(0, 10);
+
+  // Calculate date boundaries
+  const thirtyDaysOut = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysOut = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000);
+  const ninetyDaysOut = new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000);
+
+  // Build at-risk customer entries
+  let customers: AtRiskCustomerEntry[] = [];
+  let availableOwners: string[] = [];
+  let availableTiers: string[] = [];
+  let availableSegments: string[] = [];
+
+  if (portfolioData.totalCustomers > 0 && !isTemplate) {
+    // Transform at-risk customers data
+    const renewalMap = new Map<string, typeof portfolioData.renewalPipeline[0]>();
+    portfolioData.renewalPipeline.forEach(r => renewalMap.set(r.customerId, r));
+
+    portfolioData.atRiskCustomers.forEach(ar => {
+      const renewal = renewalMap.get(ar.customerId);
+      const healthScore = ar.healthScore;
+      const riskScore = 100 - healthScore; // Simple inverse for demo
+
+      // Determine risk level from health score
+      let riskLevel: 'medium' | 'high' | 'critical' = 'medium';
+      if (healthScore < 30) {
+        riskLevel = 'critical';
+      } else if (healthScore < 50) {
+        riskLevel = 'high';
+      }
+
+      // Generate primary risk factors based on health score components
+      const primaryRiskFactors: string[] = [];
+      if (healthScore < 50) primaryRiskFactors.push('Low engagement');
+      if (healthScore < 40) primaryRiskFactors.push('Declining usage');
+      if (healthScore < 35) primaryRiskFactors.push('Support escalations');
+      if (ar.riskLevel === 'critical') primaryRiskFactors.push('Immediate churn risk');
+
+      customers.push({
+        id: ar.customerId,
+        customerName: ar.customerName,
+        arr: ar.arr,
+        healthScore,
+        riskLevel,
+        riskScore,
+        primaryRiskFactors: primaryRiskFactors.length > 0 ? primaryRiskFactors : ['Usage decline'],
+        daysAtRisk: Math.floor(Math.random() * 30) + 7, // Would need actual tracking
+        owner: ar.owner,
+        tier: ar.arr >= 500000 ? 'Enterprise' : ar.arr >= 100000 ? 'Mid-Market' : 'SMB',
+        segment: 'Default',
+        renewalDate: renewal?.renewalDate || null,
+        daysUntilRenewal: renewal?.daysUntilRenewal || null,
+        lastContactDate: new Date(now.getTime() - Math.random() * 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: Math.random() > 0.6, // Would come from actual save play data
+        savePlayStatus: Math.random() > 0.7 ? 'active' : 'none',
+        npsScore: ar.riskLevel === 'critical' ? Math.floor(Math.random() * 20) - 20 : null,
+        enabled: true,
+      });
+    });
+
+    // Extract unique values
+    availableOwners = [...new Set(customers.map(c => c.owner))].filter(o => o && o !== 'Unassigned');
+    availableTiers = [...new Set(customers.map(c => c.tier))];
+    availableSegments = [...new Set(customers.map(c => c.segment))];
+  } else {
+    // Generate sample data for template mode
+    customers = [
+      {
+        id: 'risk-1',
+        customerName: 'StartupX Inc',
+        arr: 85000,
+        healthScore: 28,
+        riskLevel: 'critical',
+        riskScore: 72,
+        primaryRiskFactors: ['Champion left', 'No usage in 14 days', 'Support escalation'],
+        daysAtRisk: 21,
+        owner: 'Sarah Chen',
+        tier: 'SMB',
+        segment: 'Technology',
+        renewalDate: new Date(now.getTime() + 35 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        daysUntilRenewal: 35,
+        lastContactDate: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: true,
+        savePlayStatus: 'active',
+        npsScore: -25,
+        enabled: true,
+      },
+      {
+        id: 'risk-2',
+        customerName: 'TechCorp Industries',
+        arr: 320000,
+        healthScore: 42,
+        riskLevel: 'high',
+        riskScore: 58,
+        primaryRiskFactors: ['Declining usage', 'Low NPS', 'Budget concerns'],
+        daysAtRisk: 14,
+        owner: 'James Wilson',
+        tier: 'Enterprise',
+        segment: 'Manufacturing',
+        renewalDate: new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        daysUntilRenewal: 60,
+        lastContactDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: false,
+        savePlayStatus: 'none',
+        npsScore: 12,
+        enabled: true,
+      },
+      {
+        id: 'risk-3',
+        customerName: 'HealthFirst Medical',
+        arr: 195000,
+        healthScore: 38,
+        riskLevel: 'high',
+        riskScore: 62,
+        primaryRiskFactors: ['Executive sponsor change', 'Competitor evaluation'],
+        daysAtRisk: 28,
+        owner: 'Maria Garcia',
+        tier: 'Mid-Market',
+        segment: 'Healthcare',
+        renewalDate: new Date(now.getTime() + 88 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        daysUntilRenewal: 88,
+        lastContactDate: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: true,
+        savePlayStatus: 'active',
+        npsScore: 8,
+        enabled: true,
+      },
+      {
+        id: 'risk-4',
+        customerName: 'RetailMax Corp',
+        arr: 150000,
+        healthScore: 22,
+        riskLevel: 'critical',
+        riskScore: 78,
+        primaryRiskFactors: ['Contract dispute', 'No engagement', 'Payment issues'],
+        daysAtRisk: 45,
+        owner: 'Sarah Chen',
+        tier: 'Mid-Market',
+        segment: 'Retail',
+        renewalDate: new Date(now.getTime() + 25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        daysUntilRenewal: 25,
+        lastContactDate: new Date(now.getTime() - 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: true,
+        savePlayStatus: 'completed',
+        npsScore: -40,
+        enabled: true,
+      },
+      {
+        id: 'risk-5',
+        customerName: 'CloudServices Ltd',
+        arr: 420000,
+        healthScore: 48,
+        riskLevel: 'medium',
+        riskScore: 52,
+        primaryRiskFactors: ['Feature requests unmet', 'Support response delays'],
+        daysAtRisk: 7,
+        owner: 'James Wilson',
+        tier: 'Enterprise',
+        segment: 'Technology',
+        renewalDate: new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        daysUntilRenewal: 120,
+        lastContactDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: false,
+        savePlayStatus: 'none',
+        npsScore: 22,
+        enabled: true,
+      },
+      {
+        id: 'risk-6',
+        customerName: 'FinanceHub Inc',
+        arr: 280000,
+        healthScore: 35,
+        riskLevel: 'high',
+        riskScore: 65,
+        primaryRiskFactors: ['Security concerns', 'Compliance requirements'],
+        daysAtRisk: 18,
+        owner: 'Maria Garcia',
+        tier: 'Mid-Market',
+        segment: 'Financial Services',
+        renewalDate: new Date(now.getTime() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        daysUntilRenewal: 45,
+        lastContactDate: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        hasSavePlay: false,
+        savePlayStatus: 'none',
+        npsScore: 5,
+        enabled: true,
+      },
+    ];
+
+    availableOwners = ['Sarah Chen', 'James Wilson', 'Maria Garcia'];
+    availableTiers = ['Enterprise', 'Mid-Market', 'SMB'];
+    availableSegments = ['Technology', 'Manufacturing', 'Healthcare', 'Retail', 'Financial Services'];
+  }
+
+  // Sort by risk score descending by default (show highest risk first)
+  customers.sort((a, b) => b.riskScore - a.riskScore);
+
+  // Calculate summary
+  const enabledCustomers = customers.filter(c => c.enabled);
+  const summary: AtRiskSummary = {
+    totalAtRisk: enabledCustomers.length,
+    totalArrAtRisk: enabledCustomers.reduce((sum, c) => sum + c.arr, 0),
+    avgRiskScore: enabledCustomers.length > 0
+      ? Math.round(enabledCustomers.reduce((sum, c) => sum + c.riskScore, 0) / enabledCustomers.length)
+      : 0,
+    avgHealthScore: enabledCustomers.length > 0
+      ? Math.round(enabledCustomers.reduce((sum, c) => sum + c.healthScore, 0) / enabledCustomers.length)
+      : 0,
+    mediumRiskCount: enabledCustomers.filter(c => c.riskLevel === 'medium').length,
+    highRiskCount: enabledCustomers.filter(c => c.riskLevel === 'high').length,
+    criticalRiskCount: enabledCustomers.filter(c => c.riskLevel === 'critical').length,
+    withSavePlayCount: enabledCustomers.filter(c => c.hasSavePlay).length,
+    withoutSavePlayCount: enabledCustomers.filter(c => !c.hasSavePlay).length,
+    renewingWithin30Days: enabledCustomers.filter(c => c.daysUntilRenewal !== null && c.daysUntilRenewal <= 30).length,
+    renewingWithin30DaysArr: enabledCustomers
+      .filter(c => c.daysUntilRenewal !== null && c.daysUntilRenewal <= 30)
+      .reduce((sum, c) => sum + c.arr, 0),
+    renewingWithin90Days: enabledCustomers.filter(c => c.daysUntilRenewal !== null && c.daysUntilRenewal <= 90).length,
+    renewingWithin90DaysArr: enabledCustomers
+      .filter(c => c.daysUntilRenewal !== null && c.daysUntilRenewal <= 90)
+      .reduce((sum, c) => sum + c.arr, 0),
+  };
+
+  // Default filters
+  const filters: AtRiskFilters = {
+    riskLevels: ['medium', 'high', 'critical'],
+    riskThreshold: 50,
+    owners: availableOwners,
+    tiers: availableTiers,
+    segments: availableSegments,
+    showSavePlaysOnly: false,
+    showWithoutSavePlayOnly: false,
+    renewalRange: {
+      type: 'all',
+    },
+    sortBy: 'risk_score',
+    sortDirection: 'desc',
+  };
+
+  // Default columns
+  const columns: AtRiskColumn[] = [
+    { id: 'customerName', name: 'Customer', enabled: true, width: '180px' },
+    { id: 'arr', name: 'ARR', enabled: true, width: '100px' },
+    { id: 'riskScore', name: 'Risk Score', enabled: true, width: '90px' },
+    { id: 'healthScore', name: 'Health', enabled: true, width: '80px' },
+    { id: 'riskLevel', name: 'Risk Level', enabled: true, width: '100px' },
+    { id: 'primaryRiskFactors', name: 'Risk Factors', enabled: true, width: '200px' },
+    { id: 'daysAtRisk', name: 'Days at Risk', enabled: true, width: '90px' },
+    { id: 'owner', name: 'Owner', enabled: true, width: '120px' },
+    { id: 'hasSavePlay', name: 'Save Play', enabled: true, width: '90px' },
+    { id: 'renewalDate', name: 'Renewal', enabled: true, width: '100px' },
+    { id: 'daysUntilRenewal', name: 'Days to Renewal', enabled: false, width: '100px' },
+    { id: 'tier', name: 'Tier', enabled: false, width: '100px' },
+    { id: 'segment', name: 'Segment', enabled: false, width: '120px' },
+    { id: 'npsScore', name: 'NPS', enabled: false, width: '60px' },
+    { id: 'lastContactDate', name: 'Last Contact', enabled: false, width: '100px' },
+  ];
+
+  return {
+    title: 'At-Risk Customer Overview',
+    createdDate,
+    lastUpdated: createdDate,
+    summary,
+    customers,
+    filters,
+    columns,
+    availableOwners,
+    availableTiers,
+    availableSegments,
+    notes: '',
+  };
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -9463,4 +9843,5 @@ export const artifactGenerator = {
   generatePortfolioDashboardPreview,
   generateTeamMetricsPreview,
   generateRenewalPipelinePreview,
+  generateAtRiskOverviewPreview,
 };

@@ -1433,6 +1433,55 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is an at-risk overview artifact - return preview for HITL (General Mode)
+    const isAtRiskOverviewArtifact = finalPlan.taskType === 'at_risk_overview' ||
+                                      planRow.user_query?.toLowerCase().includes('at-risk overview') ||
+                                      planRow.user_query?.toLowerCase().includes('at risk overview') ||
+                                      planRow.user_query?.toLowerCase().includes('at-risk customers') ||
+                                      planRow.user_query?.toLowerCase().includes('at risk customers') ||
+                                      planRow.user_query?.toLowerCase().includes('customers at risk') ||
+                                      planRow.user_query?.toLowerCase().includes('show at-risk') ||
+                                      planRow.user_query?.toLowerCase().includes('show at risk') ||
+                                      planRow.user_query?.toLowerCase().includes('risk overview') ||
+                                      planRow.user_query?.toLowerCase().includes('churn risk overview') ||
+                                      planRow.user_query?.toLowerCase().includes('high risk customers') ||
+                                      planRow.user_query?.toLowerCase().includes('critical customers') ||
+                                      planRow.user_query?.toLowerCase().includes('risky accounts') ||
+                                      planRow.user_query?.toLowerCase().includes('accounts at risk');
+
+    if (isAtRiskOverviewArtifact) {
+      // Generate at-risk overview content - this works in General Mode (no customer required)
+      const atRiskOverviewPreview = await artifactGenerator.generateAtRiskOverviewPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: null, // General Mode - no specific customer
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isAtRiskOverviewPreview: true,
+        preview: {
+          title: atRiskOverviewPreview.title,
+          createdDate: atRiskOverviewPreview.createdDate,
+          lastUpdated: atRiskOverviewPreview.lastUpdated,
+          summary: atRiskOverviewPreview.summary,
+          customers: atRiskOverviewPreview.customers,
+          filters: atRiskOverviewPreview.filters,
+          columns: atRiskOverviewPreview.columns,
+          availableOwners: atRiskOverviewPreview.availableOwners,
+          availableTiers: atRiskOverviewPreview.availableTiers,
+          availableSegments: atRiskOverviewPreview.availableSegments,
+          notes: atRiskOverviewPreview.notes,
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -7217,6 +7266,258 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save renewal pipeline',
+    });
+  }
+});
+
+// ============================================================================
+// At-Risk Overview Save Endpoint (General Mode)
+// ============================================================================
+
+router.post('/at-risk-overview/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      lastUpdated,
+      summary,
+      customers,
+      filters,
+      columns,
+      notes,
+    } = req.body;
+
+    // Get userId from auth context or request
+    const userId = (req as any).userId || req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID required',
+      });
+    }
+
+    // Filter enabled customers and columns
+    const enabledCustomers = (customers || []).filter((c: any) => c.enabled);
+    const enabledColumns = (columns || []).filter((c: any) => c.enabled);
+
+    // Risk level labels
+    const RISK_LABELS: Record<string, string> = {
+      medium: 'Medium Risk',
+      high: 'High Risk',
+      critical: 'Critical',
+    };
+
+    // Save play status labels
+    const SAVE_PLAY_LABELS: Record<string, string> = {
+      active: 'Active',
+      completed: 'Completed',
+      none: 'No Save Play',
+    };
+
+    // Renewal range labels
+    const RENEWAL_RANGE_LABELS: Record<string, string> = {
+      all: 'All',
+      within_30_days: 'Within 30 Days',
+      within_60_days: 'Within 60 Days',
+      within_90_days: 'Within 90 Days',
+      custom: 'Custom Range',
+    };
+
+    // Build document content
+    const documentContent = `# ${title || 'At-Risk Customer Overview'}
+
+**Generated:** ${createdDate || new Date().toISOString().slice(0, 10)}
+**Last Updated:** ${lastUpdated || new Date().toISOString().slice(0, 10)}
+
+---
+
+## Risk Summary
+
+| Metric | Value |
+|--------|-------|
+| Total At-Risk Customers | ${summary?.totalAtRisk || enabledCustomers.length} |
+| Total ARR at Risk | $${(summary?.totalArrAtRisk || 0).toLocaleString()} |
+| Average Risk Score | ${summary?.avgRiskScore || 0}/100 |
+| Average Health Score | ${summary?.avgHealthScore || 0}/100 |
+| Medium Risk | ${summary?.mediumRiskCount || 0} |
+| High Risk | ${summary?.highRiskCount || 0} |
+| Critical Risk | ${summary?.criticalRiskCount || 0} |
+| With Save Play | ${summary?.withSavePlayCount || 0} |
+| Without Save Play | ${summary?.withoutSavePlayCount || 0} |
+| Renewing Within 30 Days | ${summary?.renewingWithin30Days || 0} ($${(summary?.renewingWithin30DaysArr || 0).toLocaleString()}) |
+| Renewing Within 90 Days | ${summary?.renewingWithin90Days || 0} ($${(summary?.renewingWithin90DaysArr || 0).toLocaleString()}) |
+
+---
+
+## Filters Applied
+
+- **Risk Levels:** ${(filters?.riskLevels || []).map((r: string) => RISK_LABELS[r] || r).join(', ')}
+- **Risk Threshold:** ${filters?.riskThreshold || 50}+
+- **Renewal Range:** ${RENEWAL_RANGE_LABELS[filters?.renewalRange?.type] || 'All'}
+- **Owners:** ${(filters?.owners || []).join(', ') || 'All'}
+- **Tiers:** ${(filters?.tiers || []).join(', ') || 'All'}
+- **Show Save Plays Only:** ${filters?.showSavePlaysOnly ? 'Yes' : 'No'}
+- **Show Without Save Play Only:** ${filters?.showWithoutSavePlayOnly ? 'Yes' : 'No'}
+- **Sort By:** ${filters?.sortBy || 'risk_score'} (${filters?.sortDirection || 'desc'})
+
+---
+
+## At-Risk Customer List
+
+| Customer | ARR | Risk Score | Health | Risk Level | Days at Risk | Save Play | Owner |
+|----------|-----|------------|--------|------------|--------------|-----------|-------|
+${enabledCustomers.map((c: any) => `| ${c.customerName} | $${(c.arr || 0).toLocaleString()} | ${c.riskScore}/100 | ${c.healthScore}/100 | ${RISK_LABELS[c.riskLevel] || c.riskLevel} | ${c.daysAtRisk} | ${c.hasSavePlay ? SAVE_PLAY_LABELS[c.savePlayStatus] || 'Yes' : 'No'} | ${c.owner} |`).join('\n')}
+
+---
+
+## Customer Details
+
+${enabledCustomers.map((c: any, idx: number) => `### ${idx + 1}. ${c.customerName}
+
+- **ARR:** $${(c.arr || 0).toLocaleString()}
+- **Risk Score:** ${c.riskScore}/100
+- **Health Score:** ${c.healthScore}/100
+- **Risk Level:** ${RISK_LABELS[c.riskLevel] || c.riskLevel}
+- **Primary Risk Factors:** ${(c.primaryRiskFactors || []).join(', ')}
+- **Days at Risk:** ${c.daysAtRisk}
+- **Owner:** ${c.owner}
+- **Tier:** ${c.tier}
+- **Segment:** ${c.segment}
+- **Save Play:** ${c.hasSavePlay ? SAVE_PLAY_LABELS[c.savePlayStatus] || 'Yes' : 'No'}
+- **Renewal Date:** ${c.renewalDate || 'N/A'}
+- **Days Until Renewal:** ${c.daysUntilRenewal !== null ? c.daysUntilRenewal : 'N/A'}
+- **NPS Score:** ${c.npsScore !== null ? c.npsScore : 'N/A'}
+- **Last Contact:** ${c.lastContactDate}
+`).join('\n')}
+
+---
+
+${notes ? `## Notes
+
+${notes}
+
+---
+
+` : ''}
+*At-risk overview generated via CSCX.AI At-Risk Overview*
+`;
+
+    // Create Google Sheets with at-risk customer data
+    let sheetsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { sheetsService } = await import('../services/google/sheets.js');
+
+      // Create spreadsheet
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: title || 'At-Risk Customer Overview',
+      });
+
+      if (sheetsResult?.id) {
+        // Build header row based on enabled columns
+        const columnHeaders = enabledColumns.map((col: any) => col.name);
+
+        // Build data rows
+        const dataRows = enabledCustomers.map((c: any) => {
+          const row: any[] = [];
+          enabledColumns.forEach((col: any) => {
+            switch (col.id) {
+              case 'customerName': row.push(c.customerName); break;
+              case 'arr': row.push(c.arr); break;
+              case 'riskScore': row.push(c.riskScore); break;
+              case 'healthScore': row.push(c.healthScore); break;
+              case 'riskLevel': row.push(RISK_LABELS[c.riskLevel] || c.riskLevel); break;
+              case 'primaryRiskFactors': row.push((c.primaryRiskFactors || []).join(', ')); break;
+              case 'daysAtRisk': row.push(c.daysAtRisk); break;
+              case 'owner': row.push(c.owner); break;
+              case 'hasSavePlay': row.push(c.hasSavePlay ? SAVE_PLAY_LABELS[c.savePlayStatus] || 'Yes' : 'No'); break;
+              case 'renewalDate': row.push(c.renewalDate || 'N/A'); break;
+              case 'daysUntilRenewal': row.push(c.daysUntilRenewal !== null ? c.daysUntilRenewal : 'N/A'); break;
+              case 'tier': row.push(c.tier); break;
+              case 'segment': row.push(c.segment); break;
+              case 'npsScore': row.push(c.npsScore !== null ? c.npsScore : 'N/A'); break;
+              case 'lastContactDate': row.push(c.lastContactDate); break;
+              default: row.push(''); break;
+            }
+          });
+          return row;
+        });
+
+        // Update sheet with data
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1',
+          values: [columnHeaders, ...dataRows],
+        });
+      }
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create at-risk overview spreadsheet:', sheetsErr);
+    }
+
+    // Create Google Doc with summary
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: `${title || 'At-Risk Customer Overview'} - Report`,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create at-risk overview document:', docsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity (no customer ID for General Mode)
+    try {
+      const { config } = await import('../config/index.js');
+      const { createClient } = await import('@supabase/supabase-js');
+      if (config.supabaseUrl && config.supabaseServiceKey) {
+        const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+        await supabase.from('agent_activities').insert({
+          user_id: userId,
+          customer_id: null, // General Mode - no specific customer
+          activity_type: 'at_risk_overview_created',
+          description: `At-risk overview created: ${title} - ${enabledCustomers.length} customers, $${(summary?.totalArrAtRisk || 0).toLocaleString()} ARR at risk`,
+          metadata: {
+            sheetsId: sheetsResult?.id,
+            sheetsUrl: sheetsResult?.webViewLink,
+            docId: docsResult?.id,
+            docUrl: docsResult?.webViewLink,
+            totalAtRisk: summary?.totalAtRisk,
+            totalArrAtRisk: summary?.totalArrAtRisk,
+            avgRiskScore: summary?.avgRiskScore,
+            avgHealthScore: summary?.avgHealthScore,
+            mediumRiskCount: summary?.mediumRiskCount,
+            highRiskCount: summary?.highRiskCount,
+            criticalRiskCount: summary?.criticalRiskCount,
+            withSavePlayCount: summary?.withSavePlayCount,
+            withoutSavePlayCount: summary?.withoutSavePlayCount,
+            renewingWithin30Days: summary?.renewingWithin30Days,
+            renewingWithin90Days: summary?.renewingWithin90Days,
+            createdVia: 'cadg_at_risk_overview_preview',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not log at-risk overview activity:', err);
+    }
+
+    res.json({
+      success: true,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] At-risk overview save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save at-risk overview',
     });
   }
 });
