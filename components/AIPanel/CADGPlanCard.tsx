@@ -3037,6 +3037,38 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     return `${seconds}s`;
   };
 
+  // Helper to get native format based on task type
+  const getNativeFormat = (type: string): { format: 'docs' | 'slides' | 'sheets' | 'chat' | 'email'; extension: string; label: string; icon: string; googleApp: string } => {
+    // Docs types
+    const docsTypes = [
+      'kickoff_plan', 'milestone_plan', 'feature_campaign', 'champion_development',
+      'expansion_proposal', 'negotiation_brief', 'risk_assessment', 'save_play',
+      'escalation_report', 'account_plan', 'document_creation', 'expansion_planning'
+    ];
+    // Slides types
+    const slidesTypes = [
+      'stakeholder_map', 'training_program', 'value_summary', 'qbr_generation',
+      'executive_briefing', 'transformation_roadmap', 'presentation_creation'
+    ];
+    // Sheets types
+    const sheetsTypes = [
+      'training_schedule', 'usage_analysis', 'renewal_forecast', 'resolution_plan',
+      'portfolio_dashboard', 'team_metrics', 'renewal_pipeline', 'at_risk_overview'
+    ];
+
+    if (docsTypes.includes(type)) {
+      return { format: 'docs', extension: 'docx', label: 'DOCX', icon: '📄', googleApp: 'Docs' };
+    }
+    if (slidesTypes.includes(type)) {
+      return { format: 'slides', extension: 'pptx', label: 'PPTX', icon: '📽️', googleApp: 'Slides' };
+    }
+    if (sheetsTypes.includes(type)) {
+      return { format: 'sheets', extension: 'xlsx', label: 'XLSX', icon: '📊', googleApp: 'Sheets' };
+    }
+    // Default for chat, email, and unknown types
+    return { format: 'chat', extension: 'pdf', label: 'PDF', icon: '📎', googleApp: 'Drive' };
+  };
+
   // Email preview for HITL workflow
   if (showEmailPreview && emailPreviewData) {
     return (
@@ -3382,21 +3414,26 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
             </h4>
             <div className="space-y-2">
               {/* Primary document */}
-              <a
-                href={artifact.storage.driveUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 p-2 bg-cscx-gray-800/50 rounded-lg hover:bg-cscx-gray-800 transition-colors group"
-              >
-                <span className="text-lg">{getArtifactIcon('slides')}</span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-white group-hover:text-cscx-accent transition-colors truncate">
-                    {formatTaskType(taskType)} Presentation
-                  </p>
-                  <p className="text-xs text-cscx-gray-500">Open in Google Slides</p>
-                </div>
-                <span className="text-cscx-gray-500 text-xs">↗</span>
-              </a>
+              {(() => {
+                const nativeFormat = getNativeFormat(taskType);
+                return (
+                  <a
+                    href={artifact.storage.driveUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 p-2 bg-cscx-gray-800/50 rounded-lg hover:bg-cscx-gray-800 transition-colors group"
+                  >
+                    <span className="text-lg">{nativeFormat.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-white group-hover:text-cscx-accent transition-colors truncate">
+                        {formatTaskType(taskType)} {nativeFormat.format === 'slides' ? 'Presentation' : nativeFormat.format === 'sheets' ? 'Spreadsheet' : 'Document'}
+                      </p>
+                      <p className="text-xs text-cscx-gray-500">Open in Google {nativeFormat.googleApp}</p>
+                    </div>
+                    <span className="text-cscx-gray-500 text-xs">↗</span>
+                  </a>
+                );
+              })()}
 
               {/* Additional files */}
               {artifact.storage.additionalFiles?.map((file, idx) => (
@@ -3499,6 +3536,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
             {/* Download buttons */}
             {artifact.storage.driveFileId && (
               <>
+                {/* PDF download - always available */}
                 <button
                   onClick={() => handleDownload('pdf')}
                   disabled={isDownloading}
@@ -3511,14 +3549,28 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
                   )}
                   Download PDF
                 </button>
-                <button
-                  onClick={() => handleDownload('pptx')}
-                  disabled={isDownloading}
-                  className="flex items-center gap-2 px-3 py-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
-                >
-                  <span>📽️</span>
-                  PPTX
-                </button>
+                {/* Native format download - DOCX/PPTX/XLSX based on document type */}
+                {(() => {
+                  const nativeFormat = getNativeFormat(taskType);
+                  // Only show native format button for non-chat/email types
+                  if (nativeFormat.format !== 'chat' && nativeFormat.format !== 'email') {
+                    return (
+                      <button
+                        onClick={() => handleDownload(nativeFormat.extension)}
+                        disabled={isDownloading}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-cscx-gray-800 hover:bg-cscx-gray-700 text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                      >
+                        {isDownloading ? (
+                          <div className="animate-spin rounded-full h-3 w-3 border border-white border-t-transparent" />
+                        ) : (
+                          <span>{nativeFormat.icon}</span>
+                        )}
+                        {nativeFormat.label}
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
               </>
             )}
 
@@ -3533,7 +3585,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
               ) : (
                 <span>📊</span>
               )}
-              Export Data Sources (CSV)
+              Export Data (CSV)
             </button>
           </div>
 
