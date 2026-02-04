@@ -284,3 +284,41 @@
   - Creating both Doc and Sheet provides documentation + calendar tracking
   - Query detection patterns: 'training schedule', 'training calendar', 'training plan', 'training sessions', 'schedule training'
 ---
+
+## 2026-02-04 - US-011
+- **What was implemented**: Usage analysis generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateUsageAnalysisPreview()` function (~200 lines)
+  - `server/src/routes/cadg.ts` - Added usage_analysis detection and `/api/cadg/usage-analysis/save` endpoint
+  - `components/AIPanel/CADGUsageAnalysisPreview.tsx` (created, ~1070 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added usage analysis preview state and handlers
+- **Features**:
+  - **generateUsageAnalysisPreview()**: Uses Claude to generate usage analysis with:
+    - Title and configurable time range (preset or custom)
+    - Metrics list with name, value, unit, trend, and included toggle
+    - Feature adoption data with adoption rate, active users, trend
+    - User segments with count, percentage, engagement levels
+    - Recommendations with priority, category, and impact
+    - Chart type toggles (trend, adoption, segment, heatmap)
+    - Notes section
+  - **CADGUsageAnalysisPreview component**:
+    - Tab-based navigation for Metrics, Features, Segments, Recommendations
+    - Time range preset selector (Last 7/30/90 days, Custom)
+    - Chart type toggles in settings section
+    - Full CRUD for all data types (add/remove/edit)
+    - Priority badges (high/medium/low) for recommendations
+    - Trend indicators with up/down/stable arrows
+    - Include/exclude toggles for selective export
+    - Unsaved changes warning
+    - Emerald accent color theme
+  - **Backend endpoint**: POST `/api/cadg/usage-analysis/save`:
+    - Creates Google Doc with formatted usage analysis content
+    - Creates Google Sheets with raw metrics data
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Usage analysis uses `isUsageAnalysisPreview: true` response type
+  - Tab-based UI works well for multi-category data (metrics, features, segments, recommendations)
+  - Include/exclude toggles allow users to customize what gets exported
+  - Chart type toggles give users control over visualization options
+  - Query detection patterns: 'usage analysis', 'usage report', 'analyze usage', 'feature adoption', 'adoption report', 'engagement analysis', 'user activity report'
+---

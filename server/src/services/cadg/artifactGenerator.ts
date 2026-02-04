@@ -1803,6 +1803,57 @@ interface TrainingSchedulePreviewResult {
 }
 
 /**
+ * Usage analysis preview result for HITL review
+ */
+interface UsageAnalysisPreviewResult {
+  title: string;
+  timeRange: {
+    start: string;
+    end: string;
+    preset: string; // 'last_7_days', 'last_30_days', 'last_90_days', 'custom'
+  };
+  metrics: Array<{
+    id: string;
+    name: string;
+    value: number;
+    unit: string;
+    trend: 'up' | 'down' | 'stable';
+    trendValue: number;
+    included: boolean;
+  }>;
+  featureAdoption: Array<{
+    id: string;
+    feature: string;
+    adoptionRate: number;
+    activeUsers: number;
+    trend: 'up' | 'down' | 'stable';
+    included: boolean;
+  }>;
+  userSegments: Array<{
+    id: string;
+    name: string;
+    count: number;
+    percentage: number;
+    avgEngagement: number;
+    included: boolean;
+  }>;
+  recommendations: Array<{
+    id: string;
+    priority: 'high' | 'medium' | 'low';
+    category: string;
+    recommendation: string;
+    impact: string;
+  }>;
+  chartTypes: {
+    showTrendChart: boolean;
+    showAdoptionChart: boolean;
+    showSegmentChart: boolean;
+    showHeatmap: boolean;
+  };
+  notes: string;
+}
+
+/**
  * Generate training schedule preview for HITL review
  * Returns editable preview with sessions, dates, attendee groups, and topics
  */
@@ -2278,6 +2329,306 @@ Format your response as JSON:
   }
 }
 
+/**
+ * Generate usage analysis preview for HITL review
+ * Returns editable preview with time range, metrics, feature adoption, and recommendations
+ */
+async function generateUsageAnalysisPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<UsageAnalysisPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Get engagement metrics from context
+  const engagement = context.platformData.engagementMetrics;
+
+  // Build prompt for usage analysis generation
+  const prompt = `You are a customer success manager creating a usage analysis report. Generate a comprehensive usage analysis with metrics and recommendations.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+${engagement ? `Current Engagement Data:
+- Feature Adoption: ${engagement.featureAdoption}%
+- Login Frequency: ${engagement.loginFrequency} per week
+- Last Activity: ${engagement.lastActivityDays} days ago` : ''}
+
+Generate a usage analysis with:
+1. Key usage metrics (DAU, MAU, session duration, feature usage, etc.)
+2. Feature adoption rates for 5-8 key features
+3. User segments breakdown (Power Users, Regular Users, Low Activity, etc.)
+4. 3-5 actionable recommendations based on the data
+
+Format your response as JSON:
+{
+  "title": "Usage Analysis title",
+  "metrics": [
+    {
+      "name": "Metric name",
+      "value": number,
+      "unit": "users|percent|minutes|sessions",
+      "trend": "up|down|stable",
+      "trendValue": number (percentage change)
+    }
+  ],
+  "featureAdoption": [
+    {
+      "feature": "Feature name",
+      "adoptionRate": number (0-100),
+      "activeUsers": number,
+      "trend": "up|down|stable"
+    }
+  ],
+  "userSegments": [
+    {
+      "name": "Segment name",
+      "count": number,
+      "percentage": number (0-100),
+      "avgEngagement": number (0-100)
+    }
+  ],
+  "recommendations": [
+    {
+      "priority": "high|medium|low",
+      "category": "adoption|engagement|training|support",
+      "recommendation": "Specific recommendation text",
+      "impact": "Expected impact description"
+    }
+  ],
+  "notes": "Overall analysis notes"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const analysisContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      metrics?: Array<{
+        name: string;
+        value?: number;
+        unit?: string;
+        trend?: string;
+        trendValue?: number;
+      }>;
+      featureAdoption?: Array<{
+        feature: string;
+        adoptionRate?: number;
+        activeUsers?: number;
+        trend?: string;
+      }>;
+      userSegments?: Array<{
+        name: string;
+        count?: number;
+        percentage?: number;
+        avgEngagement?: number;
+      }>;
+      recommendations?: Array<{
+        priority?: string;
+        category?: string;
+        recommendation: string;
+        impact?: string;
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = analysisContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default time range (last 30 days)
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 30);
+
+    // Build default metrics if not parsed
+    const defaultMetrics = [
+      { name: 'Daily Active Users', value: 847, unit: 'users', trend: 'up' as const, trendValue: 12 },
+      { name: 'Monthly Active Users', value: 2453, unit: 'users', trend: 'up' as const, trendValue: 8 },
+      { name: 'Avg Session Duration', value: 23, unit: 'minutes', trend: 'stable' as const, trendValue: 2 },
+      { name: 'Feature Usage Rate', value: 68, unit: 'percent', trend: 'up' as const, trendValue: 5 },
+      { name: 'Weekly Login Rate', value: 4.2, unit: 'sessions', trend: 'stable' as const, trendValue: -1 },
+    ];
+
+    const defaultFeatureAdoption = [
+      { feature: 'Core Dashboard', adoptionRate: 95, activeUsers: 2328, trend: 'stable' as const },
+      { feature: 'Reporting', adoptionRate: 72, activeUsers: 1766, trend: 'up' as const },
+      { feature: 'Integrations', adoptionRate: 45, activeUsers: 1104, trend: 'up' as const },
+      { feature: 'Analytics', adoptionRate: 58, activeUsers: 1422, trend: 'stable' as const },
+      { feature: 'Automations', adoptionRate: 32, activeUsers: 785, trend: 'down' as const },
+      { feature: 'API Access', adoptionRate: 28, activeUsers: 687, trend: 'up' as const },
+    ];
+
+    const defaultUserSegments = [
+      { name: 'Power Users', count: 245, percentage: 10, avgEngagement: 92 },
+      { name: 'Regular Users', count: 1226, percentage: 50, avgEngagement: 65 },
+      { name: 'Occasional Users', count: 735, percentage: 30, avgEngagement: 35 },
+      { name: 'Inactive Users', count: 247, percentage: 10, avgEngagement: 5 },
+    ];
+
+    const defaultRecommendations = [
+      {
+        priority: 'high' as const,
+        category: 'adoption',
+        recommendation: 'Increase Automations feature adoption through targeted training sessions',
+        impact: 'Could improve efficiency by 25% for power users',
+      },
+      {
+        priority: 'medium' as const,
+        category: 'engagement',
+        recommendation: 'Re-engage occasional users with personalized onboarding emails',
+        impact: 'Potential to move 20% of occasional users to regular usage',
+      },
+      {
+        priority: 'medium' as const,
+        category: 'training',
+        recommendation: 'Create API documentation and tutorials to boost developer adoption',
+        impact: 'Enable technical teams to build integrations',
+      },
+      {
+        priority: 'low' as const,
+        category: 'support',
+        recommendation: 'Set up office hours for Integrations feature questions',
+        impact: 'Reduce support tickets and improve satisfaction',
+      },
+    ];
+
+    const metrics = (parsed.metrics && parsed.metrics.length > 0
+      ? parsed.metrics
+      : defaultMetrics
+    ).map((m, idx) => ({
+      id: `metric-${idx + 1}`,
+      name: m.name || `Metric ${idx + 1}`,
+      value: m.value || 0,
+      unit: m.unit || 'users',
+      trend: (m.trend as 'up' | 'down' | 'stable') || 'stable',
+      trendValue: m.trendValue || 0,
+      included: true,
+    }));
+
+    const featureAdoption = (parsed.featureAdoption && parsed.featureAdoption.length > 0
+      ? parsed.featureAdoption
+      : defaultFeatureAdoption
+    ).map((f, idx) => ({
+      id: `feature-${idx + 1}`,
+      feature: f.feature || `Feature ${idx + 1}`,
+      adoptionRate: f.adoptionRate || 0,
+      activeUsers: f.activeUsers || 0,
+      trend: (f.trend as 'up' | 'down' | 'stable') || 'stable',
+      included: true,
+    }));
+
+    const userSegments = (parsed.userSegments && parsed.userSegments.length > 0
+      ? parsed.userSegments
+      : defaultUserSegments
+    ).map((s, idx) => ({
+      id: `segment-${idx + 1}`,
+      name: s.name || `Segment ${idx + 1}`,
+      count: s.count || 0,
+      percentage: s.percentage || 0,
+      avgEngagement: s.avgEngagement || 0,
+      included: true,
+    }));
+
+    const recommendations = (parsed.recommendations && parsed.recommendations.length > 0
+      ? parsed.recommendations
+      : defaultRecommendations
+    ).map((r, idx) => ({
+      id: `rec-${idx + 1}`,
+      priority: (r.priority as 'high' | 'medium' | 'low') || 'medium',
+      category: r.category || 'engagement',
+      recommendation: r.recommendation || '',
+      impact: r.impact || '',
+    }));
+
+    return {
+      title: parsed.title || `Usage Analysis: ${customerName}`,
+      timeRange: {
+        start: startDate.toISOString().split('T')[0],
+        end: endDate.toISOString().split('T')[0],
+        preset: 'last_30_days',
+      },
+      metrics,
+      featureAdoption,
+      userSegments,
+      recommendations,
+      chartTypes: {
+        showTrendChart: true,
+        showAdoptionChart: true,
+        showSegmentChart: true,
+        showHeatmap: false,
+      },
+      notes: parsed.notes || 'Review metrics and recommendations. Adjust time range and filters as needed.',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Usage analysis preview generation error:', error);
+
+    // Return fallback usage analysis
+    const fallbackEnd = new Date();
+    const fallbackStart = new Date();
+    fallbackStart.setDate(fallbackStart.getDate() - 30);
+
+    return {
+      title: `Usage Analysis: ${customerName}`,
+      timeRange: {
+        start: fallbackStart.toISOString().split('T')[0],
+        end: fallbackEnd.toISOString().split('T')[0],
+        preset: 'last_30_days',
+      },
+      metrics: [
+        { id: 'metric-1', name: 'Daily Active Users', value: 500, unit: 'users', trend: 'stable', trendValue: 0, included: true },
+        { id: 'metric-2', name: 'Feature Adoption', value: 65, unit: 'percent', trend: 'up', trendValue: 5, included: true },
+        { id: 'metric-3', name: 'Avg Session Duration', value: 20, unit: 'minutes', trend: 'stable', trendValue: 0, included: true },
+      ],
+      featureAdoption: [
+        { id: 'feature-1', feature: 'Core Features', adoptionRate: 85, activeUsers: 425, trend: 'stable', included: true },
+        { id: 'feature-2', feature: 'Advanced Features', adoptionRate: 45, activeUsers: 225, trend: 'up', included: true },
+      ],
+      userSegments: [
+        { id: 'segment-1', name: 'Active Users', count: 400, percentage: 80, avgEngagement: 70, included: true },
+        { id: 'segment-2', name: 'Low Activity', count: 100, percentage: 20, avgEngagement: 20, included: true },
+      ],
+      recommendations: [
+        { id: 'rec-1', priority: 'high', category: 'adoption', recommendation: 'Increase feature adoption through training', impact: 'Improve user engagement' },
+        { id: 'rec-2', priority: 'medium', category: 'engagement', recommendation: 'Re-engage inactive users', impact: 'Reduce churn risk' },
+      ],
+      chartTypes: {
+        showTrendChart: true,
+        showAdoptionChart: true,
+        showSegmentChart: true,
+        showHeatmap: false,
+      },
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -2288,4 +2639,5 @@ export const artifactGenerator = {
   generateMilestonePlanPreview,
   generateStakeholderMapPreview,
   generateTrainingSchedulePreview,
+  generateUsageAnalysisPreview,
 };

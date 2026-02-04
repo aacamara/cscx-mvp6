@@ -13,6 +13,7 @@ import { CADGKickoffPlanPreview, KickoffPlanData, CustomerData as KickoffCustome
 import { CADGMilestonePlanPreview, MilestonePlanData, CustomerData as MilestoneCustomerData } from './CADGMilestonePlanPreview';
 import { CADGStakeholderMapPreview, StakeholderMapData, CustomerData as StakeholderCustomerData } from './CADGStakeholderMapPreview';
 import { CADGTrainingSchedulePreview, TrainingScheduleData, CustomerData as TrainingCustomerData } from './CADGTrainingSchedulePreview';
+import { CADGUsageAnalysisPreview, UsageAnalysisData, CustomerData as UsageAnalysisCustomerData } from './CADGUsageAnalysisPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -180,6 +181,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [trainingSchedulePreviewData, setTrainingSchedulePreviewData] = useState<{
     trainingSchedule: TrainingScheduleData;
     customer: TrainingCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Usage analysis preview state for HITL workflow
+  const [showUsageAnalysisPreview, setShowUsageAnalysisPreview] = useState(false);
+  const [usageAnalysisPreviewData, setUsageAnalysisPreviewData] = useState<{
+    usageAnalysis: UsageAnalysisData;
+    customer: UsageAnalysisCustomerData;
     planId: string;
   } | null>(null);
 
@@ -382,6 +391,38 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowTrainingSchedulePreview(true);
         setStatus('pending'); // Keep in pending until training schedule is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a usage analysis preview (HITL workflow)
+      if (data.isUsageAnalysisPreview && data.preview) {
+        setUsageAnalysisPreviewData({
+          usageAnalysis: {
+            title: data.preview.title || 'Usage Analysis Report',
+            timeRange: data.preview.timeRange || { start: '', end: '', preset: 'last_30_days' },
+            metrics: data.preview.metrics || [],
+            featureAdoption: data.preview.featureAdoption || [],
+            userSegments: data.preview.userSegments || [],
+            recommendations: data.preview.recommendations || [],
+            chartTypes: data.preview.chartTypes || {
+              showTrendChart: true,
+              showAdoptionChart: true,
+              showSegmentChart: true,
+              showHeatmap: false,
+            },
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowUsageAnalysisPreview(true);
+        setStatus('pending'); // Keep in pending until usage analysis is saved
         setIsApproving(false);
         return;
       }
@@ -844,6 +885,70 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving usage analysis from preview
+  const handleUsageAnalysisSave = async (usageAnalysis: UsageAnalysisData) => {
+    if (!usageAnalysisPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/usage-analysis/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: usageAnalysisPreviewData.planId,
+        title: usageAnalysis.title,
+        timeRange: usageAnalysis.timeRange,
+        metrics: usageAnalysis.metrics,
+        featureAdoption: usageAnalysis.featureAdoption,
+        userSegments: usageAnalysis.userSegments,
+        recommendations: usageAnalysis.recommendations,
+        chartTypes: usageAnalysis.chartTypes,
+        notes: usageAnalysis.notes,
+        customerId: usageAnalysisPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save usage analysis');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowUsageAnalysisPreview(false);
+    setUsageAnalysisPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+        additionalFiles: result.sheetUrl ? [{
+          type: 'sheets',
+          fileId: result.sheetId,
+          url: result.sheetUrl,
+          title: 'Usage Metrics Data',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling usage analysis preview
+  const handleUsageAnalysisCancel = () => {
+    setShowUsageAnalysisPreview(false);
+    setUsageAnalysisPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1068,6 +1173,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={trainingSchedulePreviewData.customer}
         onSave={handleTrainingScheduleSave}
         onCancel={handleTrainingScheduleCancel}
+      />
+    );
+  }
+
+  // Usage analysis preview for HITL workflow
+  if (showUsageAnalysisPreview && usageAnalysisPreviewData) {
+    return (
+      <CADGUsageAnalysisPreview
+        usageAnalysis={usageAnalysisPreviewData.usageAnalysis}
+        customer={usageAnalysisPreviewData.customer}
+        onSave={handleUsageAnalysisSave}
+        onCancel={handleUsageAnalysisCancel}
       />
     );
   }

@@ -384,6 +384,52 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a usage analysis artifact - return preview for HITL
+    const isUsageAnalysisArtifact = finalPlan.taskType === 'usage_analysis' ||
+                                     planRow.user_query?.toLowerCase().includes('usage analysis') ||
+                                     planRow.user_query?.toLowerCase().includes('usage report') ||
+                                     planRow.user_query?.toLowerCase().includes('analyze usage') ||
+                                     planRow.user_query?.toLowerCase().includes('feature adoption') ||
+                                     planRow.user_query?.toLowerCase().includes('adoption report') ||
+                                     planRow.user_query?.toLowerCase().includes('engagement analysis') ||
+                                     planRow.user_query?.toLowerCase().includes('user activity report');
+
+    if (isUsageAnalysisArtifact) {
+      // Generate usage analysis content but don't finalize - return preview for HITL
+      const usageAnalysisPreview = await artifactGenerator.generateUsageAnalysisPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isUsageAnalysisPreview: true,
+        preview: {
+          title: usageAnalysisPreview.title,
+          timeRange: usageAnalysisPreview.timeRange,
+          metrics: usageAnalysisPreview.metrics,
+          featureAdoption: usageAnalysisPreview.featureAdoption,
+          userSegments: usageAnalysisPreview.userSegments,
+          recommendations: usageAnalysisPreview.recommendations,
+          chartTypes: usageAnalysisPreview.chartTypes,
+          notes: usageAnalysisPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -2033,6 +2079,269 @@ ${notes || 'No additional notes.'}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save training schedule',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/usage-analysis/save
+ * Save finalized usage analysis after user review
+ */
+router.post('/usage-analysis/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      timeRange,
+      metrics,
+      featureAdoption,
+      userSegments,
+      recommendations,
+      chartTypes,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import docs and sheets services
+    const { docsService } = await import('../services/google/docs.js');
+    const { sheetsService } = await import('../services/google/sheets.js');
+
+    // Filter to only included items
+    const includedMetrics = (metrics || []).filter((m: { included: boolean }) => m.included);
+    const includedFeatures = (featureAdoption || []).filter((f: { included: boolean }) => f.included);
+    const includedSegments = (userSegments || []).filter((s: { included: boolean }) => s.included);
+
+    // Build usage analysis document content
+    const documentContent = `# ${title}
+
+**Analysis Period:** ${timeRange?.start || 'N/A'} to ${timeRange?.end || 'N/A'}
+
+---
+
+## Key Metrics
+
+${includedMetrics.map((m: {
+  name: string;
+  value: number;
+  unit: string;
+  trend: string;
+  trendValue: number;
+}) => {
+  const trendIcon = m.trend === 'up' ? '↑' : m.trend === 'down' ? '↓' : '→';
+  const trendText = m.trendValue ? ` (${m.trendValue > 0 ? '+' : ''}${m.trendValue}%)` : '';
+  return `- **${m.name}:** ${m.value} ${m.unit} ${trendIcon}${trendText}`;
+}).join('\n') || '- No metrics included'}
+
+---
+
+## Feature Adoption
+
+| Feature | Adoption Rate | Active Users | Trend |
+|---------|---------------|--------------|-------|
+${includedFeatures.map((f: {
+  feature: string;
+  adoptionRate: number;
+  activeUsers: number;
+  trend: string;
+}) => {
+  const trendIcon = f.trend === 'up' ? '↑' : f.trend === 'down' ? '↓' : '→';
+  return `| ${f.feature} | ${f.adoptionRate}% | ${f.activeUsers} | ${trendIcon} |`;
+}).join('\n') || '| No features included | - | - | - |'}
+
+---
+
+## User Segments
+
+| Segment | Users | % of Total | Avg Engagement |
+|---------|-------|------------|----------------|
+${includedSegments.map((s: {
+  name: string;
+  count: number;
+  percentage: number;
+  avgEngagement: number;
+}) => `| ${s.name} | ${s.count} | ${s.percentage}% | ${s.avgEngagement}% |`).join('\n') || '| No segments included | - | - | - |'}
+
+---
+
+## Recommendations
+
+${(recommendations || []).map((r: {
+  priority: string;
+  category: string;
+  recommendation: string;
+  impact: string;
+}, index: number) => {
+  const priorityLabel = r.priority.toUpperCase();
+  return `### ${index + 1}. [${priorityLabel}] ${r.category.charAt(0).toUpperCase() + r.category.slice(1)}
+
+**Recommendation:** ${r.recommendation}
+
+**Expected Impact:** ${r.impact}
+`;
+}).join('\n') || 'No recommendations included.'}
+
+---
+
+## Charts Included
+${[
+  chartTypes?.showTrendChart ? '- Usage Trend Chart' : null,
+  chartTypes?.showAdoptionChart ? '- Feature Adoption Chart' : null,
+  chartTypes?.showSegmentChart ? '- User Segment Distribution' : null,
+  chartTypes?.showHeatmap ? '- Usage Heatmap' : null,
+].filter(Boolean).join('\n') || '- No charts selected'}
+
+---
+
+## Notes
+
+${notes || 'No additional notes.'}
+
+---
+
+*Generated by CSCX.AI on ${new Date().toLocaleDateString()}*
+`;
+
+    // Create document in Google Docs
+    const docResult = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+    });
+
+    // Also create a Google Sheet with the raw data
+    let sheetResult: { id: string; webViewLink?: string } | null = null;
+    try {
+      // Build sheet data
+      const metricsData: string[][] = [
+        ['Metric Name', 'Value', 'Unit', 'Trend', 'Change %'],
+        ...includedMetrics.map((m: {
+          name: string;
+          value: number;
+          unit: string;
+          trend: string;
+          trendValue: number;
+        }) => [
+          m.name,
+          m.value.toString(),
+          m.unit,
+          m.trend,
+          m.trendValue.toString(),
+        ]),
+      ];
+
+      const featuresData: string[][] = [
+        ['Feature', 'Adoption Rate', 'Active Users', 'Trend'],
+        ...includedFeatures.map((f: {
+          feature: string;
+          adoptionRate: number;
+          activeUsers: number;
+          trend: string;
+        }) => [
+          f.feature,
+          f.adoptionRate.toString(),
+          f.activeUsers.toString(),
+          f.trend,
+        ]),
+      ];
+
+      const segmentsData: string[][] = [
+        ['Segment', 'Count', 'Percentage', 'Avg Engagement'],
+        ...includedSegments.map((s: {
+          name: string;
+          count: number;
+          percentage: number;
+          avgEngagement: number;
+        }) => [
+          s.name,
+          s.count.toString(),
+          s.percentage.toString(),
+          s.avgEngagement.toString(),
+        ]),
+      ];
+
+      sheetResult = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Data`,
+        template: { type: 'health_score_tracker' },
+      });
+
+      if (sheetResult) {
+        // Add metrics sheet
+        await sheetsService.updateValues(userId, sheetResult.id, {
+          range: 'Sheet1!A1',
+          values: metricsData,
+        });
+
+        // Note: For a full implementation, you would create separate sheets
+        // for features and segments data
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not create usage analysis sheet:', err);
+      // Continue without sheet
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'usage_analysis_created',
+            description: `Usage analysis created: ${title}`,
+            metadata: {
+              documentId: docResult.id,
+              documentUrl: docResult.webViewLink,
+              sheetId: sheetResult?.id,
+              sheetUrl: sheetResult?.webViewLink,
+              metricsCount: includedMetrics.length,
+              featuresCount: includedFeatures.length,
+              segmentsCount: includedSegments.length,
+              recommendationsCount: (recommendations || []).length,
+              timeRange,
+              createdVia: 'cadg_usage_analysis_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log usage analysis activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: docResult.id,
+      documentUrl: docResult.webViewLink,
+      sheetId: sheetResult?.id,
+      sheetUrl: sheetResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Usage analysis save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save usage analysis',
     });
   }
 });
