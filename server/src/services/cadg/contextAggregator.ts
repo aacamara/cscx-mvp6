@@ -37,7 +37,37 @@ const supabase = config.supabaseUrl && config.supabaseServiceKey
 
 // Task-specific search keywords
 const TASK_KEYWORDS: Record<TaskType, string[]> = {
+  // Onboarding Specialist Cards
+  kickoff_plan: ['kickoff', 'kick-off', 'onboarding', 'welcome', 'start', 'implementation', 'launch'],
+  milestone_plan: ['30-60-90', 'milestone', 'timeline', 'phases', 'onboarding plan', 'implementation'],
+  stakeholder_map: ['stakeholder', 'contacts', 'org chart', 'decision maker', 'champion', 'sponsor'],
+  training_schedule: ['training', 'schedule', 'sessions', 'learning', 'enablement', 'workshops'],
+  // Adoption Specialist Cards
+  usage_analysis: ['usage', 'adoption', 'metrics', 'analytics', 'engagement', 'product usage'],
+  feature_campaign: ['feature', 'campaign', 'adoption', 'rollout', 'enablement', 'activation'],
+  champion_development: ['champion', 'advocate', 'power user', 'super user', 'internal champion'],
+  training_program: ['training program', 'curriculum', 'learning path', 'certification', 'modules'],
+  // Renewal Specialist Cards
+  renewal_forecast: ['renewal', 'forecast', 'prediction', 'probability', 'likelihood', 'renewal risk'],
+  value_summary: ['value', 'roi', 'impact', 'outcomes', 'results', 'success', 'benefits'],
+  expansion_proposal: ['expansion', 'upsell', 'cross-sell', 'growth', 'upgrade', 'proposal'],
+  negotiation_brief: ['negotiation', 'pricing', 'terms', 'contract', 'leverage', 'counter'],
+  // Risk Specialist Cards
+  risk_assessment: ['risk', 'churn', 'warning signs', 'mitigation', 'assessment', 'health'],
+  save_play: ['save', 'retention', 'churn prevention', 'rescue', 'turnaround', 'recovery'],
+  escalation_report: ['escalation', 'issue', 'problem', 'critical', 'urgent', 'resolution'],
+  resolution_plan: ['resolution', 'action plan', 'fix', 'remediation', 'improvement', 'corrective'],
+  // Strategic CSM Cards
   qbr_generation: ['qbr', 'quarterly business review', 'business review', 'executive summary', 'metrics review'],
+  executive_briefing: ['executive', 'briefing', 'summary', 'leadership', 'c-suite', 'board'],
+  account_plan: ['account plan', 'strategy', 'objectives', 'goals', 'roadmap', 'strategic'],
+  transformation_roadmap: ['transformation', 'roadmap', 'digital', 'change', 'evolution', 'journey'],
+  // General Mode Cards (portfolio-level)
+  portfolio_dashboard: ['portfolio', 'dashboard', 'overview', 'book of business', 'all customers'],
+  team_metrics: ['team', 'metrics', 'performance', 'kpi', 'csm metrics', 'team performance'],
+  renewal_pipeline: ['pipeline', 'renewals', 'upcoming', 'forecast', 'renewal calendar'],
+  at_risk_overview: ['at risk', 'risk overview', 'churn risk', 'health', 'portfolio health'],
+  // Legacy/existing types
   data_analysis: ['analysis', 'metrics', 'trends', 'data', 'reporting', 'insights'],
   presentation_creation: ['presentation', 'deck', 'slides', 'executive briefing'],
   document_creation: ['document', 'plan', 'proposal', 'summary', 'report'],
@@ -46,7 +76,6 @@ const TASK_KEYWORDS: Record<TaskType, string[]> = {
   transcription_summary: ['meeting notes', 'summary', 'transcript', 'action items', 'recap'],
   health_analysis: ['health score', 'health analysis', 'risk', 'churn', 'engagement'],
   expansion_planning: ['expansion', 'upsell', 'cross-sell', 'growth', 'opportunity'],
-  risk_assessment: ['risk', 'churn', 'warning signs', 'mitigation', 'save play'],
   custom: [],
 };
 

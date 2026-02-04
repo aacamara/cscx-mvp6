@@ -30,6 +30,104 @@ const anthropic = new Anthropic({
 
 // Default sections for each task type
 const DEFAULT_SECTIONS: Record<TaskType, PlanSection[]> = {
+  // Onboarding Specialist Cards
+  kickoff_plan: [
+    { name: 'Meeting Overview', description: 'Kickoff title, date, and attendees', dataSources: ['customer_360'] },
+    { name: 'Customer Goals', description: 'Primary objectives and success criteria', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: 'Agenda', description: 'Meeting topics and timeline', dataSources: ['knowledge_base'] },
+    { name: 'Next Steps', description: 'Action items and ownership', dataSources: [] },
+  ],
+  milestone_plan: [
+    { name: '30-Day Goals', description: 'First month milestones and success criteria', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: '60-Day Goals', description: 'Second month milestones and targets', dataSources: ['knowledge_base'] },
+    { name: '90-Day Goals', description: 'Third month milestones and outcomes', dataSources: ['knowledge_base'] },
+    { name: 'Success Metrics', description: 'How to measure achievement', dataSources: ['customer_360'] },
+  ],
+  stakeholder_map: [
+    { name: 'Key Contacts', description: 'Primary stakeholders and roles', dataSources: ['customer_360'] },
+    { name: 'Influence Matrix', description: 'Decision makers and influencers', dataSources: ['customer_360'] },
+    { name: 'Engagement Plan', description: 'How to engage each stakeholder', dataSources: ['knowledge_base'] },
+  ],
+  training_schedule: [
+    { name: 'Training Sessions', description: 'Planned training dates and topics', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: 'Attendees', description: 'Participant groups per session', dataSources: ['customer_360'] },
+    { name: 'Prerequisites', description: 'Requirements before each session', dataSources: ['knowledge_base'] },
+  ],
+  // Adoption Specialist Cards
+  usage_analysis: [
+    { name: 'Usage Overview', description: 'Current usage metrics summary', dataSources: ['engagement_metrics', 'customer_360'] },
+    { name: 'Feature Adoption', description: 'Feature usage breakdown', dataSources: ['engagement_metrics'] },
+    { name: 'Trends', description: 'Usage patterns over time', dataSources: ['health_trends', 'engagement_metrics'] },
+    { name: 'Recommendations', description: 'Actions to improve adoption', dataSources: ['knowledge_base'] },
+  ],
+  feature_campaign: [
+    { name: 'Target Features', description: 'Features to promote', dataSources: ['engagement_metrics', 'knowledge_base'] },
+    { name: 'User Segments', description: 'Target audience for campaign', dataSources: ['customer_360'] },
+    { name: 'Campaign Timeline', description: 'Rollout schedule', dataSources: [] },
+    { name: 'Success Metrics', description: 'How to measure campaign success', dataSources: ['knowledge_base'] },
+  ],
+  champion_development: [
+    { name: 'Champion Candidates', description: 'Potential champions and criteria', dataSources: ['engagement_metrics', 'customer_360'] },
+    { name: 'Development Plan', description: 'Activities to develop champions', dataSources: ['knowledge_base'] },
+    { name: 'Recognition Program', description: 'Rewards and incentives', dataSources: ['knowledge_base'] },
+  ],
+  training_program: [
+    { name: 'Learning Objectives', description: 'What participants will learn', dataSources: ['knowledge_base'] },
+    { name: 'Curriculum', description: 'Course modules and content', dataSources: ['knowledge_base'] },
+    { name: 'Assessment', description: 'How to evaluate completion', dataSources: ['knowledge_base'] },
+  ],
+  // Renewal Specialist Cards
+  renewal_forecast: [
+    { name: 'Renewal Summary', description: 'Renewal probability and timeline', dataSources: ['renewal_forecast', 'customer_360'] },
+    { name: 'Risk Factors', description: 'Factors affecting renewal', dataSources: ['risk_signals', 'health_trends'] },
+    { name: 'Positive Signals', description: 'Indicators supporting renewal', dataSources: ['engagement_metrics', 'customer_360'] },
+    { name: 'Recommendations', description: 'Actions to improve probability', dataSources: ['knowledge_base'] },
+  ],
+  value_summary: [
+    { name: 'Value Delivered', description: 'Key outcomes and achievements', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: 'ROI Metrics', description: 'Return on investment data', dataSources: ['customer_360'] },
+    { name: 'Success Stories', description: 'Notable wins and examples', dataSources: ['customer_history', 'knowledge_base'] },
+    { name: 'Testimonials', description: 'Customer quotes and feedback', dataSources: ['customer_360'] },
+  ],
+  expansion_proposal: [
+    { name: 'Expansion Opportunity', description: 'Proposed expansion details', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: 'Business Case', description: 'ROI justification', dataSources: ['customer_360', 'engagement_metrics'] },
+    { name: 'Pricing Options', description: 'Pricing tiers and terms', dataSources: ['knowledge_base'] },
+    { name: 'Next Steps', description: 'Action items to progress', dataSources: [] },
+  ],
+  negotiation_brief: [
+    { name: 'Current Terms', description: 'Existing contract details', dataSources: ['customer_360'] },
+    { name: 'Leverage Points', description: 'Value and position strengths', dataSources: ['customer_360', 'engagement_metrics'] },
+    { name: 'Counter Strategies', description: 'Responses to objections', dataSources: ['knowledge_base'] },
+    { name: 'Walk-Away Points', description: 'Non-negotiable terms', dataSources: ['knowledge_base'] },
+  ],
+  // Risk Specialist Cards
+  risk_assessment: [
+    { name: 'Risk Overview', description: 'Current risk level', dataSources: ['customer_360', 'risk_signals'] },
+    { name: 'Active Risk Signals', description: 'Detailed risk breakdown', dataSources: ['risk_signals'] },
+    { name: 'Root Cause Analysis', description: 'What is driving the risks', dataSources: ['health_trends', 'customer_history'] },
+    { name: 'Mitigation Plan', description: 'Recommended save plays', dataSources: ['knowledge_base'] },
+    { name: 'Timeline', description: 'Urgency and action dates', dataSources: ['renewal_forecast'] },
+  ],
+  save_play: [
+    { name: 'Situation Summary', description: 'Current state and context', dataSources: ['customer_360', 'risk_signals'] },
+    { name: 'Root Causes', description: 'Why the customer is at risk', dataSources: ['health_trends', 'customer_history'] },
+    { name: 'Action Plan', description: 'Specific steps to save', dataSources: ['knowledge_base'] },
+    { name: 'Success Metrics', description: 'How to measure turnaround', dataSources: ['knowledge_base'] },
+  ],
+  escalation_report: [
+    { name: 'Issue Summary', description: 'What needs escalation', dataSources: ['customer_360', 'risk_signals'] },
+    { name: 'Timeline', description: 'History of the issue', dataSources: ['customer_history'] },
+    { name: 'Impact', description: 'Business impact and urgency', dataSources: ['customer_360'] },
+    { name: 'Resolution Request', description: 'What is needed to resolve', dataSources: ['knowledge_base'] },
+  ],
+  resolution_plan: [
+    { name: 'Issues List', description: 'Problems to resolve', dataSources: ['risk_signals', 'customer_360'] },
+    { name: 'Action Items', description: 'Steps to fix each issue', dataSources: ['knowledge_base'] },
+    { name: 'Owners & Dates', description: 'Who does what by when', dataSources: [] },
+    { name: 'Status Tracking', description: 'How to monitor progress', dataSources: [] },
+  ],
+  // Strategic CSM Cards
   qbr_generation: [
     { name: 'Executive Summary', description: '30-second overview of relationship health and key highlights', dataSources: ['customer_360', 'health_trends'] },
     { name: 'Key Metrics & Health', description: 'Health score trend, engagement metrics, adoption data', dataSources: ['health_trends', 'engagement_metrics'] },
@@ -39,6 +137,47 @@ const DEFAULT_SECTIONS: Record<TaskType, PlanSection[]> = {
     { name: 'Renewal & Expansion', description: 'Renewal status and growth opportunities', dataSources: ['renewal_forecast', 'customer_360'] },
     { name: 'Next Steps', description: 'Action items with owners and timelines', dataSources: ['customer_history'] },
   ],
+  executive_briefing: [
+    { name: 'Headlines', description: 'Top 3 things to know', dataSources: ['customer_360', 'risk_signals'] },
+    { name: 'Key Metrics', description: 'Critical numbers at a glance', dataSources: ['health_trends', 'engagement_metrics'] },
+    { name: 'Strategic Updates', description: 'Important developments', dataSources: ['customer_history', 'knowledge_base'] },
+    { name: 'Asks', description: 'What we need from leadership', dataSources: [] },
+  ],
+  account_plan: [
+    { name: 'Account Overview', description: 'Customer profile and status', dataSources: ['customer_360'] },
+    { name: 'Strategic Objectives', description: 'Key goals for the account', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: 'Action Plan', description: 'Steps to achieve objectives', dataSources: ['knowledge_base'] },
+    { name: 'Timeline & Milestones', description: 'Key dates and checkpoints', dataSources: [] },
+  ],
+  transformation_roadmap: [
+    { name: 'Vision', description: 'Target future state', dataSources: ['customer_360', 'knowledge_base'] },
+    { name: 'Current State', description: 'Where we are today', dataSources: ['customer_360', 'engagement_metrics'] },
+    { name: 'Phases', description: 'Journey stages and milestones', dataSources: ['knowledge_base'] },
+    { name: 'Success Criteria', description: 'How to measure transformation', dataSources: ['knowledge_base'] },
+  ],
+  // General Mode Cards (portfolio-level)
+  portfolio_dashboard: [
+    { name: 'Portfolio Summary', description: 'Overview of all accounts', dataSources: ['customer_360'] },
+    { name: 'Health Distribution', description: 'Health scores breakdown', dataSources: ['health_trends'] },
+    { name: 'At-Risk Accounts', description: 'Accounts needing attention', dataSources: ['risk_signals'] },
+    { name: 'Renewals Upcoming', description: 'Near-term renewal dates', dataSources: ['renewal_forecast'] },
+  ],
+  team_metrics: [
+    { name: 'Team Overview', description: 'CSM assignments and capacity', dataSources: ['customer_360'] },
+    { name: 'Performance Metrics', description: 'Key KPIs by CSM', dataSources: ['health_trends', 'engagement_metrics'] },
+    { name: 'Benchmarks', description: 'Comparison to targets', dataSources: ['knowledge_base'] },
+  ],
+  renewal_pipeline: [
+    { name: 'Pipeline Overview', description: 'Upcoming renewals summary', dataSources: ['renewal_forecast', 'customer_360'] },
+    { name: 'By Quarter', description: 'Renewals by time period', dataSources: ['renewal_forecast'] },
+    { name: 'Risk Breakdown', description: 'Renewal risk distribution', dataSources: ['risk_signals'] },
+  ],
+  at_risk_overview: [
+    { name: 'Risk Summary', description: 'At-risk accounts overview', dataSources: ['risk_signals', 'customer_360'] },
+    { name: 'By Risk Type', description: 'Breakdown by risk category', dataSources: ['risk_signals'] },
+    { name: 'Save Plays', description: 'Active interventions', dataSources: ['knowledge_base'] },
+  ],
+  // Legacy/existing types
   data_analysis: [
     { name: 'Analysis Overview', description: 'Scope and methodology of analysis', dataSources: ['knowledge_base'] },
     { name: 'Key Findings', description: 'Primary insights from the data', dataSources: ['customer_360', 'health_trends', 'engagement_metrics'] },
@@ -92,13 +231,6 @@ const DEFAULT_SECTIONS: Record<TaskType, PlanSection[]> = {
     { name: 'Stakeholder Map', description: 'Key decision makers', dataSources: ['customer_360'] },
     { name: 'Approach Strategy', description: 'Timing and messaging', dataSources: ['knowledge_base'] },
   ],
-  risk_assessment: [
-    { name: 'Risk Overview', description: 'Current risk level', dataSources: ['customer_360', 'risk_signals'] },
-    { name: 'Active Risk Signals', description: 'Detailed risk breakdown', dataSources: ['risk_signals'] },
-    { name: 'Root Cause Analysis', description: 'What is driving the risks', dataSources: ['health_trends', 'customer_history'] },
-    { name: 'Mitigation Plan', description: 'Recommended save plays', dataSources: ['knowledge_base'] },
-    { name: 'Timeline', description: 'Urgency and action dates', dataSources: ['renewal_forecast'] },
-  ],
   custom: [
     { name: 'Overview', description: 'Task context', dataSources: ['customer_360'] },
     { name: 'Analysis', description: 'Main content', dataSources: ['knowledge_base'] },
@@ -108,7 +240,37 @@ const DEFAULT_SECTIONS: Record<TaskType, PlanSection[]> = {
 
 // Output format for each task type
 const OUTPUT_FORMATS: Record<TaskType, ArtifactType> = {
+  // Onboarding Specialist Cards
+  kickoff_plan: 'docs',
+  milestone_plan: 'docs',
+  stakeholder_map: 'slides',
+  training_schedule: 'sheets',
+  // Adoption Specialist Cards
+  usage_analysis: 'sheets',
+  feature_campaign: 'docs',
+  champion_development: 'docs',
+  training_program: 'slides',
+  // Renewal Specialist Cards
+  renewal_forecast: 'sheets',
+  value_summary: 'slides',
+  expansion_proposal: 'docs',
+  negotiation_brief: 'docs',
+  // Risk Specialist Cards
+  risk_assessment: 'docs',
+  save_play: 'docs',
+  escalation_report: 'docs',
+  resolution_plan: 'sheets',
+  // Strategic CSM Cards
   qbr_generation: 'slides',
+  executive_briefing: 'slides',
+  account_plan: 'docs',
+  transformation_roadmap: 'slides',
+  // General Mode Cards (portfolio-level)
+  portfolio_dashboard: 'sheets',
+  team_metrics: 'sheets',
+  renewal_pipeline: 'sheets',
+  at_risk_overview: 'sheets',
+  // Legacy/existing types
   data_analysis: 'chat',
   presentation_creation: 'slides',
   document_creation: 'docs',
@@ -117,7 +279,6 @@ const OUTPUT_FORMATS: Record<TaskType, ArtifactType> = {
   transcription_summary: 'chat',
   health_analysis: 'chat',
   expansion_planning: 'docs',
-  risk_assessment: 'chat',
   custom: 'chat',
 };
 
@@ -441,7 +602,37 @@ function buildDestination(
  */
 function estimateLength(taskType: TaskType, sections: PlanSection[]): string {
   const estimates: Record<TaskType, string> = {
+    // Onboarding Specialist Cards
+    kickoff_plan: '2-4 pages',
+    milestone_plan: '1-2 pages',
+    stakeholder_map: `${sections.length}-${sections.length + 2} slides`,
+    training_schedule: '10-20 rows',
+    // Adoption Specialist Cards
+    usage_analysis: '15-30 rows with charts',
+    feature_campaign: '1-2 pages',
+    champion_development: '1-2 pages',
+    training_program: `${sections.length}-${sections.length + 3} slides`,
+    // Renewal Specialist Cards
+    renewal_forecast: '10-15 rows',
+    value_summary: `${sections.length}-${sections.length + 2} slides`,
+    expansion_proposal: '2-3 pages',
+    negotiation_brief: '1-2 pages',
+    // Risk Specialist Cards
+    risk_assessment: '1-2 pages',
+    save_play: '2-3 pages',
+    escalation_report: '1-2 pages',
+    resolution_plan: '10-20 rows',
+    // Strategic CSM Cards
     qbr_generation: `${sections.length}-${sections.length + 3} slides`,
+    executive_briefing: '5-7 slides',
+    account_plan: '2-4 pages',
+    transformation_roadmap: `${sections.length}-${sections.length + 3} slides`,
+    // General Mode Cards (portfolio-level)
+    portfolio_dashboard: '20-50 rows',
+    team_metrics: '15-30 rows',
+    renewal_pipeline: '15-30 rows',
+    at_risk_overview: '10-20 rows',
+    // Legacy/existing types
     data_analysis: '500-1000 words',
     presentation_creation: `${sections.length}-${sections.length + 2} slides`,
     document_creation: '1-3 pages',
@@ -450,7 +641,6 @@ function estimateLength(taskType: TaskType, sections: PlanSection[]): string {
     transcription_summary: '200-400 words',
     health_analysis: '400-600 words',
     expansion_planning: '1-2 pages',
-    risk_assessment: '300-500 words',
     custom: '200-500 words',
   };
 
