@@ -621,3 +621,38 @@
   - Risk calculation: weighted average of severity scores for enabled factors
   - Query detection patterns: 'risk assessment', 'risk analysis', 'churn risk', 'at-risk', 'at risk', 'assess risk', 'evaluate risk', 'risk profile', 'risk factors', 'mitigation plan', 'health risk'
 ---
+
+## 2026-02-04 - US-020
+- **What was implemented**: Save play generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateSavePlayPreview()` function (~290 lines) with types for RootCause, SavePlayAction, SuccessMetric, SavePlayPreviewResult
+  - `server/src/routes/cadg.ts` - Added save_play detection and `/api/cadg/save-play/save` endpoint (~250 lines)
+  - `components/AIPanel/CADGSavePlayPreview.tsx` (created, ~1050 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added save play preview state and handlers (~70 lines)
+- **Features**:
+  - **generateSavePlayPreview()**: Uses Claude to generate save play with:
+    - Title, created date, risk level, situation summary
+    - Root causes with categories (product, service, relationship, value, competitive, budget, timing, other)
+    - Severity levels (critical, high, medium, low) and evidence per cause
+    - Action items with owners, priorities, due dates, status tracking, and linked root causes
+    - Success metrics with current and target values, target dates
+    - Timeline for the save effort
+  - **CADGSavePlayPreview component**:
+    - Tab-based navigation for Overview, Root Causes, Actions, Metrics
+    - Root cause cards with enable/disable checkboxes, category/severity badges
+    - Action items with priority/status management and related causes linking
+    - Success metrics with current → target value display
+    - Reordering controls for action items
+    - Unsaved changes warning
+    - Orange accent color theme
+  - **Backend endpoint**: POST `/api/cadg/save-play/save`:
+    - Creates Google Doc with formatted save play content
+    - Creates Google Sheets tracker with three tabs: Action Items, Root Causes, Success Metrics
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Save play uses `isSavePlayPreview: true` response type
+  - Root causes use categories distinct from risk factors (product, service, relationship, value, competitive, budget, timing, other)
+  - Action items can link to multiple root causes via `relatedCauseIds` array
+  - Success metrics use `enabled` toggle for selective inclusion in final document
+  - Query detection patterns: 'save play', 'save this customer', 'save the customer', 'save account', 'churn save', 'retention play', 'retention plan', 'prevent churn', 'rescue plan', 'intervention plan', 'turnaround plan', 'win back'
+---
