@@ -731,3 +731,45 @@
   - Resolution plans link actions to issues via `relatedIssueIds` array
   - Query detection patterns: 'resolution plan', 'action plan', 'issue resolution', 'problem resolution', 'fix plan', 'remediation plan', 'corrective action', 'resolve issues', 'address issues', 'issue tracker', 'action tracker'
 ---
+
+## 2026-02-04 - US-023
+- **What was implemented**: Executive briefing generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateExecutiveBriefingPreview()` function (~360 lines) with types for ExecutiveHeadline, ExecutiveMetric, StrategicUpdate, ExecutiveAsk, ExecutiveBriefingPreviewResult
+  - `server/src/routes/cadg.ts` - Added executive_briefing detection and `/api/cadg/executive-briefing/save` endpoint (~220 lines)
+  - `server/src/services/google/qbrSlides.ts` - Added `createExecutiveBriefingPresentation()` method (~450 lines)
+  - `components/AIPanel/CADGExecutiveBriefingPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added executive briefing preview state and handlers (~70 lines)
+- **Features**:
+  - **generateExecutiveBriefingPreview()**: Uses Claude to generate executive briefing with:
+    - Title, prepared for, prepared by, briefing date
+    - Headlines with sentiment (positive/neutral/negative)
+    - Key metrics with trend and category
+    - Strategic updates with status and category
+    - Asks with priority, owner, due date
+    - Configurable slide count (5, 6, or 7 slides)
+    - Next steps list
+  - **CADGExecutiveBriefingPreview component**:
+    - Tab-based navigation for Overview, Headlines, Metrics, Updates, Asks, Next Steps
+    - Expandable cards for headlines, metrics, updates, and asks
+    - Enable/disable checkboxes for selective inclusion
+    - Slide count selector (5-7 slides)
+    - Sentiment icons (✅/➖/⚠️) for headlines
+    - Trend indicators (↑/↓/→) for metrics
+    - Status icons (✅/🔄/📋/⚠️) for updates
+    - Priority icons (🔴/🟡/🟢) for asks
+    - Reordering controls for asks
+    - Unsaved changes warning
+    - Indigo/purple accent color theme
+  - **Backend endpoint**: POST `/api/cadg/executive-briefing/save`:
+    - Creates Google Slides presentation with 5-7 slides
+    - Falls back to Google Doc if slides creation fails
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Executive briefing uses `isExecutiveBriefingPreview: true` response type
+  - Customer360 has `npsScore` property directly, not `npsHistory` array
+  - Slide count is user-configurable (5, 6, or 7) to control presentation length
+  - Tab-based UI with 6 tabs works well for comprehensive executive briefings
+  - Content summary in Overview helps users see what will be included
+  - Query detection patterns: 'executive briefing', 'exec briefing', 'executive summary', 'leadership briefing', 'board briefing', 'executive deck', 'executive presentation', 'brief leadership', 'leadership presentation', 'stakeholder briefing', 'account overview for exec', 'account brief'
+---
