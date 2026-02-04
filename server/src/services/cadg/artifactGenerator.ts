@@ -5863,6 +5863,396 @@ Format your response as JSON:
 }
 
 // ============================================
+// Escalation Report Types
+// ============================================
+
+interface TimelineEvent {
+  id: string;
+  date: string;
+  event: string;
+  description: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  actor: 'customer' | 'csm' | 'support' | 'product' | 'leadership' | 'external';
+  enabled: boolean;
+}
+
+interface ImpactMetric {
+  id: string;
+  metric: string;
+  value: string;
+  impact: string;
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  enabled: boolean;
+}
+
+interface SupportingEvidence {
+  id: string;
+  title: string;
+  type: 'email' | 'ticket' | 'meeting' | 'document' | 'screenshot' | 'log' | 'other';
+  date: string;
+  description: string;
+  url?: string;
+  enabled: boolean;
+}
+
+interface ResolutionRequest {
+  id: string;
+  request: string;
+  priority: 'urgent' | 'high' | 'medium' | 'low';
+  owner: 'Product' | 'Engineering' | 'Leadership' | 'Support' | 'Legal' | 'Finance';
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+}
+
+interface EscalationReportPreviewResult {
+  title: string;
+  createdDate: string;
+  escalationLevel: 'critical' | 'high' | 'medium';
+  issueSummary: string;
+  customerName: string;
+  arr: number;
+  healthScore: number;
+  daysUntilRenewal: number;
+  primaryContact: string;
+  escalationOwner: string;
+  timeline: TimelineEvent[];
+  impactMetrics: ImpactMetric[];
+  resolutionRequests: ResolutionRequest[];
+  supportingEvidence: SupportingEvidence[];
+  recommendedActions: string;
+  notes: string;
+}
+
+/**
+ * Generate an escalation report preview for urgent customer issues
+ * Provides editable HITL preview before creating final document
+ */
+async function generateEscalationReportPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<EscalationReportPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 45;
+  const arr = customer?.arr || 100000;
+  const tier = customer?.tier || 'Growth';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 35;
+  const loginFrequency = engagement?.loginFrequency || 1.5;
+
+  // Get stakeholder info
+  const stakeholders = context.platformData.stakeholders || [];
+  const primaryStakeholder = stakeholders.find((s: any) => s.role === 'champion' || s.isPrimary) || stakeholders[0];
+  const primaryContact = primaryStakeholder?.name || 'Primary Contact';
+
+  // Get risk signals from context
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high' || r.type === 'churn_risk');
+
+  // Calculate days until renewal
+  const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+  // Determine escalation level
+  let escalationLevel: EscalationReportPreviewResult['escalationLevel'] = 'medium';
+  if (healthScore < 40 || hasHighRisk || daysUntilRenewal < 30) escalationLevel = 'critical';
+  else if (healthScore < 55 || daysUntilRenewal < 60) escalationLevel = 'high';
+
+  // Build prompt for escalation report generation
+  const prompt = `You are a customer success manager creating an escalation report for a critical customer issue that requires executive or cross-functional attention. Generate a comprehensive escalation report with timeline, impact analysis, and resolution requests.
+
+Customer: ${customerName}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100
+Current ARR: $${arr.toLocaleString()}
+Days Until Renewal: ${daysUntilRenewal}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+Escalation Level: ${escalationLevel.toUpperCase()}
+Primary Contact: ${primaryContact}
+Known Risk Signals: ${hasHighRisk ? 'High risk - immediate action required' : 'Elevated concerns'}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate an escalation report with:
+1. A clear issue summary (2-3 sentences describing the critical issue requiring escalation)
+2. 5-8 timeline events showing how the issue developed (with dates, descriptions, severity, actors)
+3. 4-6 impact metrics showing business impact (revenue at risk, user impact, etc.)
+4. 3-5 resolution requests for specific teams with priorities and deadlines
+5. 3-5 pieces of supporting evidence (emails, tickets, meetings, etc.)
+6. Recommended actions summary
+
+Format your response as JSON:
+{
+  "issueSummary": "2-3 sentence summary of the critical issue requiring escalation",
+  "escalationOwner": "Name of person responsible for this escalation",
+  "timelineEvents": [
+    {
+      "date": "YYYY-MM-DD",
+      "event": "Event title",
+      "description": "What happened",
+      "severity": "critical|high|medium|low",
+      "actor": "customer|csm|support|product|leadership|external"
+    }
+  ],
+  "impactMetrics": [
+    {
+      "metric": "Metric name",
+      "value": "Current value",
+      "impact": "Description of business impact",
+      "severity": "critical|high|medium|low"
+    }
+  ],
+  "resolutionRequests": [
+    {
+      "request": "What needs to be done",
+      "priority": "urgent|high|medium|low",
+      "owner": "Product|Engineering|Leadership|Support|Legal|Finance"
+    }
+  ],
+  "supportingEvidence": [
+    {
+      "title": "Evidence title",
+      "type": "email|ticket|meeting|document|screenshot|log|other",
+      "date": "YYYY-MM-DD",
+      "description": "Brief description of the evidence"
+    }
+  ],
+  "recommendedActions": "Summary of recommended next steps"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Get issue summary
+    const issueSummary = parsed.issueSummary ||
+      `${customerName} has raised a critical issue requiring immediate escalation. ` +
+      `The situation has escalated due to unresolved concerns impacting their operations. ` +
+      `With renewal in ${daysUntilRenewal} days, urgent resolution is required.`;
+
+    // Get escalation owner
+    const escalationOwner = parsed.escalationOwner || 'CSM Manager';
+
+    // Process timeline events
+    const timeline: TimelineEvent[] = (parsed.timelineEvents || []).map((e: any, idx: number) => ({
+      id: `event-${idx + 1}`,
+      date: e.date || new Date(Date.now() - (30 - idx * 5) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      event: e.event || `Event ${idx + 1}`,
+      description: e.description || '',
+      severity: (e.severity as TimelineEvent['severity']) || 'medium',
+      actor: (e.actor as TimelineEvent['actor']) || 'customer',
+      enabled: true,
+    }));
+
+    // Ensure minimum timeline events
+    if (timeline.length < 5) {
+      const defaultEvents: TimelineEvent[] = [
+        { id: 'event-1', date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Initial Issue Reported', description: 'Customer reported issue via support ticket', severity: 'medium', actor: 'customer', enabled: true },
+        { id: 'event-2', date: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Support Investigation', description: 'Support team began investigating the issue', severity: 'medium', actor: 'support', enabled: true },
+        { id: 'event-3', date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Issue Escalated Internally', description: 'Issue escalated to product team for deeper analysis', severity: 'high', actor: 'csm', enabled: true },
+        { id: 'event-4', date: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Customer Executive Escalation', description: 'Customer executive expressed serious concern', severity: 'critical', actor: 'customer', enabled: true },
+        { id: 'event-5', date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Temporary Workaround Provided', description: 'Support provided interim solution', severity: 'medium', actor: 'support', enabled: true },
+        { id: 'event-6', date: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Workaround Deemed Insufficient', description: 'Customer rejected workaround as unacceptable', severity: 'high', actor: 'customer', enabled: true },
+        { id: 'event-7', date: new Date().toISOString().slice(0, 10), event: 'Escalation Report Created', description: 'Formal escalation initiated requiring executive attention', severity: 'critical', actor: 'csm', enabled: true },
+      ];
+
+      // Add missing events
+      defaultEvents.forEach((defaultEvent, idx) => {
+        if (!timeline.find(e => e.event === defaultEvent.event)) {
+          timeline.push({ ...defaultEvent, id: `event-${timeline.length + 1}` });
+        }
+      });
+
+      // Sort by date
+      timeline.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }
+
+    // Process impact metrics
+    const impactMetrics: ImpactMetric[] = (parsed.impactMetrics || []).map((m: any, idx: number) => ({
+      id: `impact-${idx + 1}`,
+      metric: m.metric || `Impact ${idx + 1}`,
+      value: m.value || '',
+      impact: m.impact || '',
+      severity: (m.severity as ImpactMetric['severity']) || 'high',
+      enabled: true,
+    }));
+
+    // Ensure minimum impact metrics
+    if (impactMetrics.length < 4) {
+      const defaultMetrics: ImpactMetric[] = [
+        { id: 'impact-1', metric: 'Revenue at Risk', value: `$${arr.toLocaleString()} ARR`, impact: 'Full contract value at risk if issue not resolved before renewal', severity: 'critical', enabled: true },
+        { id: 'impact-2', metric: 'User Impact', value: `${Math.round(featureAdoption * 10)} affected users`, impact: 'Users unable to complete critical workflows', severity: 'high', enabled: true },
+        { id: 'impact-3', metric: 'Customer Satisfaction', value: `Health: ${healthScore}/100`, impact: 'Significant decline in overall satisfaction and engagement', severity: healthScore < 50 ? 'critical' : 'high', enabled: true },
+        { id: 'impact-4', metric: 'Time to Resolution', value: '30+ days', impact: 'Extended resolution time damaging relationship trust', severity: 'high', enabled: true },
+        { id: 'impact-5', metric: 'Escalation Cost', value: 'Executive involvement', impact: 'Resource allocation and opportunity cost of escalation', severity: 'medium', enabled: true },
+        { id: 'impact-6', metric: 'Renewal Risk', value: `${daysUntilRenewal} days left`, impact: 'Renewal decision may be negatively influenced', severity: daysUntilRenewal < 60 ? 'critical' : 'high', enabled: true },
+      ];
+
+      // Add missing metrics
+      defaultMetrics.forEach((defaultMetric) => {
+        if (impactMetrics.length < 4) {
+          impactMetrics.push({ ...defaultMetric, id: `impact-${impactMetrics.length + 1}` });
+        }
+      });
+    }
+
+    // Process resolution requests
+    const resolutionRequests: ResolutionRequest[] = (parsed.resolutionRequests || []).map((r: any, idx: number) => ({
+      id: `request-${idx + 1}`,
+      request: r.request || `Resolution ${idx + 1}`,
+      priority: (r.priority as ResolutionRequest['priority']) || 'high',
+      owner: (r.owner as ResolutionRequest['owner']) || 'Product',
+      dueDate: new Date(Date.now() + (7 + idx * 7) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      status: 'pending' as const,
+    }));
+
+    // Ensure minimum resolution requests
+    if (resolutionRequests.length < 3) {
+      const defaultRequests: ResolutionRequest[] = [
+        { id: 'request-1', request: 'Root Cause Analysis and Fix ETA', priority: 'urgent', owner: 'Engineering', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+        { id: 'request-2', request: 'Executive-to-Executive Call', priority: 'urgent', owner: 'Leadership', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+        { id: 'request-3', request: 'Customer Credit or Compensation Review', priority: 'high', owner: 'Finance', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+        { id: 'request-4', request: 'Product Roadmap Prioritization', priority: 'high', owner: 'Product', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+        { id: 'request-5', request: 'Dedicated Support Resources', priority: 'high', owner: 'Support', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+      ];
+
+      // Add missing requests
+      defaultRequests.forEach((defaultRequest) => {
+        if (resolutionRequests.length < 3) {
+          resolutionRequests.push({ ...defaultRequest, id: `request-${resolutionRequests.length + 1}` });
+        }
+      });
+    }
+
+    // Process supporting evidence
+    const supportingEvidence: SupportingEvidence[] = (parsed.supportingEvidence || []).map((e: any, idx: number) => ({
+      id: `evidence-${idx + 1}`,
+      title: e.title || `Evidence ${idx + 1}`,
+      type: (e.type as SupportingEvidence['type']) || 'document',
+      date: e.date || new Date(Date.now() - idx * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      description: e.description || '',
+      url: e.url,
+      enabled: true,
+    }));
+
+    // Ensure minimum supporting evidence
+    if (supportingEvidence.length < 3) {
+      const defaultEvidence: SupportingEvidence[] = [
+        { id: 'evidence-1', title: 'Original Support Ticket', type: 'ticket', date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Initial ticket documenting the reported issue', enabled: true },
+        { id: 'evidence-2', title: 'Customer Escalation Email', type: 'email', date: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Email from customer executive expressing urgency', enabled: true },
+        { id: 'evidence-3', title: 'Internal Investigation Notes', type: 'document', date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Technical analysis and findings from engineering', enabled: true },
+        { id: 'evidence-4', title: 'Health Score Trend Report', type: 'document', date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: `Health score declined from 75 to ${healthScore} over past month`, enabled: true },
+        { id: 'evidence-5', title: 'Meeting Recording', type: 'meeting', date: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Recording of escalation call with customer', enabled: true },
+      ];
+
+      // Add missing evidence
+      defaultEvidence.forEach((defaultEv) => {
+        if (supportingEvidence.length < 3) {
+          supportingEvidence.push({ ...defaultEv, id: `evidence-${supportingEvidence.length + 1}` });
+        }
+      });
+    }
+
+    // Get recommended actions
+    const recommendedActions = parsed.recommendedActions ||
+      `1. Schedule executive-to-executive call within 48 hours to demonstrate commitment\n` +
+      `2. Assign dedicated engineering resource for root cause analysis\n` +
+      `3. Provide interim workaround with proactive support monitoring\n` +
+      `4. Evaluate customer credit or extension to restore goodwill\n` +
+      `5. Implement weekly status calls until resolution confirmed`;
+
+    return {
+      title: `Escalation Report: ${customerName}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      escalationLevel,
+      issueSummary,
+      customerName,
+      arr,
+      healthScore,
+      daysUntilRenewal,
+      primaryContact,
+      escalationOwner,
+      timeline,
+      impactMetrics,
+      resolutionRequests,
+      supportingEvidence,
+      recommendedActions,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Escalation report preview generation error:', error);
+
+    // Return fallback escalation report
+    const fallbackIssueSummary = `${customerName} has raised a critical issue requiring immediate escalation. The situation has escalated due to unresolved concerns impacting their operations. With renewal in ${daysUntilRenewal} days, urgent resolution is required.`;
+
+    const fallbackTimeline: TimelineEvent[] = [
+      { id: 'event-1', date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Initial Issue Reported', description: 'Customer reported issue', severity: 'medium', actor: 'customer', enabled: true },
+      { id: 'event-2', date: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Support Investigation', description: 'Investigation began', severity: 'medium', actor: 'support', enabled: true },
+      { id: 'event-3', date: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Executive Escalation', description: 'Customer escalated to executive', severity: 'critical', actor: 'customer', enabled: true },
+      { id: 'event-4', date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), event: 'Interim Workaround', description: 'Temporary solution provided', severity: 'medium', actor: 'support', enabled: true },
+      { id: 'event-5', date: new Date().toISOString().slice(0, 10), event: 'Formal Escalation', description: 'Escalation report created', severity: 'critical', actor: 'csm', enabled: true },
+    ];
+
+    const fallbackImpactMetrics: ImpactMetric[] = [
+      { id: 'impact-1', metric: 'Revenue at Risk', value: `$${arr.toLocaleString()}`, impact: 'Full contract at risk', severity: 'critical', enabled: true },
+      { id: 'impact-2', metric: 'Health Score', value: `${healthScore}/100`, impact: 'Declining satisfaction', severity: 'high', enabled: true },
+      { id: 'impact-3', metric: 'Renewal Timeline', value: `${daysUntilRenewal} days`, impact: 'Renewal at risk', severity: 'high', enabled: true },
+      { id: 'impact-4', metric: 'User Impact', value: 'Critical workflows', impact: 'Users blocked', severity: 'high', enabled: true },
+    ];
+
+    const fallbackResolutionRequests: ResolutionRequest[] = [
+      { id: 'request-1', request: 'Root Cause Analysis', priority: 'urgent', owner: 'Engineering', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+      { id: 'request-2', request: 'Executive Call', priority: 'urgent', owner: 'Leadership', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+      { id: 'request-3', request: 'Compensation Review', priority: 'high', owner: 'Finance', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending' },
+    ];
+
+    const fallbackSupportingEvidence: SupportingEvidence[] = [
+      { id: 'evidence-1', title: 'Support Ticket', type: 'ticket', date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Original issue report', enabled: true },
+      { id: 'evidence-2', title: 'Escalation Email', type: 'email', date: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Executive escalation email', enabled: true },
+      { id: 'evidence-3', title: 'Health Trend', type: 'document', date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), description: 'Declining health score data', enabled: true },
+    ];
+
+    return {
+      title: `Escalation Report: ${customerName}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      escalationLevel,
+      issueSummary: fallbackIssueSummary,
+      customerName,
+      arr,
+      healthScore,
+      daysUntilRenewal,
+      primaryContact,
+      escalationOwner: 'CSM Manager',
+      timeline: fallbackTimeline,
+      impactMetrics: fallbackImpactMetrics,
+      resolutionRequests: fallbackResolutionRequests,
+      supportingEvidence: fallbackSupportingEvidence,
+      recommendedActions: `1. Schedule executive call within 48 hours\n2. Assign dedicated engineering resource\n3. Evaluate customer credit\n4. Implement weekly status calls`,
+      notes: '',
+    };
+  }
+}
+
+// ============================================
 // Risk Assessment Types
 // ============================================
 
@@ -6178,4 +6568,5 @@ export const artifactGenerator = {
   generateNegotiationBriefPreview,
   generateRiskAssessmentPreview,
   generateSavePlayPreview,
+  generateEscalationReportPreview,
 };

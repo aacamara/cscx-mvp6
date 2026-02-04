@@ -23,6 +23,7 @@ import { CADGExpansionProposalPreview, ExpansionProposalData, CustomerData as Ex
 import { CADGNegotiationBriefPreview, NegotiationBriefData, CustomerData as NegotiationBriefCustomerData } from './CADGNegotiationBriefPreview';
 import { CADGRiskAssessmentPreview, RiskAssessmentData, CustomerData as RiskAssessmentCustomerData } from './CADGRiskAssessmentPreview';
 import { CADGSavePlayPreview, SavePlayData, CustomerData as SavePlayCustomerData } from './CADGSavePlayPreview';
+import { CADGEscalationReportPreview, EscalationReportData, CustomerData as EscalationReportCustomerData } from './CADGEscalationReportPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -270,6 +271,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [savePlayPreviewData, setSavePlayPreviewData] = useState<{
     savePlay: SavePlayData;
     customer: SavePlayCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Escalation report preview state for HITL workflow
+  const [showEscalationReportPreview, setShowEscalationReportPreview] = useState(false);
+  const [escalationReportPreviewData, setEscalationReportPreviewData] = useState<{
+    escalationReport: EscalationReportData;
+    customer: EscalationReportCustomerData;
     planId: string;
   } | null>(null);
 
@@ -754,6 +763,42 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowSavePlayPreview(true);
         setStatus('pending'); // Keep in pending until save play is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is an escalation report preview (HITL workflow)
+      if (data.isEscalationReportPreview && data.preview) {
+        setEscalationReportPreviewData({
+          escalationReport: {
+            title: data.preview.title || 'Escalation Report',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            escalationLevel: data.preview.escalationLevel || 'high',
+            issueSummary: data.preview.issueSummary || '',
+            customerName: data.preview.customerName || 'Customer',
+            arr: data.preview.arr || 0,
+            healthScore: data.preview.healthScore || 0,
+            daysUntilRenewal: data.preview.daysUntilRenewal || 0,
+            primaryContact: data.preview.primaryContact || '',
+            escalationOwner: data.preview.escalationOwner || '',
+            timeline: data.preview.timeline || [],
+            impactMetrics: data.preview.impactMetrics || [],
+            resolutionRequests: data.preview.resolutionRequests || [],
+            supportingEvidence: data.preview.supportingEvidence || [],
+            recommendedActions: data.preview.recommendedActions || '',
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowEscalationReportPreview(true);
+        setStatus('pending'); // Keep in pending until escalation report is saved
         setIsApproving(false);
         return;
       }
@@ -1873,6 +1918,72 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving escalation report from preview
+  const handleEscalationReportSave = async (escalationReport: EscalationReportData) => {
+    if (!escalationReportPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/escalation-report/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: escalationReportPreviewData.planId,
+        title: escalationReport.title,
+        createdDate: escalationReport.createdDate,
+        escalationLevel: escalationReport.escalationLevel,
+        issueSummary: escalationReport.issueSummary,
+        customerName: escalationReport.customerName,
+        arr: escalationReport.arr,
+        healthScore: escalationReport.healthScore,
+        daysUntilRenewal: escalationReport.daysUntilRenewal,
+        primaryContact: escalationReport.primaryContact,
+        escalationOwner: escalationReport.escalationOwner,
+        timeline: escalationReport.timeline,
+        impactMetrics: escalationReport.impactMetrics,
+        resolutionRequests: escalationReport.resolutionRequests,
+        supportingEvidence: escalationReport.supportingEvidence,
+        recommendedActions: escalationReport.recommendedActions,
+        notes: escalationReport.notes,
+        customerId: escalationReportPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save escalation report');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowEscalationReportPreview(false);
+    setEscalationReportPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'escalation-report',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'escalation-report');
+  };
+
+  // Handle canceling escalation report preview
+  const handleEscalationReportCancel = () => {
+    setShowEscalationReportPreview(false);
+    setEscalationReportPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2217,6 +2328,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={savePlayPreviewData.customer}
         onSave={handleSavePlaySave}
         onCancel={handleSavePlayCancel}
+      />
+    );
+  }
+
+  // Escalation report preview mode
+  if (showEscalationReportPreview && escalationReportPreviewData) {
+    return (
+      <CADGEscalationReportPreview
+        escalationReport={escalationReportPreviewData.escalationReport}
+        customer={escalationReportPreviewData.customer}
+        onSave={handleEscalationReportSave}
+        onCancel={handleEscalationReportCancel}
       />
     );
   }

@@ -989,6 +989,65 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is an escalation report artifact - return preview for HITL
+    const isEscalationReportArtifact = finalPlan.taskType === 'escalation_report' ||
+                                       planRow.user_query?.toLowerCase().includes('escalation report') ||
+                                       planRow.user_query?.toLowerCase().includes('escalation') ||
+                                       planRow.user_query?.toLowerCase().includes('escalate this') ||
+                                       planRow.user_query?.toLowerCase().includes('escalate issue') ||
+                                       planRow.user_query?.toLowerCase().includes('executive escalation') ||
+                                       planRow.user_query?.toLowerCase().includes('urgent escalation') ||
+                                       planRow.user_query?.toLowerCase().includes('escalate to') ||
+                                       planRow.user_query?.toLowerCase().includes('raise escalation') ||
+                                       planRow.user_query?.toLowerCase().includes('formal escalation') ||
+                                       planRow.user_query?.toLowerCase().includes('critical issue') ||
+                                       planRow.user_query?.toLowerCase().includes('create escalation');
+
+    if (isEscalationReportArtifact) {
+      // Generate escalation report content but don't finalize - return preview for HITL
+      const escalationReportPreview = await artifactGenerator.generateEscalationReportPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isEscalationReportPreview: true,
+        preview: {
+          title: escalationReportPreview.title,
+          createdDate: escalationReportPreview.createdDate,
+          escalationLevel: escalationReportPreview.escalationLevel,
+          issueSummary: escalationReportPreview.issueSummary,
+          customerName: escalationReportPreview.customerName,
+          arr: escalationReportPreview.arr,
+          healthScore: escalationReportPreview.healthScore,
+          daysUntilRenewal: escalationReportPreview.daysUntilRenewal,
+          primaryContact: escalationReportPreview.primaryContact,
+          escalationOwner: escalationReportPreview.escalationOwner,
+          timeline: escalationReportPreview.timeline,
+          impactMetrics: escalationReportPreview.impactMetrics,
+          resolutionRequests: escalationReportPreview.resolutionRequests,
+          supportingEvidence: escalationReportPreview.supportingEvidence,
+          recommendedActions: escalationReportPreview.recommendedActions,
+          notes: escalationReportPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -4740,6 +4799,198 @@ ${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save save play',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/escalation-report/save
+ * Save finalized escalation report after user review
+ */
+router.post('/escalation-report/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      escalationLevel,
+      issueSummary,
+      customerName,
+      arr,
+      healthScore,
+      daysUntilRenewal,
+      primaryContact,
+      escalationOwner,
+      timeline,
+      impactMetrics,
+      resolutionRequests,
+      supportingEvidence,
+      recommendedActions,
+      notes,
+      customerId,
+    } = req.body;
+
+    // Get userId from session or request
+    const userId = (req as any).userId || req.body.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Filter enabled items
+    const enabledTimeline = (timeline || []).filter((e: any) => e.enabled);
+    const enabledImpacts = (impactMetrics || []).filter((m: any) => m.enabled);
+    const enabledEvidence = (supportingEvidence || []).filter((e: any) => e.enabled);
+
+    // Build document content
+    const documentContent = `# ${title}
+
+**Created:** ${createdDate}
+**Escalation Level:** ${escalationLevel?.toUpperCase()}
+**Customer:** ${customerName}
+**Primary Contact:** ${primaryContact}
+**Escalation Owner:** ${escalationOwner}
+
+---
+
+## Executive Summary
+
+${issueSummary}
+
+---
+
+## Key Metrics
+
+| Metric | Value |
+|--------|-------|
+| ARR | $${(arr || 0).toLocaleString()} |
+| Health Score | ${healthScore}/100 |
+| Days to Renewal | ${daysUntilRenewal} |
+| Escalation Level | ${escalationLevel?.toUpperCase()} |
+
+---
+
+## Timeline of Events
+
+${enabledTimeline.map((event: any, idx: number) => `### ${idx + 1}. ${event.event}
+**Date:** ${event.date}
+**Severity:** ${event.severity?.toUpperCase()}
+**Actor:** ${event.actor}
+
+${event.description}
+`).join('\n')}
+
+---
+
+## Business Impact
+
+${enabledImpacts.map((impact: any) => `### ${impact.metric}
+**Value:** ${impact.value}
+**Severity:** ${impact.severity?.toUpperCase()}
+
+${impact.impact}
+`).join('\n')}
+
+---
+
+## Resolution Requests
+
+| # | Request | Priority | Owner | Due Date | Status |
+|---|---------|----------|-------|----------|--------|
+${(resolutionRequests || []).map((req: any, idx: number) => `| ${idx + 1} | ${req.request} | ${req.priority?.toUpperCase()} | ${req.owner} | ${req.dueDate} | ${req.status} |`).join('\n')}
+
+---
+
+## Supporting Evidence
+
+${enabledEvidence.map((evidence: any) => `### ${evidence.title}
+**Type:** ${evidence.type}
+**Date:** ${evidence.date}
+${evidence.url ? `**Link:** ${evidence.url}` : ''}
+
+${evidence.description}
+`).join('\n')}
+
+---
+
+## Recommended Actions
+
+${recommendedActions}
+
+---
+
+${notes ? `## Internal Notes
+
+${notes}
+
+---
+
+` : ''}
+*Document generated via CSCX.AI Escalation Report*
+`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create escalation report document:', docsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity
+    if (customerId) {
+      try {
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'escalation_report_created',
+            description: `Escalation report created: ${title} - Level: ${escalationLevel}, ${(resolutionRequests || []).length} resolution requests`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              escalationLevel,
+              healthScore,
+              arr,
+              daysUntilRenewal,
+              primaryContact,
+              escalationOwner,
+              timelineCount: enabledTimeline.length,
+              impactCount: enabledImpacts.length,
+              requestCount: (resolutionRequests || []).length,
+              evidenceCount: enabledEvidence.length,
+              createdVia: 'cadg_escalation_report_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log escalation report activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Escalation report save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save escalation report',
     });
   }
 });
