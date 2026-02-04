@@ -458,8 +458,8 @@
         "Typecheck passes"
       ],
       "priority": 29,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed. Created CADGAtRiskOverviewPreview component (~900 lines) and generateAtRiskOverviewPreview function with tab-based UI for Overview, Customers, Filters, Columns. Orange accent theme. Creates Google Sheets + Doc. Works in General Mode (no customer context)."
     },
     {
       "id": "US-030",

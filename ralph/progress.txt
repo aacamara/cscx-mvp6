@@ -980,3 +980,50 @@
   - Date range filtering needs separate handling for custom vs preset ranges
   - Query detection patterns: 'renewal pipeline', 'renewals pipeline', 'upcoming renewals', 'renewal forecast', 'renewal calendar', 'renewal schedule', 'renewal tracker', 'renewal list', 'renewals this quarter', 'renewals this month', 'renewals due', 'show renewals', 'all renewals'
 ---
+
+## 2026-02-04 - US-029
+- **What was implemented**: At-risk overview generator with full HITL editable preview (General Mode)
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateAtRiskOverviewPreview()` function (~380 lines) with types for AtRiskCustomerEntry, AtRiskSummary, AtRiskFilters, AtRiskColumn, AtRiskOverviewPreviewResult
+  - `server/src/routes/cadg.ts` - Added at_risk_overview detection (~50 lines) and `/api/cadg/at-risk-overview/save` endpoint (~250 lines)
+  - `components/AIPanel/CADGAtRiskOverviewPreview.tsx` (created, ~900 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added at-risk overview preview state and handlers (~130 lines)
+- **Features**:
+  - **generateAtRiskOverviewPreview()**: Aggregates at-risk customer data with:
+    - Customer list with risk score, health score, primary risk factors, days at risk
+    - Risk level classification (medium/high/critical)
+    - Save play status tracking (active/completed/none)
+    - Renewal urgency (within 30/90 days)
+    - Works in General Mode (no customer context required)
+    - Uses dataHelpers.aggregatePortfolioContext() for real data
+    - Falls back to sample data in template mode
+  - **CADGAtRiskOverviewPreview component**:
+    - Tab-based navigation for Overview, Customers, Filters, Columns
+    - Summary cards: At-Risk Customers, ARR at Risk, Avg Risk Score, Avg Health Score
+    - Risk distribution progress bar (red/orange/amber for critical/high/medium)
+    - Save play distribution cards
+    - Renewal urgency indicators (within 30/90 days with ARR)
+    - Risk threshold slider filter
+    - Risk level filter toggle (medium/high/critical)
+    - Save play filters (show only with/without save plays)
+    - Renewal range filter (all/within 30/60/90 days/custom)
+    - Owner/tier/segment multi-select filters
+    - Sort options with direction toggle
+    - Column visibility controls for export
+    - Customer cards with primary risk factors
+    - Select All / Clear All for bulk operations
+    - Unsaved changes warning
+    - Orange accent color theme
+  - **Backend endpoint**: POST `/api/cadg/at-risk-overview/save`:
+    - Creates Google Sheets with customer data and enabled columns
+    - Creates Google Doc report with at-risk overview summary
+    - Logs activity to agent_activities table (no customer_id for General Mode)
+- **Learnings for future iterations**:
+  - At-risk overview uses `isAtRiskOverviewPreview: true` response type
+  - General Mode cards follow same pattern as portfolio dashboard, team metrics, renewal pipeline - set customerId to null
+  - At-risk data comes from aggregatePortfolioContext().atRiskCustomers in dataHelpers.ts
+  - Risk levels for at-risk overview are medium/high/critical (excludes 'low' since they're already at risk)
+  - Risk score is inverse of health score for simplicity (100 - healthScore)
+  - Save play status uses enabled/disabled pattern with status tracking
+  - Query detection patterns: 'at-risk overview', 'at risk overview', 'at-risk customers', 'at risk customers', 'customers at risk', 'show at-risk', 'show at risk', 'risk overview', 'churn risk overview', 'high risk customers', 'critical customers', 'risky accounts', 'accounts at risk'
+---
