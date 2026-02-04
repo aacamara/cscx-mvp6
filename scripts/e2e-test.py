@@ -91,7 +91,12 @@ def test_agent_center(page):
         page.wait_for_timeout(1000)
         print("✅ Clicked Agent Center tab")
 
-    chat_input = page.locator('input[placeholder*="message" i], textarea[placeholder*="message" i], [class*="chat"] input, [class*="input-area"] input').first
+    # Exclude file inputs - look for visible text/search inputs only
+    chat_input = page.locator('input[type="text"][placeholder*="message" i], input:not([type="file"]):not([type="hidden"])[placeholder*="Message" i], textarea[placeholder*="message" i]').first
+
+    if chat_input.count() == 0:
+        # Fallback: find input in the input-area that's not a file input
+        chat_input = page.locator('.input-area input:not([type="file"]), [class*="chat-input"] input').first
 
     if chat_input.count() > 0:
         print("✅ Found chat input")
@@ -115,7 +120,7 @@ def test_keyboard_shortcuts(page):
     print("\n⌨️ TEST: Keyboard Shortcuts")
     print("-" * 40)
 
-    chat_input = page.locator('input[placeholder*="message" i], textarea').first
+    chat_input = page.locator('input[type="text"][placeholder*="message" i], textarea:not([hidden])').first
     if chat_input.count() > 0:
         # Test Up arrow for history
         chat_input.press("ArrowUp")
