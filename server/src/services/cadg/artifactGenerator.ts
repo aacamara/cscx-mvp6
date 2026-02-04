@@ -1782,6 +1782,258 @@ Format your response as JSON:
 }
 
 /**
+ * Training schedule preview result for HITL review
+ */
+interface TrainingSchedulePreviewResult {
+  title: string;
+  sessions: Array<{
+    id: string;
+    name: string;
+    description: string;
+    date: string;
+    time: string;
+    duration: string;
+    trainer: string;
+    attendeeGroups: string[];
+    topics: string[];
+    prerequisites: string[];
+  }>;
+  notes: string;
+  startDate: string;
+}
+
+/**
+ * Generate training schedule preview for HITL review
+ * Returns editable preview with sessions, dates, attendee groups, and topics
+ */
+async function generateTrainingSchedulePreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<TrainingSchedulePreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Build prompt for training schedule generation
+  const prompt = `You are a customer success manager creating a training schedule for a customer. Generate a comprehensive training schedule with sessions.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a training schedule with 4-6 training sessions. For each session include:
+1. Session name and brief description
+2. Date and time (spread across 2-4 weeks from today)
+3. Duration (30-60-90 min options)
+4. Trainer (CSM, Product Expert, Implementation Team, etc.)
+5. Attendee groups (e.g., Admins, Power Users, End Users, Executives)
+6. Topics to cover (3-5 per session)
+7. Prerequisites if any
+
+Format your response as JSON:
+{
+  "title": "Training Schedule title",
+  "sessions": [
+    {
+      "name": "Session name",
+      "description": "Brief description of what will be covered",
+      "date": "YYYY-MM-DD",
+      "time": "HH:MM",
+      "duration": "60 min",
+      "trainer": "CSM",
+      "attendeeGroups": ["Admins", "Power Users"],
+      "topics": ["Topic 1", "Topic 2", "Topic 3"],
+      "prerequisites": ["Prerequisite 1"] or []
+    }
+  ],
+  "notes": "Overall notes about the training schedule"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const scheduleContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      sessions?: Array<{
+        name: string;
+        description?: string;
+        date?: string;
+        time?: string;
+        duration?: string;
+        trainer?: string;
+        attendeeGroups?: string[];
+        topics?: string[];
+        prerequisites?: string[];
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = scheduleContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default start date (today)
+    const startDate = new Date();
+
+    // Helper to calculate date offset
+    const addDays = (date: Date, days: number): string => {
+      const result = new Date(date);
+      result.setDate(result.getDate() + days);
+      return result.toISOString().split('T')[0];
+    };
+
+    // Build default sessions if not parsed
+    const defaultSessions = [
+      {
+        name: 'Platform Overview & Navigation',
+        description: 'Introduction to the platform interface and key navigation concepts',
+        date: addDays(startDate, 3),
+        time: '10:00',
+        duration: '60 min',
+        trainer: 'CSM',
+        attendeeGroups: ['All Users'],
+        topics: ['Platform overview', 'Navigation basics', 'Key terminology', 'Getting help'],
+        prerequisites: [],
+      },
+      {
+        name: 'Admin Configuration Training',
+        description: 'Deep dive into admin settings and configuration options',
+        date: addDays(startDate, 7),
+        time: '10:00',
+        duration: '90 min',
+        trainer: 'Implementation Team',
+        attendeeGroups: ['Admins'],
+        topics: ['User management', 'Permission settings', 'Integrations', 'System configuration'],
+        prerequisites: ['Platform Overview completed'],
+      },
+      {
+        name: 'Power User Workshop',
+        description: 'Advanced features and workflows for power users',
+        date: addDays(startDate, 14),
+        time: '14:00',
+        duration: '60 min',
+        trainer: 'Product Expert',
+        attendeeGroups: ['Power Users', 'Admins'],
+        topics: ['Advanced features', 'Custom workflows', 'Automation', 'Best practices'],
+        prerequisites: ['Platform Overview completed'],
+      },
+      {
+        name: 'End User Training',
+        description: 'Essential training for everyday users',
+        date: addDays(startDate, 21),
+        time: '11:00',
+        duration: '45 min',
+        trainer: 'CSM',
+        attendeeGroups: ['End Users'],
+        topics: ['Daily tasks', 'Common workflows', 'Tips and tricks', 'Q&A'],
+        prerequisites: [],
+      },
+    ];
+
+    const sessions = (parsed.sessions && parsed.sessions.length > 0
+      ? parsed.sessions
+      : defaultSessions
+    ).map((s, idx) => ({
+      id: `session-${idx + 1}`,
+      name: s.name || `Training Session ${idx + 1}`,
+      description: s.description || '',
+      date: s.date || addDays(startDate, (idx + 1) * 7),
+      time: s.time || '10:00',
+      duration: s.duration || '60 min',
+      trainer: s.trainer || 'CSM',
+      attendeeGroups: s.attendeeGroups || ['All Users'],
+      topics: s.topics || [],
+      prerequisites: s.prerequisites || [],
+    }));
+
+    return {
+      title: parsed.title || `Training Schedule: ${customerName}`,
+      sessions,
+      notes: parsed.notes || 'Adjust session dates and times based on attendee availability. Sessions can be recorded for asynchronous viewing.',
+      startDate: startDate.toISOString().split('T')[0],
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Training schedule preview generation error:', error);
+
+    // Return fallback training schedule
+    const fallbackStart = new Date();
+    const addDays = (date: Date, days: number): string => {
+      const result = new Date(date);
+      result.setDate(result.getDate() + days);
+      return result.toISOString().split('T')[0];
+    };
+
+    return {
+      title: `Training Schedule: ${customerName}`,
+      sessions: [
+        {
+          id: 'session-1',
+          name: 'Platform Overview',
+          description: 'Introduction to the platform',
+          date: addDays(fallbackStart, 7),
+          time: '10:00',
+          duration: '60 min',
+          trainer: 'CSM',
+          attendeeGroups: ['All Users'],
+          topics: ['Platform overview', 'Navigation', 'Getting started'],
+          prerequisites: [],
+        },
+        {
+          id: 'session-2',
+          name: 'Admin Training',
+          description: 'Admin configuration and settings',
+          date: addDays(fallbackStart, 14),
+          time: '10:00',
+          duration: '90 min',
+          trainer: 'Implementation Team',
+          attendeeGroups: ['Admins'],
+          topics: ['User management', 'Settings', 'Integrations'],
+          prerequisites: ['Platform Overview'],
+        },
+        {
+          id: 'session-3',
+          name: 'Advanced Features',
+          description: 'Power user training',
+          date: addDays(fallbackStart, 21),
+          time: '14:00',
+          duration: '60 min',
+          trainer: 'Product Expert',
+          attendeeGroups: ['Power Users'],
+          topics: ['Advanced features', 'Workflows', 'Best practices'],
+          prerequisites: ['Platform Overview'],
+        },
+      ],
+      notes: '',
+      startDate: fallbackStart.toISOString().split('T')[0],
+    };
+  }
+}
+
+/**
  * Generate stakeholder map preview for HITL review
  * Returns editable preview with contact cards, roles, and relationships
  */
@@ -2035,4 +2287,5 @@ export const artifactGenerator = {
   generateKickoffPlanPreview,
   generateMilestonePlanPreview,
   generateStakeholderMapPreview,
+  generateTrainingSchedulePreview,
 };

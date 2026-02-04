@@ -12,6 +12,7 @@ import { CADGMeetingBookingModal, MeetingBookingData, BookedMeeting } from './CA
 import { CADGKickoffPlanPreview, KickoffPlanData, CustomerData as KickoffCustomerData } from './CADGKickoffPlanPreview';
 import { CADGMilestonePlanPreview, MilestonePlanData, CustomerData as MilestoneCustomerData } from './CADGMilestonePlanPreview';
 import { CADGStakeholderMapPreview, StakeholderMapData, CustomerData as StakeholderCustomerData } from './CADGStakeholderMapPreview';
+import { CADGTrainingSchedulePreview, TrainingScheduleData, CustomerData as TrainingCustomerData } from './CADGTrainingSchedulePreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -171,6 +172,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [stakeholderMapPreviewData, setStakeholderMapPreviewData] = useState<{
     stakeholderMap: StakeholderMapData;
     customer: StakeholderCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Training schedule preview state for HITL workflow
+  const [showTrainingSchedulePreview, setShowTrainingSchedulePreview] = useState(false);
+  const [trainingSchedulePreviewData, setTrainingSchedulePreviewData] = useState<{
+    trainingSchedule: TrainingScheduleData;
+    customer: TrainingCustomerData;
     planId: string;
   } | null>(null);
 
@@ -350,6 +359,29 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowStakeholderMapPreview(true);
         setStatus('pending'); // Keep in pending until stakeholder map is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a training schedule preview (HITL workflow)
+      if (data.isTrainingSchedulePreview && data.preview) {
+        setTrainingSchedulePreviewData({
+          trainingSchedule: {
+            title: data.preview.title || 'Training Schedule',
+            sessions: data.preview.sessions || [],
+            notes: data.preview.notes || '',
+            startDate: data.preview.startDate || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowTrainingSchedulePreview(true);
+        setStatus('pending'); // Keep in pending until training schedule is saved
         setIsApproving(false);
         return;
       }
@@ -752,6 +784,66 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving training schedule from preview
+  const handleTrainingScheduleSave = async (trainingSchedule: TrainingScheduleData) => {
+    if (!trainingSchedulePreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/training-schedule/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: trainingSchedulePreviewData.planId,
+        title: trainingSchedule.title,
+        sessions: trainingSchedule.sessions,
+        notes: trainingSchedule.notes,
+        startDate: trainingSchedule.startDate,
+        customerId: trainingSchedulePreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save training schedule');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowTrainingSchedulePreview(false);
+    setTrainingSchedulePreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+        additionalFiles: result.sheetUrl ? [{
+          type: 'sheets',
+          fileId: result.sheetId,
+          url: result.sheetUrl,
+          title: 'Training Calendar',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling training schedule preview
+  const handleTrainingScheduleCancel = () => {
+    setShowTrainingSchedulePreview(false);
+    setTrainingSchedulePreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -964,6 +1056,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={stakeholderMapPreviewData.customer}
         onSave={handleStakeholderMapSave}
         onCancel={handleStakeholderMapCancel}
+      />
+    );
+  }
+
+  // Training schedule preview for HITL workflow
+  if (showTrainingSchedulePreview && trainingSchedulePreviewData) {
+    return (
+      <CADGTrainingSchedulePreview
+        trainingSchedule={trainingSchedulePreviewData.trainingSchedule}
+        customer={trainingSchedulePreviewData.customer}
+        onSave={handleTrainingScheduleSave}
+        onCancel={handleTrainingScheduleCancel}
       />
     );
   }
