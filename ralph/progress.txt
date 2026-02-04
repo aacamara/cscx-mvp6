@@ -1057,3 +1057,30 @@
   - Related capabilities help with suggestion chains (e.g., risk_assessment → save_play → escalation_report)
   - Trigger patterns should cover variations: hyphenated (at-risk), spaces (at risk), alternative phrasings
 ---
+
+## 2026-02-04 - US-031
+- **What was implemented**: Format-appropriate download buttons in CADGPlanCard completed state
+- **Files changed**:
+  - `components/AIPanel/CADGPlanCard.tsx` - Added getNativeFormat() helper, updated download buttons
+- **Features**:
+  - **getNativeFormat() helper function**: Maps taskType to output format info
+    - Returns format (docs/slides/sheets/chat/email), extension (docx/pptx/xlsx/pdf), label, icon, and googleApp
+    - Docs types: kickoff_plan, milestone_plan, feature_campaign, champion_development, etc.
+    - Slides types: stakeholder_map, training_program, value_summary, qbr_generation, etc.
+    - Sheets types: training_schedule, usage_analysis, renewal_forecast, portfolio_dashboard, etc.
+  - **Updated primary document link**: Shows correct icon, label, and Google app based on taskType
+    - Slides → "Presentation" / "Open in Google Slides"
+    - Sheets → "Spreadsheet" / "Open in Google Sheets"
+    - Docs → "Document" / "Open in Google Docs"
+  - **Dynamic download buttons**:
+    - PDF download always available (unchanged)
+    - Native format button shows DOCX/PPTX/XLSX based on document type
+    - No native format button for chat/email types (only PDF)
+    - Loading state on both buttons during download
+  - **Export Data (CSV)** button unchanged but label shortened
+- **Learnings for future iterations**:
+  - Task types can be mapped to output formats using array includes checks
+  - The OUTPUT_FORMATS constant in reasoningEngine.ts is the source of truth for format mappings
+  - IIFE pattern `{(() => { ... })()}` works well for computed JSX with local variables
+  - Export endpoints use artifactId, not driveFileId
+---

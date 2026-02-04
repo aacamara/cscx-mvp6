@@ -495,8 +495,8 @@
         "Typecheck passes"
       ],
       "priority": 31,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in commit 21776bc. Added getNativeFormat() helper to determine document format from taskType. Updated primary document link to show correct icon/label/Google app. Replaced hardcoded PPTX button with dynamic native format button (DOCX/PPTX/XLSX based on taskType). Maintained PDF download for all types, Export Data (CSV) button always available."
     }
   ]
 }
