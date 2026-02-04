@@ -9,6 +9,7 @@ import { CADGEmailPreview, EmailData, CustomerData } from './CADGEmailPreview';
 import { CADGDocumentPreview, DocumentData, DocumentSection, CustomerData as DocCustomerData } from './CADGDocumentPreview';
 import { CADGMeetingPrepPreview, MeetingPrepData, AgendaItem, TalkingPoint, RiskItem, CustomerData as MeetingCustomerData } from './CADGMeetingPrepPreview';
 import { CADGMeetingBookingModal, MeetingBookingData, BookedMeeting } from './CADGMeetingBookingModal';
+import { CADGKickoffPlanPreview, KickoffPlanData, CustomerData as KickoffCustomerData } from './CADGKickoffPlanPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -147,6 +148,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   } | null>(null);
   const [bookedMeetingInfo, setBookedMeetingInfo] = useState<BookedMeeting | null>(null);
 
+  // Kickoff plan preview state for HITL workflow
+  const [showKickoffPlanPreview, setShowKickoffPlanPreview] = useState(false);
+  const [kickoffPlanPreviewData, setKickoffPlanPreviewData] = useState<{
+    kickoffPlan: KickoffPlanData;
+    customer: KickoffCustomerData;
+    planId: string;
+  } | null>(null);
+
   const { plan, capability, methodology, taskType, confidence, customerId } = metadata;
 
   // Detect template mode (no customer selected)
@@ -250,6 +259,33 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowMeetingPrepPreview(true);
         setStatus('pending'); // Keep in pending until meeting prep is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a kickoff plan preview (HITL workflow)
+      if (data.isKickoffPlanPreview && data.preview) {
+        setKickoffPlanPreviewData({
+          kickoffPlan: {
+            title: data.preview.title || 'Kickoff Plan',
+            attendees: data.preview.attendees || [],
+            agenda: data.preview.agenda || [],
+            goals: data.preview.goals || [],
+            nextSteps: data.preview.nextSteps || [],
+            notes: data.preview.notes || '',
+            meetingDate: data.preview.meetingDate || '',
+            meetingDuration: data.preview.meetingDuration || '90 min',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowKickoffPlanPreview(true);
+        setStatus('pending'); // Keep in pending until kickoff plan is saved
         setIsApproving(false);
         return;
       }
@@ -474,6 +510,64 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving kickoff plan from preview
+  const handleKickoffPlanSave = async (kickoffPlan: KickoffPlanData) => {
+    if (!kickoffPlanPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/kickoff-plan/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: kickoffPlanPreviewData.planId,
+        title: kickoffPlan.title,
+        attendees: kickoffPlan.attendees,
+        agenda: kickoffPlan.agenda,
+        goals: kickoffPlan.goals,
+        nextSteps: kickoffPlan.nextSteps,
+        notes: kickoffPlan.notes,
+        meetingDate: kickoffPlan.meetingDate,
+        meetingDuration: kickoffPlan.meetingDuration,
+        customerId: kickoffPlanPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save kickoff plan');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowKickoffPlanPreview(false);
+    setKickoffPlanPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling kickoff plan preview
+  const handleKickoffPlanCancel = () => {
+    setShowKickoffPlanPreview(false);
+    setKickoffPlanPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -650,6 +744,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         onSave={handleMeetingPrepSave}
         onCancel={handleMeetingPrepCancel}
         onSaveAndBook={handleSaveAndBook}
+      />
+    );
+  }
+
+  // Kickoff plan preview for HITL workflow
+  if (showKickoffPlanPreview && kickoffPlanPreviewData) {
+    return (
+      <CADGKickoffPlanPreview
+        kickoffPlan={kickoffPlanPreviewData.kickoffPlan}
+        customer={kickoffPlanPreviewData.customer}
+        onSave={handleKickoffPlanSave}
+        onCancel={handleKickoffPlanCancel}
       />
     );
   }

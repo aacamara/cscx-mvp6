@@ -1274,10 +1274,216 @@ Format your response as JSON:
   }
 }
 
+/**
+ * Kickoff plan preview result for HITL review
+ */
+interface KickoffPlanPreviewResult {
+  title: string;
+  attendees: Array<{ id: string; name: string; email: string; role: string }>;
+  agenda: Array<{ id: string; topic: string; duration: string; owner: string }>;
+  goals: Array<{ id: string; goal: string }>;
+  nextSteps: Array<{ id: string; action: string; owner: string; dueDate: string }>;
+  notes: string;
+  meetingDate: string;
+  meetingDuration: string;
+}
+
+/**
+ * Generate kickoff plan preview for HITL review
+ * Returns editable preview with attendees, agenda, goals, and next steps
+ */
+async function generateKickoffPlanPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<KickoffPlanPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Get stakeholders from context if available
+  const stakeholders = context.platformData.interactionHistory?.slice(0, 5) || [];
+
+  // Build prompt for kickoff plan generation
+  const prompt = `You are a customer success manager preparing a kickoff plan for a new customer onboarding. Generate a comprehensive kickoff meeting plan.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a kickoff plan with:
+1. A descriptive meeting title (e.g., "Welcome Kickoff: [Customer] + [Company] Partnership Launch")
+2. 4-6 agenda items with estimated duration (5-15 min each) and owner
+3. 3-5 key onboarding goals
+4. 3-5 immediate next steps with owners and due dates
+
+Format your response as JSON:
+{
+  "title": "Meeting title",
+  "agenda": [
+    {"topic": "Topic name", "duration": "10 min", "owner": "CSM"},
+    ...
+  ],
+  "goals": ["Goal 1", "Goal 2", ...],
+  "nextSteps": [
+    {"action": "Action item", "owner": "Owner name", "dueDate": "YYYY-MM-DD"},
+    ...
+  ],
+  "notes": "Any important notes or context for the meeting"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const kickoffContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      agenda?: Array<{ topic: string; duration?: string; owner?: string }>;
+      goals?: string[];
+      nextSteps?: Array<{ action: string; owner?: string; dueDate?: string }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = kickoffContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default meeting date (1 week from now)
+    const defaultMeetingDate = new Date();
+    defaultMeetingDate.setDate(defaultMeetingDate.getDate() + 7);
+
+    // Build attendees from stakeholders or defaults
+    const attendees = isTemplate
+      ? [
+          { id: 'att-1', name: 'Sarah Chen', email: 'sarah@acme-example.com', role: 'Executive Sponsor' },
+          { id: 'att-2', name: 'James Rodriguez', email: 'james@acme-example.com', role: 'Project Lead' },
+          { id: 'att-3', name: 'Maria Thompson', email: 'maria@acme-example.com', role: 'Key User' },
+        ]
+      : stakeholders.slice(0, 3).map((s, idx) => ({
+          id: `att-${idx + 1}`,
+          name: s.summary?.split(' ')?.[0] || `Stakeholder ${idx + 1}`,
+          email: '',
+          role: idx === 0 ? 'Executive Sponsor' : idx === 1 ? 'Project Lead' : 'Key User',
+        }));
+
+    // If no stakeholders, add placeholders
+    if (attendees.length === 0) {
+      attendees.push(
+        { id: 'att-1', name: 'Executive Sponsor', email: '', role: 'Executive Sponsor' },
+        { id: 'att-2', name: 'Project Lead', email: '', role: 'Project Lead' },
+        { id: 'att-3', name: 'Key User', email: '', role: 'Key User' }
+      );
+    }
+
+    return {
+      title: parsed.title || `Kickoff Meeting: ${customerName} Partnership Launch`,
+      attendees,
+      agenda: (parsed.agenda || [
+        { topic: 'Introductions & Welcome', duration: '10 min', owner: 'CSM' },
+        { topic: 'Partnership Goals & Success Criteria', duration: '15 min', owner: 'Customer' },
+        { topic: 'Product Overview & Key Features', duration: '20 min', owner: 'CSM' },
+        { topic: 'Implementation Timeline', duration: '15 min', owner: 'CSM' },
+        { topic: 'Support & Communication Channels', duration: '10 min', owner: 'CSM' },
+        { topic: 'Q&A and Next Steps', duration: '15 min', owner: 'All' },
+      ]).map((item, i) => ({
+        id: `agenda-${i + 1}`,
+        topic: item.topic,
+        duration: item.duration || '10 min',
+        owner: item.owner || 'CSM',
+      })),
+      goals: (parsed.goals || [
+        'Align on partnership objectives and success metrics',
+        'Introduce key stakeholders and establish communication cadence',
+        'Review implementation timeline and key milestones',
+        'Ensure customer team has access to necessary resources',
+      ]).map((goal, i) => ({
+        id: `goal-${i + 1}`,
+        goal,
+      })),
+      nextSteps: (parsed.nextSteps || [
+        { action: 'Share meeting recording and summary notes', owner: 'CSM', dueDate: '' },
+        { action: 'Complete user provisioning', owner: 'CSM', dueDate: '' },
+        { action: 'Schedule first training session', owner: 'CSM', dueDate: '' },
+        { action: 'Confirm key stakeholder availability for training', owner: 'Customer', dueDate: '' },
+      ]).map((item, i) => {
+        // Calculate default due date (1-2 weeks from meeting)
+        const dueDate = new Date(defaultMeetingDate);
+        dueDate.setDate(dueDate.getDate() + (i + 1) * 3);
+        return {
+          id: `step-${i + 1}`,
+          action: item.action,
+          owner: item.owner || 'CSM',
+          dueDate: item.dueDate || dueDate.toISOString().split('T')[0],
+        };
+      }),
+      notes: parsed.notes || 'Ensure all key stakeholders have calendar invites. Prepare demo environment with customer-specific data.',
+      meetingDate: defaultMeetingDate.toISOString().split('T')[0],
+      meetingDuration: '90 min',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Kickoff plan preview generation error:', error);
+
+    // Return fallback kickoff plan
+    const fallbackDate = new Date();
+    fallbackDate.setDate(fallbackDate.getDate() + 7);
+
+    return {
+      title: `Kickoff Meeting: ${customerName} Partnership Launch`,
+      attendees: [
+        { id: 'att-1', name: 'Executive Sponsor', email: '', role: 'Executive Sponsor' },
+        { id: 'att-2', name: 'Project Lead', email: '', role: 'Project Lead' },
+      ],
+      agenda: [
+        { id: 'agenda-1', topic: 'Introductions & Welcome', duration: '10 min', owner: 'CSM' },
+        { id: 'agenda-2', topic: 'Partnership Goals & Success Criteria', duration: '15 min', owner: 'Customer' },
+        { id: 'agenda-3', topic: 'Product Overview', duration: '20 min', owner: 'CSM' },
+        { id: 'agenda-4', topic: 'Implementation Timeline', duration: '15 min', owner: 'CSM' },
+        { id: 'agenda-5', topic: 'Q&A and Next Steps', duration: '15 min', owner: 'All' },
+      ],
+      goals: [
+        { id: 'goal-1', goal: 'Align on partnership objectives and success metrics' },
+        { id: 'goal-2', goal: 'Establish communication cadence' },
+        { id: 'goal-3', goal: 'Review implementation timeline' },
+      ],
+      nextSteps: [
+        { id: 'step-1', action: 'Share meeting recording and notes', owner: 'CSM', dueDate: fallbackDate.toISOString().split('T')[0] },
+        { id: 'step-2', action: 'Complete user provisioning', owner: 'CSM', dueDate: fallbackDate.toISOString().split('T')[0] },
+        { id: 'step-3', action: 'Schedule first training session', owner: 'CSM', dueDate: fallbackDate.toISOString().split('T')[0] },
+      ],
+      notes: '',
+      meetingDate: fallbackDate.toISOString().split('T')[0],
+      meetingDuration: '90 min',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
   generateEmailPreview,
   generateDocumentPreview,
   generateMeetingPrepPreview,
+  generateKickoffPlanPreview,
 };
