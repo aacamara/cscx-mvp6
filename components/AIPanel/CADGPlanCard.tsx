@@ -16,6 +16,7 @@ import { CADGTrainingSchedulePreview, TrainingScheduleData, CustomerData as Trai
 import { CADGUsageAnalysisPreview, UsageAnalysisData, CustomerData as UsageAnalysisCustomerData } from './CADGUsageAnalysisPreview';
 import { CADGFeatureCampaignPreview, FeatureCampaignData, CustomerData as FeatureCampaignCustomerData } from './CADGFeatureCampaignPreview';
 import { CADGChampionDevelopmentPreview, ChampionDevelopmentData, CustomerData as ChampionDevelopmentCustomerData } from './CADGChampionDevelopmentPreview';
+import { CADGTrainingProgramPreview, TrainingProgramData, CustomerData as TrainingProgramCustomerData } from './CADGTrainingProgramPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -207,6 +208,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [championDevelopmentPreviewData, setChampionDevelopmentPreviewData] = useState<{
     championDevelopment: ChampionDevelopmentData;
     customer: ChampionDevelopmentCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Training program preview state for HITL workflow
+  const [showTrainingProgramPreview, setShowTrainingProgramPreview] = useState(false);
+  const [trainingProgramPreviewData, setTrainingProgramPreviewData] = useState<{
+    trainingProgram: TrainingProgramData;
+    customer: TrainingProgramCustomerData;
     planId: string;
   } | null>(null);
 
@@ -495,6 +504,33 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowChampionDevelopmentPreview(true);
         setStatus('pending'); // Keep in pending until champion development is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a training program preview (HITL workflow)
+      if (data.isTrainingProgramPreview && data.preview) {
+        setTrainingProgramPreviewData({
+          trainingProgram: {
+            title: data.preview.title || 'Training Program',
+            programGoal: data.preview.programGoal || '',
+            modules: data.preview.modules || [],
+            targetAudience: data.preview.targetAudience || [],
+            timeline: data.preview.timeline || { startDate: '', endDate: '', totalDuration: '' },
+            completionCriteria: data.preview.completionCriteria || [],
+            successMetrics: data.preview.successMetrics || [],
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowTrainingProgramPreview(true);
+        setStatus('pending'); // Keep in pending until training program is saved
         setIsApproving(false);
         return;
       }
@@ -1137,6 +1173,70 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving training program from preview
+  const handleTrainingProgramSave = async (trainingProgram: TrainingProgramData) => {
+    if (!trainingProgramPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/training-program/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: trainingProgramPreviewData.planId,
+        title: trainingProgram.title,
+        programGoal: trainingProgram.programGoal,
+        modules: trainingProgram.modules,
+        targetAudience: trainingProgram.targetAudience,
+        timeline: trainingProgram.timeline,
+        completionCriteria: trainingProgram.completionCriteria,
+        successMetrics: trainingProgram.successMetrics,
+        notes: trainingProgram.notes,
+        customerId: trainingProgramPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save training program');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowTrainingProgramPreview(false);
+    setTrainingProgramPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+        additionalFiles: result.sheetsId ? [{
+          type: 'sheets',
+          fileId: result.sheetsId,
+          url: result.sheetsUrl,
+          title: 'Progress Tracker',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling training program preview
+  const handleTrainingProgramCancel = () => {
+    setShowTrainingProgramPreview(false);
+    setTrainingProgramPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1397,6 +1497,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={championDevelopmentPreviewData.customer}
         onSave={handleChampionDevelopmentSave}
         onCancel={handleChampionDevelopmentCancel}
+      />
+    );
+  }
+
+  // Training program preview for HITL workflow
+  if (showTrainingProgramPreview && trainingProgramPreviewData) {
+    return (
+      <CADGTrainingProgramPreview
+        trainingProgram={trainingProgramPreviewData.trainingProgram}
+        customer={trainingProgramPreviewData.customer}
+        onSave={handleTrainingProgramSave}
+        onCancel={handleTrainingProgramCancel}
       />
     );
   }

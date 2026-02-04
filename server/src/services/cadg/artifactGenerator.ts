@@ -3587,6 +3587,551 @@ Format your response as JSON:
   }
 }
 
+/**
+ * Training program preview result for HITL review
+ */
+interface TrainingProgramPreviewResult {
+  title: string;
+  programGoal: string;
+  modules: Array<{
+    id: string;
+    name: string;
+    description: string;
+    duration: string;
+    order: number;
+    learningObjectives: string[];
+    assessmentCriteria: string[];
+    prerequisites: string[];
+    resources: Array<{
+      id: string;
+      name: string;
+      type: 'video' | 'document' | 'quiz' | 'hands-on' | 'webinar';
+      url?: string;
+    }>;
+    enabled: boolean;
+  }>;
+  targetAudience: Array<{
+    id: string;
+    name: string;
+    role: string;
+    currentSkillLevel: 'beginner' | 'intermediate' | 'advanced';
+    targetSkillLevel: 'beginner' | 'intermediate' | 'advanced';
+    included: boolean;
+  }>;
+  timeline: {
+    startDate: string;
+    endDate: string;
+    totalDuration: string;
+  };
+  completionCriteria: Array<{
+    id: string;
+    name: string;
+    type: 'attendance' | 'assessment' | 'project' | 'certification';
+    requiredScore?: number;
+    enabled: boolean;
+  }>;
+  successMetrics: Array<{
+    id: string;
+    name: string;
+    current: number;
+    target: number;
+    unit: string;
+  }>;
+  notes: string;
+}
+
+/**
+ * Generate training program preview for HITL review
+ */
+async function generateTrainingProgramPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<TrainingProgramPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Get engagement metrics from context
+  const engagement = context.platformData.engagementMetrics;
+
+  // Build prompt for training program generation
+  const prompt = `You are a customer success manager creating a comprehensive training program curriculum. Generate a structured training program with modules, learning objectives, and assessments.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+${engagement ? `Current Engagement Data:
+- Feature Adoption: ${engagement.featureAdoption}%
+- Login Frequency: ${engagement.loginFrequency} per week
+- Last Activity: ${engagement.lastActivityDays} days ago` : ''}
+
+Generate a training program curriculum with:
+1. Program title and primary learning goal
+2. 4-6 training modules with learning objectives, prerequisites, assessment criteria, and resources
+3. 3-4 target audience segments with current and target skill levels
+4. Program timeline with total duration
+5. 3-5 completion criteria (attendance, assessments, projects, certifications)
+6. 4-6 success metrics with baselines and targets
+
+Format your response as JSON:
+{
+  "title": "Program title",
+  "programGoal": "Primary learning goal description",
+  "modules": [
+    {
+      "name": "Module name",
+      "description": "What this module covers",
+      "duration": "2 hours",
+      "order": 1,
+      "learningObjectives": ["Objective 1", "Objective 2"],
+      "assessmentCriteria": ["Criteria 1", "Criteria 2"],
+      "prerequisites": ["Prerequisite 1"],
+      "resources": [
+        {
+          "name": "Resource name",
+          "type": "video|document|quiz|hands-on|webinar",
+          "url": "optional url"
+        }
+      ]
+    }
+  ],
+  "targetAudience": [
+    {
+      "name": "Audience name",
+      "role": "Job role",
+      "currentSkillLevel": "beginner|intermediate|advanced",
+      "targetSkillLevel": "beginner|intermediate|advanced"
+    }
+  ],
+  "timeline": {
+    "startDate": "YYYY-MM-DD",
+    "endDate": "YYYY-MM-DD",
+    "totalDuration": "4 weeks"
+  },
+  "completionCriteria": [
+    {
+      "name": "Criteria name",
+      "type": "attendance|assessment|project|certification",
+      "requiredScore": number (optional, for assessments)
+    }
+  ],
+  "successMetrics": [
+    {
+      "name": "Metric name",
+      "current": number,
+      "target": number,
+      "unit": "percent|count|score|hours"
+    }
+  ],
+  "notes": "Additional program notes"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3500,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const programContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      programGoal?: string;
+      modules?: Array<{
+        name: string;
+        description?: string;
+        duration?: string;
+        order?: number;
+        learningObjectives?: string[];
+        assessmentCriteria?: string[];
+        prerequisites?: string[];
+        resources?: Array<{
+          name: string;
+          type?: string;
+          url?: string;
+        }>;
+      }>;
+      targetAudience?: Array<{
+        name: string;
+        role?: string;
+        currentSkillLevel?: string;
+        targetSkillLevel?: string;
+      }>;
+      timeline?: {
+        startDate?: string;
+        endDate?: string;
+        totalDuration?: string;
+      };
+      completionCriteria?: Array<{
+        name: string;
+        type?: string;
+        requiredScore?: number;
+      }>;
+      successMetrics?: Array<{
+        name: string;
+        current?: number;
+        target?: number;
+        unit?: string;
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = programContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default dates (program starts in 2 weeks, runs 6 weeks)
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 14);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 42); // 6 weeks
+
+    // Default modules
+    const defaultModules = [
+      {
+        name: 'Platform Fundamentals',
+        description: 'Core concepts and navigation basics',
+        duration: '2 hours',
+        order: 1,
+        learningObjectives: [
+          'Navigate the platform interface confidently',
+          'Understand core terminology and concepts',
+          'Set up user preferences and account settings',
+        ],
+        assessmentCriteria: [
+          'Complete navigation assessment with 80%+ score',
+          'Configure personal workspace settings',
+        ],
+        prerequisites: [],
+        resources: [
+          { name: 'Platform Overview Video', type: 'video' as const },
+          { name: 'Getting Started Guide', type: 'document' as const },
+          { name: 'Navigation Quiz', type: 'quiz' as const },
+        ],
+      },
+      {
+        name: 'Core Features Deep Dive',
+        description: 'Detailed training on primary features',
+        duration: '3 hours',
+        order: 2,
+        learningObjectives: [
+          'Master core feature functionality',
+          'Apply features to common use cases',
+          'Troubleshoot common issues independently',
+        ],
+        assessmentCriteria: [
+          'Complete hands-on exercises for each feature',
+          'Score 85%+ on feature proficiency test',
+        ],
+        prerequisites: ['Platform Fundamentals'],
+        resources: [
+          { name: 'Feature Training Webinar', type: 'webinar' as const },
+          { name: 'Feature Reference Guide', type: 'document' as const },
+          { name: 'Hands-on Lab Exercises', type: 'hands-on' as const },
+        ],
+      },
+      {
+        name: 'Advanced Workflows',
+        description: 'Complex workflows and automation',
+        duration: '2.5 hours',
+        order: 3,
+        learningObjectives: [
+          'Build automated workflows',
+          'Configure advanced settings and integrations',
+          'Optimize processes for efficiency',
+        ],
+        assessmentCriteria: [
+          'Create a working automation workflow',
+          'Complete integration setup successfully',
+        ],
+        prerequisites: ['Core Features Deep Dive'],
+        resources: [
+          { name: 'Workflow Automation Video', type: 'video' as const },
+          { name: 'Automation Templates', type: 'document' as const },
+          { name: 'Integration Lab', type: 'hands-on' as const },
+        ],
+      },
+      {
+        name: 'Best Practices & Tips',
+        description: 'Expert tips and efficiency techniques',
+        duration: '1.5 hours',
+        order: 4,
+        learningObjectives: [
+          'Apply proven best practices',
+          'Leverage keyboard shortcuts and productivity tips',
+          'Avoid common pitfalls and mistakes',
+        ],
+        assessmentCriteria: [
+          'Demonstrate 5+ productivity shortcuts',
+          'Apply best practices in scenario exercise',
+        ],
+        prerequisites: ['Core Features Deep Dive'],
+        resources: [
+          { name: 'Best Practices Webinar', type: 'webinar' as const },
+          { name: 'Pro Tips Cheat Sheet', type: 'document' as const },
+        ],
+      },
+      {
+        name: 'Reporting & Analytics',
+        description: 'Data analysis and reporting capabilities',
+        duration: '2 hours',
+        order: 5,
+        learningObjectives: [
+          'Create custom reports and dashboards',
+          'Interpret analytics data correctly',
+          'Export and share insights effectively',
+        ],
+        assessmentCriteria: [
+          'Build a custom dashboard',
+          'Generate and interpret key reports',
+        ],
+        prerequisites: ['Platform Fundamentals'],
+        resources: [
+          { name: 'Analytics Training Video', type: 'video' as const },
+          { name: 'Reporting Guide', type: 'document' as const },
+          { name: 'Dashboard Builder Lab', type: 'hands-on' as const },
+        ],
+      },
+      {
+        name: 'Admin & Team Management',
+        description: 'Administrative features and team setup',
+        duration: '1.5 hours',
+        order: 6,
+        learningObjectives: [
+          'Manage user roles and permissions',
+          'Configure team settings and policies',
+          'Monitor usage and compliance',
+        ],
+        assessmentCriteria: [
+          'Set up team structure correctly',
+          'Configure role-based permissions',
+        ],
+        prerequisites: ['Platform Fundamentals', 'Core Features Deep Dive'],
+        resources: [
+          { name: 'Admin Guide', type: 'document' as const },
+          { name: 'Admin Certification Quiz', type: 'quiz' as const },
+        ],
+      },
+    ];
+
+    const defaultTargetAudience = [
+      {
+        name: 'End Users',
+        role: 'Daily platform users',
+        currentSkillLevel: 'beginner' as const,
+        targetSkillLevel: 'intermediate' as const,
+      },
+      {
+        name: 'Power Users',
+        role: 'Advanced users and team leads',
+        currentSkillLevel: 'intermediate' as const,
+        targetSkillLevel: 'advanced' as const,
+      },
+      {
+        name: 'Administrators',
+        role: 'System administrators',
+        currentSkillLevel: 'beginner' as const,
+        targetSkillLevel: 'advanced' as const,
+      },
+      {
+        name: 'Managers',
+        role: 'Team managers needing reporting skills',
+        currentSkillLevel: 'beginner' as const,
+        targetSkillLevel: 'intermediate' as const,
+      },
+    ];
+
+    const defaultCompletionCriteria = [
+      { name: 'Module Attendance', type: 'attendance' as const, requiredScore: undefined },
+      { name: 'Knowledge Assessments', type: 'assessment' as const, requiredScore: 80 },
+      { name: 'Hands-on Project', type: 'project' as const, requiredScore: undefined },
+      { name: 'Final Certification', type: 'certification' as const, requiredScore: 85 },
+    ];
+
+    const defaultSuccessMetrics = [
+      { name: 'Training Completion Rate', current: 0, target: 90, unit: 'percent' },
+      { name: 'Average Assessment Score', current: 0, target: 85, unit: 'score' },
+      { name: 'Feature Adoption Post-Training', current: 45, target: 80, unit: 'percent' },
+      { name: 'Support Tickets Reduction', current: 100, target: 60, unit: 'count' },
+      { name: 'Time to Proficiency', current: 30, target: 14, unit: 'days' },
+      { name: 'User Satisfaction Score', current: 0, target: 4.5, unit: 'score' },
+    ];
+
+    const modules = (parsed.modules && parsed.modules.length > 0
+      ? parsed.modules
+      : defaultModules
+    ).map((m, idx) => ({
+      id: `module-${idx + 1}`,
+      name: m.name || `Module ${idx + 1}`,
+      description: m.description || '',
+      duration: m.duration || '2 hours',
+      order: m.order || idx + 1,
+      learningObjectives: m.learningObjectives || ['Learning objective'],
+      assessmentCriteria: m.assessmentCriteria || ['Assessment criteria'],
+      prerequisites: m.prerequisites || [],
+      resources: (m.resources || []).map((r, rIdx) => ({
+        id: `resource-${idx + 1}-${rIdx + 1}`,
+        name: r.name || `Resource ${rIdx + 1}`,
+        type: (r.type as 'video' | 'document' | 'quiz' | 'hands-on' | 'webinar') || 'document',
+        url: r.url,
+      })),
+      enabled: true,
+    }));
+
+    const targetAudience = (parsed.targetAudience && parsed.targetAudience.length > 0
+      ? parsed.targetAudience
+      : defaultTargetAudience
+    ).map((a, idx) => ({
+      id: `audience-${idx + 1}`,
+      name: a.name || `Audience ${idx + 1}`,
+      role: a.role || 'Team Member',
+      currentSkillLevel: (a.currentSkillLevel as 'beginner' | 'intermediate' | 'advanced') || 'beginner',
+      targetSkillLevel: (a.targetSkillLevel as 'beginner' | 'intermediate' | 'advanced') || 'intermediate',
+      included: true,
+    }));
+
+    const timeline = {
+      startDate: parsed.timeline?.startDate || startDate.toISOString().split('T')[0],
+      endDate: parsed.timeline?.endDate || endDate.toISOString().split('T')[0],
+      totalDuration: parsed.timeline?.totalDuration || '6 weeks',
+    };
+
+    const completionCriteria = (parsed.completionCriteria && parsed.completionCriteria.length > 0
+      ? parsed.completionCriteria
+      : defaultCompletionCriteria
+    ).map((c, idx) => ({
+      id: `criteria-${idx + 1}`,
+      name: c.name || `Criteria ${idx + 1}`,
+      type: (c.type as 'attendance' | 'assessment' | 'project' | 'certification') || 'attendance',
+      requiredScore: c.requiredScore,
+      enabled: true,
+    }));
+
+    const successMetrics = (parsed.successMetrics && parsed.successMetrics.length > 0
+      ? parsed.successMetrics
+      : defaultSuccessMetrics
+    ).map((m, idx) => ({
+      id: `metric-${idx + 1}`,
+      name: m.name || `Metric ${idx + 1}`,
+      current: m.current || 0,
+      target: m.target || 50,
+      unit: m.unit || 'percent',
+    }));
+
+    return {
+      title: parsed.title || `Training Program: ${customerName}`,
+      programGoal: parsed.programGoal || 'Equip users with comprehensive knowledge and skills to maximize product adoption and drive business outcomes.',
+      modules,
+      targetAudience,
+      timeline,
+      completionCriteria,
+      successMetrics,
+      notes: parsed.notes || 'Review modules, adjust durations based on audience needs, and customize assessments for your team.',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Training program preview generation error:', error);
+
+    // Return fallback training program
+    const fallbackStart = new Date();
+    fallbackStart.setDate(fallbackStart.getDate() + 14);
+    const fallbackEnd = new Date(fallbackStart);
+    fallbackEnd.setDate(fallbackEnd.getDate() + 42);
+
+    return {
+      title: `Training Program: ${customerName}`,
+      programGoal: 'Equip users with comprehensive knowledge and skills to maximize product adoption.',
+      modules: [
+        {
+          id: 'module-1',
+          name: 'Platform Fundamentals',
+          description: 'Core concepts and navigation',
+          duration: '2 hours',
+          order: 1,
+          learningObjectives: ['Navigate the interface', 'Understand core concepts'],
+          assessmentCriteria: ['Complete navigation quiz'],
+          prerequisites: [],
+          resources: [
+            { id: 'resource-1-1', name: 'Overview Video', type: 'video' },
+            { id: 'resource-1-2', name: 'Getting Started Guide', type: 'document' },
+          ],
+          enabled: true,
+        },
+        {
+          id: 'module-2',
+          name: 'Core Features',
+          description: 'Primary feature training',
+          duration: '3 hours',
+          order: 2,
+          learningObjectives: ['Master core features', 'Apply to use cases'],
+          assessmentCriteria: ['Complete hands-on exercises', 'Pass proficiency test'],
+          prerequisites: ['Platform Fundamentals'],
+          resources: [
+            { id: 'resource-2-1', name: 'Feature Webinar', type: 'webinar' },
+            { id: 'resource-2-2', name: 'Lab Exercises', type: 'hands-on' },
+          ],
+          enabled: true,
+        },
+        {
+          id: 'module-3',
+          name: 'Advanced Workflows',
+          description: 'Automation and integrations',
+          duration: '2 hours',
+          order: 3,
+          learningObjectives: ['Build workflows', 'Configure integrations'],
+          assessmentCriteria: ['Create working automation'],
+          prerequisites: ['Core Features'],
+          resources: [
+            { id: 'resource-3-1', name: 'Automation Video', type: 'video' },
+            { id: 'resource-3-2', name: 'Integration Lab', type: 'hands-on' },
+          ],
+          enabled: true,
+        },
+      ],
+      targetAudience: [
+        { id: 'audience-1', name: 'End Users', role: 'Daily users', currentSkillLevel: 'beginner', targetSkillLevel: 'intermediate', included: true },
+        { id: 'audience-2', name: 'Power Users', role: 'Advanced users', currentSkillLevel: 'intermediate', targetSkillLevel: 'advanced', included: true },
+        { id: 'audience-3', name: 'Admins', role: 'System administrators', currentSkillLevel: 'beginner', targetSkillLevel: 'advanced', included: true },
+      ],
+      timeline: {
+        startDate: fallbackStart.toISOString().split('T')[0],
+        endDate: fallbackEnd.toISOString().split('T')[0],
+        totalDuration: '6 weeks',
+      },
+      completionCriteria: [
+        { id: 'criteria-1', name: 'Module Attendance', type: 'attendance', requiredScore: undefined, enabled: true },
+        { id: 'criteria-2', name: 'Knowledge Assessments', type: 'assessment', requiredScore: 80, enabled: true },
+        { id: 'criteria-3', name: 'Final Certification', type: 'certification', requiredScore: 85, enabled: true },
+      ],
+      successMetrics: [
+        { id: 'metric-1', name: 'Training Completion', current: 0, target: 90, unit: 'percent' },
+        { id: 'metric-2', name: 'Assessment Score', current: 0, target: 85, unit: 'score' },
+        { id: 'metric-3', name: 'Feature Adoption', current: 45, target: 80, unit: 'percent' },
+      ],
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -3600,4 +4145,5 @@ export const artifactGenerator = {
   generateUsageAnalysisPreview,
   generateFeatureCampaignPreview,
   generateChampionDevelopmentPreview,
+  generateTrainingProgramPreview,
 };

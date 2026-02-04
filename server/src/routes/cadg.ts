@@ -525,6 +525,53 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a training program artifact - return preview for HITL
+    const isTrainingProgramArtifact = finalPlan.taskType === 'training_program' ||
+                                       planRow.user_query?.toLowerCase().includes('training program') ||
+                                       planRow.user_query?.toLowerCase().includes('training curriculum') ||
+                                       planRow.user_query?.toLowerCase().includes('learning program') ||
+                                       planRow.user_query?.toLowerCase().includes('training modules') ||
+                                       planRow.user_query?.toLowerCase().includes('training course') ||
+                                       planRow.user_query?.toLowerCase().includes('learning path') ||
+                                       planRow.user_query?.toLowerCase().includes('onboarding curriculum') ||
+                                       planRow.user_query?.toLowerCase().includes('certification program');
+
+    if (isTrainingProgramArtifact) {
+      // Generate training program content but don't finalize - return preview for HITL
+      const trainingProgramPreview = await artifactGenerator.generateTrainingProgramPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isTrainingProgramPreview: true,
+        preview: {
+          title: trainingProgramPreview.title,
+          programGoal: trainingProgramPreview.programGoal,
+          modules: trainingProgramPreview.modules,
+          targetAudience: trainingProgramPreview.targetAudience,
+          timeline: trainingProgramPreview.timeline,
+          completionCriteria: trainingProgramPreview.completionCriteria,
+          successMetrics: trainingProgramPreview.successMetrics,
+          notes: trainingProgramPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -2811,6 +2858,224 @@ ${notes || 'No additional notes.'}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save champion development program',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/training-program/save
+ * Save finalized training program after user review
+ */
+router.post('/training-program/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      programGoal,
+      modules,
+      targetAudience,
+      timeline,
+      completionCriteria,
+      successMetrics,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import docs and sheets services
+    const { docsService } = await import('../services/google/docs.js');
+    const { sheetsService } = await import('../services/google/sheets.js');
+
+    // Filter to only enabled modules, included audience, and enabled criteria
+    const enabledModules = (modules || []).filter((m: any) => m.enabled);
+    const includedAudience = (targetAudience || []).filter((a: any) => a.included);
+    const enabledCriteria = (completionCriteria || []).filter((c: any) => c.enabled);
+
+    // Build document content
+    const modulesContent = enabledModules.map((m: any, idx: number) =>
+      `### Module ${idx + 1}: ${m.name}
+
+**Duration:** ${m.duration}
+**Description:** ${m.description}
+
+**Prerequisites:**
+${m.prerequisites?.length > 0 ? m.prerequisites.map((p: string) => `- ${p}`).join('\n') : '- None'}
+
+**Learning Objectives:**
+${m.learningObjectives?.map((obj: string) => `- ${obj}`).join('\n') || '- None defined'}
+
+**Assessment Criteria:**
+${m.assessmentCriteria?.map((c: string) => `- ${c}`).join('\n') || '- None defined'}
+
+**Resources:**
+${m.resources?.map((r: any) => `- [${r.type.toUpperCase()}] ${r.name}${r.url ? ` (${r.url})` : ''}`).join('\n') || '- None defined'}`
+    ).join('\n\n---\n\n');
+
+    const audienceContent = includedAudience.map((a: any) =>
+      `| ${a.name} | ${a.role} | ${a.currentSkillLevel} | ${a.targetSkillLevel} |`
+    ).join('\n');
+
+    const criteriaContent = enabledCriteria.map((c: any) =>
+      `| ${c.name} | ${c.type} | ${c.requiredScore ? `${c.requiredScore}%` : 'N/A'} |`
+    ).join('\n');
+
+    const metricsContent = (successMetrics || []).map((m: any) =>
+      `| ${m.name} | ${m.current} ${m.unit} | ${m.target} ${m.unit} | ${Math.round((m.current / m.target) * 100)}% |`
+    ).join('\n');
+
+    const totalHours = enabledModules.reduce((acc: number, m: any) => {
+      const hours = parseFloat(m.duration.match(/[\d.]+/)?.[0] || '0');
+      const isMinutes = m.duration.toLowerCase().includes('min');
+      return acc + (isMinutes ? hours / 60 : hours);
+    }, 0);
+
+    const documentContent = `# ${title}
+
+## Program Goal
+
+${programGoal}
+
+## Program Overview
+
+- **Total Modules:** ${enabledModules.length}
+- **Total Duration:** ${totalHours.toFixed(1)} hours
+- **Timeline:** ${timeline?.startDate || 'TBD'} to ${timeline?.endDate || 'TBD'} (${timeline?.totalDuration || 'TBD'})
+
+## Target Audience
+
+| Audience | Role | Current Level | Target Level |
+|----------|------|---------------|--------------|
+${audienceContent || '| No audience defined | - | - | - |'}
+
+## Training Modules
+
+${modulesContent || 'No modules defined.'}
+
+## Completion Criteria
+
+| Criteria | Type | Required Score |
+|----------|------|----------------|
+${criteriaContent || '| No criteria defined | - | - |'}
+
+## Success Metrics
+
+| Metric | Current | Target | Progress |
+|--------|---------|--------|----------|
+${metricsContent || '| No metrics defined | - | - | - |'}
+
+## Notes
+
+${notes || 'No additional notes.'}
+
+---
+
+*Generated by CSCX.AI on ${new Date().toLocaleDateString()}*
+`;
+
+    // Create document in Google Docs
+    const docResult = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+    });
+
+    // Also create a Google Sheets tracker for module progress
+    let sheetsResult = null;
+    try {
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Progress Tracker`,
+      });
+
+      // Add headers and data to the sheet
+      if (sheetsResult) {
+        // Module progress sheet
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1:E1',
+          values: [['Module', 'Duration', 'Status', 'Completed Date', 'Notes']],
+        });
+
+        const moduleRows = enabledModules.map((m: any) => [
+          m.name,
+          m.duration,
+          'Not Started',
+          '',
+          '',
+        ]);
+
+        if (moduleRows.length > 0) {
+          await sheetsService.updateValues(userId, sheetsResult.id, {
+            range: 'Sheet1!A2',
+            values: moduleRows,
+          });
+        }
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not create training tracker sheet:', err);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'training_program_created',
+            description: `Training program created: ${title}`,
+            metadata: {
+              documentId: docResult.id,
+              documentUrl: docResult.webViewLink,
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              modulesCount: enabledModules.length,
+              audienceCount: includedAudience.length,
+              criteriaCount: enabledCriteria.length,
+              metricsCount: (successMetrics || []).length,
+              totalHours,
+              timeline,
+              createdVia: 'cadg_training_program_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log training program activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: docResult.id,
+      documentUrl: docResult.webViewLink,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Training program save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save training program',
     });
   }
 });
