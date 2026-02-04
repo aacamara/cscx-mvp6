@@ -8287,6 +8287,380 @@ Format your response as JSON:
   }
 }
 
+// ============================================================================
+// Portfolio Dashboard Types and Preview Generator
+// ============================================================================
+
+/**
+ * Portfolio customer entry for dashboard
+ */
+interface PortfolioCustomerEntry {
+  id: string;
+  name: string;
+  arr: number;
+  healthScore: number;
+  tier: string;
+  segment: string;
+  renewalDate: string;
+  daysUntilRenewal: number;
+  owner: string;
+  riskLevel: 'healthy' | 'at_risk' | 'critical';
+  lastActivityDate: string;
+  npsScore: number | null;
+  enabled: boolean;
+}
+
+/**
+ * Portfolio summary metrics
+ */
+interface PortfolioSummary {
+  totalCustomers: number;
+  totalArr: number;
+  avgHealthScore: number;
+  avgNps: number;
+  healthyCount: number;
+  atRiskCount: number;
+  criticalCount: number;
+  renewingThisQuarter: number;
+  renewingThisQuarterArr: number;
+}
+
+/**
+ * Portfolio dashboard filter configuration
+ */
+interface PortfolioFilters {
+  healthLevels: ('healthy' | 'at_risk' | 'critical')[];
+  segments: string[];
+  tiers: string[];
+  owners: string[];
+  dateRange: {
+    type: 'all' | 'this_quarter' | 'next_quarter' | 'this_year' | 'custom';
+    startDate?: string;
+    endDate?: string;
+  };
+  sortBy: 'name' | 'arr' | 'health' | 'renewal' | 'nps';
+  sortDirection: 'asc' | 'desc';
+}
+
+/**
+ * Portfolio dashboard column configuration
+ */
+interface PortfolioColumn {
+  id: string;
+  name: string;
+  enabled: boolean;
+  width?: string;
+}
+
+/**
+ * Portfolio dashboard preview result
+ */
+interface PortfolioDashboardPreviewResult {
+  title: string;
+  createdDate: string;
+  lastUpdated: string;
+  summary: PortfolioSummary;
+  customers: PortfolioCustomerEntry[];
+  filters: PortfolioFilters;
+  columns: PortfolioColumn[];
+  availableSegments: string[];
+  availableTiers: string[];
+  availableOwners: string[];
+  notes: string;
+}
+
+/**
+ * Generates a portfolio dashboard preview for General Mode (no customer context)
+ * Displays all assigned customers with filtering and sorting options
+ */
+async function generatePortfolioDashboardPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<PortfolioDashboardPreviewResult> {
+  const { context, userId, isTemplate } = params;
+
+  // Import portfolio aggregation helper
+  const { aggregatePortfolioContext } = await import('./dataHelpers.js');
+
+  // Get portfolio data
+  const portfolioData = await aggregatePortfolioContext({
+    userId,
+  });
+
+  // Current date
+  const now = new Date();
+  const createdDate = now.toISOString().slice(0, 10);
+
+  // Calculate quarter boundaries
+  const currentQuarter = Math.floor(now.getMonth() / 3);
+  const quarterStart = new Date(now.getFullYear(), currentQuarter * 3, 1);
+  const quarterEnd = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0);
+  const nextQuarterEnd = new Date(now.getFullYear(), (currentQuarter + 2) * 3, 0);
+
+  // If we have real portfolio data, transform it
+  let customers: PortfolioCustomerEntry[] = [];
+  let availableSegments: string[] = [];
+  let availableTiers: string[] = [];
+  let availableOwners: string[] = [];
+
+  if (portfolioData.totalCustomers > 0 && !isTemplate) {
+    // Transform renewal pipeline to customer entries
+    const renewalMap = new Map<string, typeof portfolioData.renewalPipeline[0]>();
+    portfolioData.renewalPipeline.forEach(r => renewalMap.set(r.customerId, r));
+
+    // Combine at-risk customers with renewal pipeline for complete picture
+    const allCustomerIds = new Set<string>();
+    portfolioData.renewalPipeline.forEach(r => allCustomerIds.add(r.customerId));
+    portfolioData.atRiskCustomers.forEach(r => allCustomerIds.add(r.customerId));
+
+    // Build customer entries from available data
+    portfolioData.renewalPipeline.forEach(r => {
+      const atRisk = portfolioData.atRiskCustomers.find(ar => ar.customerId === r.customerId);
+      customers.push({
+        id: r.customerId,
+        name: r.customerName,
+        arr: r.arr,
+        healthScore: atRisk?.healthScore || (r.riskLevel === 'low' ? 85 : r.riskLevel === 'medium' ? 55 : r.riskLevel === 'high' ? 35 : 25),
+        tier: r.arr >= 500000 ? 'Enterprise' : r.arr >= 100000 ? 'Mid-Market' : 'SMB',
+        segment: 'Default',
+        renewalDate: r.renewalDate,
+        daysUntilRenewal: r.daysUntilRenewal,
+        owner: r.owner,
+        riskLevel: r.riskLevel === 'low' ? 'healthy' : r.riskLevel === 'critical' ? 'critical' : 'at_risk',
+        lastActivityDate: createdDate, // Would need activity data
+        npsScore: null,
+        enabled: true,
+      });
+    });
+
+    // Add at-risk customers not in renewal pipeline
+    portfolioData.atRiskCustomers.forEach(ar => {
+      if (!renewalMap.has(ar.customerId)) {
+        customers.push({
+          id: ar.customerId,
+          name: ar.customerName,
+          arr: ar.arr,
+          healthScore: ar.healthScore,
+          tier: ar.arr >= 500000 ? 'Enterprise' : ar.arr >= 100000 ? 'Mid-Market' : 'SMB',
+          segment: 'Default',
+          renewalDate: '',
+          daysUntilRenewal: 365,
+          owner: ar.owner,
+          riskLevel: ar.riskLevel === 'critical' ? 'critical' : 'at_risk',
+          lastActivityDate: createdDate,
+          npsScore: null,
+          enabled: true,
+        });
+      }
+    });
+
+    // Extract unique values
+    availableOwners = [...new Set(customers.map(c => c.owner))].filter(o => o && o !== 'Unassigned');
+    availableTiers = [...new Set(customers.map(c => c.tier))];
+    availableSegments = [...new Set(customers.map(c => c.segment))];
+  } else {
+    // Generate sample data for template mode
+    customers = [
+      {
+        id: 'cust-1',
+        name: 'Acme Corporation',
+        arr: 450000,
+        healthScore: 82,
+        tier: 'Enterprise',
+        segment: 'Technology',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 2, 15).toISOString().slice(0, 10),
+        daysUntilRenewal: 75,
+        owner: 'Sarah Chen',
+        riskLevel: 'healthy',
+        lastActivityDate: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 42,
+        enabled: true,
+      },
+      {
+        id: 'cust-2',
+        name: 'TechCorp Industries',
+        arr: 320000,
+        healthScore: 58,
+        tier: 'Enterprise',
+        segment: 'Manufacturing',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 1, 10).toISOString().slice(0, 10),
+        daysUntilRenewal: 40,
+        owner: 'James Wilson',
+        riskLevel: 'at_risk',
+        lastActivityDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 25,
+        enabled: true,
+      },
+      {
+        id: 'cust-3',
+        name: 'Global Finance LLC',
+        arr: 680000,
+        healthScore: 92,
+        tier: 'Enterprise',
+        segment: 'Financial Services',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 4, 20).toISOString().slice(0, 10),
+        daysUntilRenewal: 140,
+        owner: 'Sarah Chen',
+        riskLevel: 'healthy',
+        lastActivityDate: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 67,
+        enabled: true,
+      },
+      {
+        id: 'cust-4',
+        name: 'StartupX Inc',
+        arr: 85000,
+        healthScore: 35,
+        tier: 'SMB',
+        segment: 'Technology',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 1, 5).toISOString().slice(0, 10),
+        daysUntilRenewal: 35,
+        owner: 'Maria Garcia',
+        riskLevel: 'critical',
+        lastActivityDate: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: -10,
+        enabled: true,
+      },
+      {
+        id: 'cust-5',
+        name: 'MegaRetail Corp',
+        arr: 275000,
+        healthScore: 71,
+        tier: 'Mid-Market',
+        segment: 'Retail',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 3, 1).toISOString().slice(0, 10),
+        daysUntilRenewal: 90,
+        owner: 'James Wilson',
+        riskLevel: 'healthy',
+        lastActivityDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 38,
+        enabled: true,
+      },
+      {
+        id: 'cust-6',
+        name: 'HealthFirst Medical',
+        arr: 195000,
+        healthScore: 48,
+        tier: 'Mid-Market',
+        segment: 'Healthcare',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 2, 28).toISOString().slice(0, 10),
+        daysUntilRenewal: 88,
+        owner: 'Maria Garcia',
+        riskLevel: 'at_risk',
+        lastActivityDate: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 15,
+        enabled: true,
+      },
+      {
+        id: 'cust-7',
+        name: 'EduLearn Systems',
+        arr: 125000,
+        healthScore: 78,
+        tier: 'Mid-Market',
+        segment: 'Education',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 5, 15).toISOString().slice(0, 10),
+        daysUntilRenewal: 165,
+        owner: 'Sarah Chen',
+        riskLevel: 'healthy',
+        lastActivityDate: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 52,
+        enabled: true,
+      },
+      {
+        id: 'cust-8',
+        name: 'DataDriven Analytics',
+        arr: 540000,
+        healthScore: 88,
+        tier: 'Enterprise',
+        segment: 'Technology',
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 6, 10).toISOString().slice(0, 10),
+        daysUntilRenewal: 190,
+        owner: 'James Wilson',
+        riskLevel: 'healthy',
+        lastActivityDate: new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        npsScore: 72,
+        enabled: true,
+      },
+    ];
+
+    availableOwners = ['Sarah Chen', 'James Wilson', 'Maria Garcia'];
+    availableTiers = ['Enterprise', 'Mid-Market', 'SMB'];
+    availableSegments = ['Technology', 'Manufacturing', 'Financial Services', 'Retail', 'Healthcare', 'Education'];
+  }
+
+  // Sort by health score ascending by default (show at-risk first)
+  customers.sort((a, b) => a.healthScore - b.healthScore);
+
+  // Calculate summary
+  const enabledCustomers = customers.filter(c => c.enabled);
+  const summary: PortfolioSummary = {
+    totalCustomers: enabledCustomers.length,
+    totalArr: enabledCustomers.reduce((sum, c) => sum + c.arr, 0),
+    avgHealthScore: enabledCustomers.length > 0
+      ? Math.round(enabledCustomers.reduce((sum, c) => sum + c.healthScore, 0) / enabledCustomers.length)
+      : 0,
+    avgNps: enabledCustomers.filter(c => c.npsScore !== null).length > 0
+      ? Math.round(enabledCustomers.filter(c => c.npsScore !== null).reduce((sum, c) => sum + (c.npsScore || 0), 0) / enabledCustomers.filter(c => c.npsScore !== null).length)
+      : 0,
+    healthyCount: enabledCustomers.filter(c => c.riskLevel === 'healthy').length,
+    atRiskCount: enabledCustomers.filter(c => c.riskLevel === 'at_risk').length,
+    criticalCount: enabledCustomers.filter(c => c.riskLevel === 'critical').length,
+    renewingThisQuarter: enabledCustomers.filter(c => {
+      const renewal = new Date(c.renewalDate);
+      return renewal >= quarterStart && renewal <= quarterEnd;
+    }).length,
+    renewingThisQuarterArr: enabledCustomers.filter(c => {
+      const renewal = new Date(c.renewalDate);
+      return renewal >= quarterStart && renewal <= quarterEnd;
+    }).reduce((sum, c) => sum + c.arr, 0),
+  };
+
+  // Default filters
+  const filters: PortfolioFilters = {
+    healthLevels: ['healthy', 'at_risk', 'critical'],
+    segments: availableSegments,
+    tiers: availableTiers,
+    owners: availableOwners,
+    dateRange: {
+      type: 'all',
+    },
+    sortBy: 'health',
+    sortDirection: 'asc',
+  };
+
+  // Default columns
+  const columns: PortfolioColumn[] = [
+    { id: 'name', name: 'Customer', enabled: true, width: '200px' },
+    { id: 'arr', name: 'ARR', enabled: true, width: '100px' },
+    { id: 'healthScore', name: 'Health', enabled: true, width: '80px' },
+    { id: 'riskLevel', name: 'Status', enabled: true, width: '100px' },
+    { id: 'tier', name: 'Tier', enabled: true, width: '100px' },
+    { id: 'segment', name: 'Segment', enabled: true, width: '120px' },
+    { id: 'renewalDate', name: 'Renewal', enabled: true, width: '100px' },
+    { id: 'daysUntilRenewal', name: 'Days', enabled: true, width: '60px' },
+    { id: 'owner', name: 'Owner', enabled: true, width: '120px' },
+    { id: 'npsScore', name: 'NPS', enabled: false, width: '60px' },
+    { id: 'lastActivityDate', name: 'Last Activity', enabled: false, width: '100px' },
+  ];
+
+  return {
+    title: 'Portfolio Dashboard',
+    createdDate,
+    lastUpdated: createdDate,
+    summary,
+    customers,
+    filters,
+    columns,
+    availableSegments,
+    availableTiers,
+    availableOwners,
+    notes: '',
+  };
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -8312,4 +8686,5 @@ export const artifactGenerator = {
   generateExecutiveBriefingPreview,
   generateAccountPlanPreview,
   generateTransformationRoadmapPreview,
+  generatePortfolioDashboardPreview,
 };

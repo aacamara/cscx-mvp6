@@ -28,6 +28,7 @@ import { CADGResolutionPlanPreview, ResolutionPlanData, CustomerData as Resoluti
 import { CADGExecutiveBriefingPreview, ExecutiveBriefingData, CustomerData as ExecutiveBriefingCustomerData } from './CADGExecutiveBriefingPreview';
 import { CADGAccountPlanPreview, AccountPlanData, CustomerData as AccountPlanCustomerData } from './CADGAccountPlanPreview';
 import { CADGTransformationRoadmapPreview, TransformationRoadmapData, CustomerData as TransformationRoadmapCustomerData } from './CADGTransformationRoadmapPreview';
+import { CADGPortfolioDashboardPreview, PortfolioDashboardData, CustomerData as PortfolioDashboardCustomerData } from './CADGPortfolioDashboardPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -315,6 +316,13 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [transformationRoadmapPreviewData, setTransformationRoadmapPreviewData] = useState<{
     roadmap: TransformationRoadmapData;
     customer: TransformationRoadmapCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Portfolio dashboard preview state for HITL workflow (General Mode)
+  const [showPortfolioDashboardPreview, setShowPortfolioDashboardPreview] = useState(false);
+  const [portfolioDashboardPreviewData, setPortfolioDashboardPreviewData] = useState<{
+    dashboard: PortfolioDashboardData;
     planId: string;
   } | null>(null);
 
@@ -975,6 +983,48 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowTransformationRoadmapPreview(true);
         setStatus('pending'); // Keep in pending until transformation roadmap is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a portfolio dashboard preview (HITL workflow - General Mode)
+      if (data.isPortfolioDashboardPreview && data.preview) {
+        setPortfolioDashboardPreviewData({
+          dashboard: {
+            title: data.preview.title || 'Portfolio Dashboard',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            lastUpdated: data.preview.lastUpdated || new Date().toISOString().slice(0, 10),
+            summary: data.preview.summary || {
+              totalCustomers: 0,
+              totalArr: 0,
+              avgHealthScore: 0,
+              avgNps: 0,
+              healthyCount: 0,
+              atRiskCount: 0,
+              criticalCount: 0,
+              renewingThisQuarter: 0,
+              renewingThisQuarterArr: 0,
+            },
+            customers: data.preview.customers || [],
+            filters: data.preview.filters || {
+              healthLevels: ['healthy', 'at_risk', 'critical'],
+              segments: [],
+              tiers: [],
+              owners: [],
+              dateRange: { type: 'all' },
+              sortBy: 'health',
+              sortDirection: 'asc',
+            },
+            columns: data.preview.columns || [],
+            availableSegments: data.preview.availableSegments || [],
+            availableTiers: data.preview.availableTiers || [],
+            availableOwners: data.preview.availableOwners || [],
+            notes: data.preview.notes || '',
+          },
+          planId: data.planId,
+        });
+        setShowPortfolioDashboardPreview(true);
+        setStatus('pending'); // Keep in pending until dashboard is saved
         setIsApproving(false);
         return;
       }
@@ -2444,6 +2494,69 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving portfolio dashboard from preview (General Mode)
+  const handlePortfolioDashboardSave = async (dashboard: PortfolioDashboardData) => {
+    if (!portfolioDashboardPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/portfolio-dashboard/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: portfolioDashboardPreviewData.planId,
+        title: dashboard.title,
+        createdDate: dashboard.createdDate,
+        lastUpdated: dashboard.lastUpdated,
+        summary: dashboard.summary,
+        customers: dashboard.customers,
+        filters: dashboard.filters,
+        columns: dashboard.columns,
+        notes: dashboard.notes,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save portfolio dashboard');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowPortfolioDashboardPreview(false);
+    setPortfolioDashboardPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.sheetsId || 'portfolio-dashboard',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.sheetsUrl,
+        additionalFiles: result.docId ? [{
+          type: 'document',
+          fileId: result.docId,
+          url: result.docUrl,
+          title: 'Portfolio Dashboard Summary',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.sheetsId || 'portfolio-dashboard');
+  };
+
+  // Handle canceling portfolio dashboard preview
+  const handlePortfolioDashboardCancel = () => {
+    setShowPortfolioDashboardPreview(false);
+    setPortfolioDashboardPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2848,6 +2961,17 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={transformationRoadmapPreviewData.customer}
         onSave={handleTransformationRoadmapSave}
         onCancel={handleTransformationRoadmapCancel}
+      />
+    );
+  }
+
+  // Portfolio dashboard preview mode (General Mode - no customer context)
+  if (showPortfolioDashboardPreview && portfolioDashboardPreviewData) {
+    return (
+      <CADGPortfolioDashboardPreview
+        dashboard={portfolioDashboardPreviewData.dashboard}
+        onSave={handlePortfolioDashboardSave}
+        onCancel={handlePortfolioDashboardCancel}
       />
     );
   }

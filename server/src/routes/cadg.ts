@@ -1287,6 +1287,53 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a portfolio dashboard artifact - return preview for HITL (General Mode)
+    const isPortfolioDashboardArtifact = finalPlan.taskType === 'portfolio_dashboard' ||
+                                          planRow.user_query?.toLowerCase().includes('portfolio dashboard') ||
+                                          planRow.user_query?.toLowerCase().includes('portfolio overview') ||
+                                          planRow.user_query?.toLowerCase().includes('customer portfolio') ||
+                                          planRow.user_query?.toLowerCase().includes('my portfolio') ||
+                                          planRow.user_query?.toLowerCase().includes('all customers') ||
+                                          planRow.user_query?.toLowerCase().includes('all my customers') ||
+                                          planRow.user_query?.toLowerCase().includes('customer list') ||
+                                          planRow.user_query?.toLowerCase().includes('book of business') ||
+                                          planRow.user_query?.toLowerCase().includes('account list') ||
+                                          planRow.user_query?.toLowerCase().includes('show customers') ||
+                                          planRow.user_query?.toLowerCase().includes('customer health dashboard');
+
+    if (isPortfolioDashboardArtifact) {
+      // Generate portfolio dashboard content - this works in General Mode (no customer required)
+      const portfolioDashboardPreview = await artifactGenerator.generatePortfolioDashboardPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: null, // General Mode - no specific customer
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isPortfolioDashboardPreview: true,
+        preview: {
+          title: portfolioDashboardPreview.title,
+          createdDate: portfolioDashboardPreview.createdDate,
+          lastUpdated: portfolioDashboardPreview.lastUpdated,
+          summary: portfolioDashboardPreview.summary,
+          customers: portfolioDashboardPreview.customers,
+          filters: portfolioDashboardPreview.filters,
+          columns: portfolioDashboardPreview.columns,
+          availableSegments: portfolioDashboardPreview.availableSegments,
+          availableTiers: portfolioDashboardPreview.availableTiers,
+          availableOwners: portfolioDashboardPreview.availableOwners,
+          notes: portfolioDashboardPreview.notes,
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -6361,6 +6408,227 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save transformation roadmap',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/portfolio-dashboard/save
+ * Save finalized portfolio dashboard after user review and create Google Sheets
+ */
+router.post('/portfolio-dashboard/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      lastUpdated,
+      summary,
+      customers,
+      filters,
+      columns,
+      notes,
+    } = req.body;
+
+    // Get userId from session or request
+    const userId = (req as any).userId || req.body.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Filter enabled customers only
+    const enabledCustomers = (customers || []).filter((c: any) => c.enabled);
+    // Filter enabled columns only
+    const enabledColumns = (columns || []).filter((col: any) => col.enabled);
+
+    // Status labels for display
+    const RISK_LABELS: Record<string, string> = {
+      healthy: 'Healthy',
+      at_risk: 'At Risk',
+      critical: 'Critical',
+    };
+
+    // Build document content for Google Doc
+    const documentContent = `# ${title}
+
+**Generated:** ${createdDate}
+**Last Updated:** ${lastUpdated}
+
+---
+
+## Portfolio Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Customers | ${summary.totalCustomers} |
+| Total ARR | $${(summary.totalArr || 0).toLocaleString()} |
+| Average Health Score | ${summary.avgHealthScore} |
+| Average NPS | ${summary.avgNps} |
+| Healthy Customers | ${summary.healthyCount} |
+| At-Risk Customers | ${summary.atRiskCount} |
+| Critical Customers | ${summary.criticalCount} |
+| Renewing This Quarter | ${summary.renewingThisQuarter} |
+| Renewal ARR This Quarter | $${(summary.renewingThisQuarterArr || 0).toLocaleString()} |
+
+---
+
+## Filters Applied
+
+- **Health Levels:** ${(filters.healthLevels || []).map((h: string) => RISK_LABELS[h] || h).join(', ')}
+- **Segments:** ${(filters.segments || []).join(', ') || 'All'}
+- **Tiers:** ${(filters.tiers || []).join(', ') || 'All'}
+- **Owners:** ${(filters.owners || []).join(', ') || 'All'}
+- **Date Range:** ${filters.dateRange?.type || 'All'}
+- **Sort By:** ${filters.sortBy || 'health'} (${filters.sortDirection || 'asc'})
+
+---
+
+## Customer List
+
+| Customer | ARR | Health | Status | Tier | Renewal | Days | Owner |
+|----------|-----|--------|--------|------|---------|------|-------|
+${enabledCustomers.map((c: any) => `| ${c.name} | $${(c.arr || 0).toLocaleString()} | ${c.healthScore} | ${RISK_LABELS[c.riskLevel] || c.riskLevel} | ${c.tier} | ${c.renewalDate} | ${c.daysUntilRenewal} | ${c.owner} |`).join('\n')}
+
+---
+
+## Customer Details
+
+${enabledCustomers.map((c: any, idx: number) => `### ${idx + 1}. ${c.name}
+
+- **ARR:** $${(c.arr || 0).toLocaleString()}
+- **Health Score:** ${c.healthScore}/100
+- **Status:** ${RISK_LABELS[c.riskLevel] || c.riskLevel}
+- **Tier:** ${c.tier}
+- **Segment:** ${c.segment}
+- **Renewal Date:** ${c.renewalDate}
+- **Days Until Renewal:** ${c.daysUntilRenewal}
+- **Owner:** ${c.owner}
+- **NPS Score:** ${c.npsScore !== null ? c.npsScore : 'N/A'}
+- **Last Activity:** ${c.lastActivityDate}
+`).join('\n')}
+
+---
+
+${notes ? `## Notes
+
+${notes}
+
+---
+
+` : ''}
+*Dashboard generated via CSCX.AI Portfolio Dashboard*
+`;
+
+    // Create Google Sheets with portfolio data
+    let sheetsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { sheetsService } = await import('../services/google/sheets.js');
+
+      // Create spreadsheet
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: title,
+      });
+
+      if (sheetsResult?.id) {
+        // Build header row based on enabled columns
+        const columnHeaders = enabledColumns.map((col: any) => col.name);
+
+        // Build data rows
+        const dataRows = enabledCustomers.map((c: any) => {
+          const row: any[] = [];
+          enabledColumns.forEach((col: any) => {
+            switch (col.id) {
+              case 'name': row.push(c.name); break;
+              case 'arr': row.push(c.arr); break;
+              case 'healthScore': row.push(c.healthScore); break;
+              case 'riskLevel': row.push(RISK_LABELS[c.riskLevel] || c.riskLevel); break;
+              case 'tier': row.push(c.tier); break;
+              case 'segment': row.push(c.segment); break;
+              case 'renewalDate': row.push(c.renewalDate); break;
+              case 'daysUntilRenewal': row.push(c.daysUntilRenewal); break;
+              case 'owner': row.push(c.owner); break;
+              case 'npsScore': row.push(c.npsScore !== null ? c.npsScore : 'N/A'); break;
+              case 'lastActivityDate': row.push(c.lastActivityDate); break;
+              default: row.push(''); break;
+            }
+          });
+          return row;
+        });
+
+        // Update sheet with data
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1',
+          values: [columnHeaders, ...dataRows],
+        });
+      }
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create portfolio dashboard spreadsheet:', sheetsErr);
+    }
+
+    // Create Google Doc as well
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: `${title} - Summary`,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create portfolio dashboard document:', docsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity (no customer ID for General Mode)
+    try {
+      const { config } = await import('../config/index.js');
+      const { createClient } = await import('@supabase/supabase-js');
+      if (config.supabaseUrl && config.supabaseServiceKey) {
+        const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+        await supabase.from('agent_activities').insert({
+          user_id: userId,
+          customer_id: null, // General Mode - no specific customer
+          activity_type: 'portfolio_dashboard_created',
+          description: `Portfolio dashboard created: ${title} - ${enabledCustomers.length} customers, $${(summary.totalArr || 0).toLocaleString()} ARR`,
+          metadata: {
+            sheetsId: sheetsResult?.id,
+            sheetsUrl: sheetsResult?.webViewLink,
+            docId: docsResult?.id,
+            docUrl: docsResult?.webViewLink,
+            totalCustomers: summary.totalCustomers,
+            totalArr: summary.totalArr,
+            healthyCount: summary.healthyCount,
+            atRiskCount: summary.atRiskCount,
+            criticalCount: summary.criticalCount,
+            avgHealthScore: summary.avgHealthScore,
+            createdVia: 'cadg_portfolio_dashboard_preview',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not log portfolio dashboard activity:', err);
+    }
+
+    res.json({
+      success: true,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Portfolio dashboard save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save portfolio dashboard',
     });
   }
 });
