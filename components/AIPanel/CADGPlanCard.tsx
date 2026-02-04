@@ -19,6 +19,7 @@ import { CADGChampionDevelopmentPreview, ChampionDevelopmentData, CustomerData a
 import { CADGTrainingProgramPreview, TrainingProgramData, CustomerData as TrainingProgramCustomerData } from './CADGTrainingProgramPreview';
 import { CADGRenewalForecastPreview, RenewalForecastData, CustomerData as RenewalForecastCustomerData } from './CADGRenewalForecastPreview';
 import { CADGValueSummaryPreview, ValueSummaryData, CustomerData as ValueSummaryCustomerData } from './CADGValueSummaryPreview';
+import { CADGExpansionProposalPreview, ExpansionProposalData, CustomerData as ExpansionProposalCustomerData } from './CADGExpansionProposalPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -234,6 +235,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [valueSummaryPreviewData, setValueSummaryPreviewData] = useState<{
     valueSummary: ValueSummaryData;
     customer: ValueSummaryCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Expansion proposal preview state for HITL workflow
+  const [showExpansionProposalPreview, setShowExpansionProposalPreview] = useState(false);
+  const [expansionProposalPreviewData, setExpansionProposalPreviewData] = useState<{
+    expansionProposal: ExpansionProposalData;
+    customer: ExpansionProposalCustomerData;
     planId: string;
   } | null>(null);
 
@@ -584,6 +593,45 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowValueSummaryPreview(true);
         setStatus('pending'); // Keep in pending until value summary is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is an expansion proposal preview (HITL workflow)
+      if (data.isExpansionProposalPreview && data.preview) {
+        setExpansionProposalPreviewData({
+          expansionProposal: {
+            title: data.preview.title || 'Expansion Proposal',
+            proposalDate: data.preview.proposalDate || new Date().toISOString().slice(0, 10),
+            validUntil: data.preview.validUntil || '',
+            currentArrValue: data.preview.currentArrValue || 0,
+            proposedArrValue: data.preview.proposedArrValue || 0,
+            expansionAmount: data.preview.expansionAmount || 0,
+            expansionProducts: data.preview.expansionProducts || [],
+            pricingOptions: data.preview.pricingOptions || [],
+            businessCase: data.preview.businessCase || [],
+            roiProjection: data.preview.roiProjection || {
+              investmentIncrease: 0,
+              projectedBenefit: 0,
+              roiPercentage: 0,
+              paybackMonths: 0,
+              assumptions: [],
+            },
+            usageGaps: data.preview.usageGaps || [],
+            growthSignals: data.preview.growthSignals || [],
+            nextSteps: data.preview.nextSteps || [],
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+          },
+          planId: data.planId,
+        });
+        setShowExpansionProposalPreview(true);
+        setStatus('pending'); // Keep in pending until expansion proposal is saved
         setIsApproving(false);
         return;
       }
@@ -1442,6 +1490,70 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving expansion proposal from preview
+  const handleExpansionProposalSave = async (expansionProposal: ExpansionProposalData) => {
+    if (!expansionProposalPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/expansion-proposal/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: expansionProposalPreviewData.planId,
+        title: expansionProposal.title,
+        proposalDate: expansionProposal.proposalDate,
+        validUntil: expansionProposal.validUntil,
+        currentArrValue: expansionProposal.currentArrValue,
+        proposedArrValue: expansionProposal.proposedArrValue,
+        expansionAmount: expansionProposal.expansionAmount,
+        expansionProducts: expansionProposal.expansionProducts,
+        pricingOptions: expansionProposal.pricingOptions,
+        businessCase: expansionProposal.businessCase,
+        roiProjection: expansionProposal.roiProjection,
+        usageGaps: expansionProposal.usageGaps,
+        growthSignals: expansionProposal.growthSignals,
+        nextSteps: expansionProposal.nextSteps,
+        notes: expansionProposal.notes,
+        customerId: expansionProposalPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save expansion proposal');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowExpansionProposalPreview(false);
+    setExpansionProposalPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'expansion-proposal',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'expansion-proposal');
+  };
+
+  // Handle canceling expansion proposal preview
+  const handleExpansionProposalCancel = () => {
+    setShowExpansionProposalPreview(false);
+    setExpansionProposalPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1738,6 +1850,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={valueSummaryPreviewData.customer}
         onSave={handleValueSummarySave}
         onCancel={handleValueSummaryCancel}
+      />
+    );
+  }
+
+  // Expansion proposal preview mode
+  if (showExpansionProposalPreview && expansionProposalPreviewData) {
+    return (
+      <CADGExpansionProposalPreview
+        expansionProposal={expansionProposalPreviewData.expansionProposal}
+        customer={expansionProposalPreviewData.customer}
+        onSave={handleExpansionProposalSave}
+        onCancel={handleExpansionProposalCancel}
       />
     );
   }

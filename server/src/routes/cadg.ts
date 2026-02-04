@@ -679,6 +679,65 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is an expansion proposal artifact - return preview for HITL
+    const isExpansionProposalArtifact = finalPlan.taskType === 'expansion_proposal' ||
+                                         planRow.user_query?.toLowerCase().includes('expansion proposal') ||
+                                         planRow.user_query?.toLowerCase().includes('expansion plan') ||
+                                         planRow.user_query?.toLowerCase().includes('upsell proposal') ||
+                                         planRow.user_query?.toLowerCase().includes('upsell plan') ||
+                                         planRow.user_query?.toLowerCase().includes('growth proposal') ||
+                                         planRow.user_query?.toLowerCase().includes('upgrade proposal') ||
+                                         planRow.user_query?.toLowerCase().includes('expand account') ||
+                                         planRow.user_query?.toLowerCase().includes('account expansion') ||
+                                         planRow.user_query?.toLowerCase().includes('expand customer') ||
+                                         planRow.user_query?.toLowerCase().includes('pricing proposal') ||
+                                         planRow.user_query?.toLowerCase().includes('expansion opportunity') ||
+                                         planRow.user_query?.toLowerCase().includes('upsell opportunity') ||
+                                         planRow.user_query?.toLowerCase().includes('cross-sell') ||
+                                         planRow.user_query?.toLowerCase().includes('cross sell');
+
+    if (isExpansionProposalArtifact) {
+      // Generate expansion proposal content but don't finalize - return preview for HITL
+      const expansionProposalPreview = await artifactGenerator.generateExpansionProposalPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isExpansionProposalPreview: true,
+        preview: {
+          title: expansionProposalPreview.title,
+          proposalDate: expansionProposalPreview.proposalDate,
+          validUntil: expansionProposalPreview.validUntil,
+          currentArrValue: expansionProposalPreview.currentArrValue,
+          proposedArrValue: expansionProposalPreview.proposedArrValue,
+          expansionAmount: expansionProposalPreview.expansionAmount,
+          expansionProducts: expansionProposalPreview.expansionProducts,
+          pricingOptions: expansionProposalPreview.pricingOptions,
+          businessCase: expansionProposalPreview.businessCase,
+          roiProjection: expansionProposalPreview.roiProjection,
+          usageGaps: expansionProposalPreview.usageGaps,
+          growthSignals: expansionProposalPreview.growthSignals,
+          nextSteps: expansionProposalPreview.nextSteps,
+          notes: expansionProposalPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -3575,6 +3634,205 @@ ${notes ? `\n## Notes\n${notes}` : ''}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save value summary',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/expansion-proposal/save
+ * Save finalized expansion proposal after user review
+ */
+router.post('/expansion-proposal/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      proposalDate,
+      validUntil,
+      currentArrValue,
+      proposedArrValue,
+      expansionAmount,
+      expansionProducts,
+      pricingOptions,
+      businessCase,
+      roiProjection,
+      usageGaps,
+      growthSignals,
+      nextSteps,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import services
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Filter to only included items
+    const includedProducts = (expansionProducts || []).filter((p: any) => p.included);
+    const includedBusinessCase = (businessCase || []).filter((b: any) => b.included);
+
+    // Calculate totals from included products
+    const calculatedExpansion = includedProducts.reduce((sum: number, p: any) => sum + (p.annualPrice || 0), 0);
+    const recommendedOption = (pricingOptions || []).find((o: any) => o.recommended) || pricingOptions?.[0];
+
+    // Build document content
+    const productsContent = includedProducts.map((p: any) =>
+      `### ${p.name}\n**Category:** ${p.category?.replace('_', ' ')}\n**Current:** ${p.currentPlan} → **Proposed:** ${p.proposedPlan}\n**Annual Price:** $${(p.annualPrice || 0).toLocaleString()}\n${p.description}`
+    ).join('\n\n');
+
+    const pricingContent = (pricingOptions || []).map((o: any) =>
+      `### ${o.name}${o.recommended ? ' ✓ Recommended' : ''}\n${o.description}\n**Annual:** $${(o.annualTotal || 0).toLocaleString()} | **Monthly:** $${(o.monthlyTotal || 0).toLocaleString()}\n**Discount:** ${o.discount} | **Term:** ${o.term}`
+    ).join('\n\n');
+
+    const businessCaseContent = includedBusinessCase.map((b: any) =>
+      `### ${b.title}\n**Category:** ${b.category?.replace('_', ' ')}\n${b.description}\n**Impact:** ${b.impact}`
+    ).join('\n\n');
+
+    const roi = roiProjection || {};
+    const roiContent = `**Investment Increase:** $${(roi.investmentIncrease || 0).toLocaleString()}
+**Projected Annual Benefit:** $${(roi.projectedBenefit || 0).toLocaleString()}
+**ROI:** ${roi.roiPercentage || 0}%
+**Payback Period:** ${roi.paybackMonths || 0} months
+
+**Assumptions:**
+${(roi.assumptions || []).map((a: string) => `• ${a}`).join('\n')}`;
+
+    // Build full document content
+    const documentContent = `# ${title}
+
+**Proposal Date:** ${proposalDate || new Date().toISOString().slice(0, 10)}
+**Valid Until:** ${validUntil || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}
+
+---
+
+## Summary
+
+| Metric | Value |
+|--------|-------|
+| Current ARR | $${(currentArrValue || 0).toLocaleString()} |
+| Proposed ARR | $${(proposedArrValue || currentArrValue + calculatedExpansion).toLocaleString()} |
+| Expansion Amount | $${(calculatedExpansion).toLocaleString()} |
+
+---
+
+## Expansion Products
+
+${productsContent || 'No products selected'}
+
+---
+
+## Pricing Options
+
+${pricingContent || 'No pricing options'}
+
+---
+
+## Business Case
+
+${businessCaseContent || 'No business case items'}
+
+---
+
+## ROI Projection
+
+${roiContent}
+
+---
+
+## Growth Signals
+
+${(growthSignals || []).map((s: string) => `• ${s}`).join('\n') || 'No signals identified'}
+
+---
+
+## Usage Gaps (Expansion Opportunities)
+
+${(usageGaps || []).map((g: string) => `• ${g}`).join('\n') || 'No gaps identified'}
+
+---
+
+## Next Steps
+
+${(nextSteps || []).map((s: string, i: number) => `${i + 1}. ${s}`).join('\n') || 'No next steps'}
+
+${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
+
+---
+
+*Generated by CSCX.AI*`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create expansion proposal document:', docsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'expansion_proposal_created',
+            description: `Expansion proposal created: ${title} - $${calculatedExpansion.toLocaleString()} expansion`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              currentArrValue,
+              proposedArrValue: currentArrValue + calculatedExpansion,
+              expansionAmount: calculatedExpansion,
+              productsCount: includedProducts.length,
+              roiPercentage: roi.roiPercentage || 0,
+              recommendedOption: recommendedOption?.name,
+              createdVia: 'cadg_expansion_proposal_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log expansion proposal activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      expansionAmount: calculatedExpansion,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Expansion proposal save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save expansion proposal',
     });
   }
 });

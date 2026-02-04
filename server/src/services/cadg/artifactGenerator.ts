@@ -4850,6 +4850,352 @@ Format your response as JSON:
   }
 }
 
+// ============================================
+// Expansion Proposal Generator
+// ============================================
+
+interface ExpansionProduct {
+  id: string;
+  name: string;
+  description: string;
+  category: 'module' | 'tier_upgrade' | 'seats' | 'storage' | 'support' | 'professional_services';
+  currentPlan: string;
+  proposedPlan: string;
+  monthlyPrice: number;
+  annualPrice: number;
+  included: boolean;
+}
+
+interface PricingOption {
+  id: string;
+  name: string;
+  description: string;
+  monthlyTotal: number;
+  annualTotal: number;
+  discount: string;
+  term: string;
+  recommended: boolean;
+}
+
+interface BusinessCaseItem {
+  id: string;
+  title: string;
+  description: string;
+  category: 'efficiency' | 'revenue' | 'cost_savings' | 'risk_reduction' | 'competitive';
+  impact: string;
+  included: boolean;
+}
+
+interface ROIProjection {
+  investmentIncrease: number;
+  projectedBenefit: number;
+  roiPercentage: number;
+  paybackMonths: number;
+  assumptions: string[];
+}
+
+interface ExpansionProposalPreviewResult {
+  title: string;
+  proposalDate: string;
+  validUntil: string;
+  currentArrValue: number;
+  proposedArrValue: number;
+  expansionAmount: number;
+  expansionProducts: ExpansionProduct[];
+  pricingOptions: PricingOption[];
+  businessCase: BusinessCaseItem[];
+  roiProjection: ROIProjection;
+  usageGaps: string[];
+  growthSignals: string[];
+  nextSteps: string[];
+  notes: string;
+}
+
+async function generateExpansionProposalPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<ExpansionProposalPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+  const arr = customer?.arr || 100000;
+  const industry = customer?.industryCode || 'Technology';
+  const tier = customer?.tier || 'Growth';
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 65;
+  const loginFrequency = engagement?.loginFrequency || 4.0;
+  // Use dauMau as a proxy for active users (estimate from DAU/MAU ratio)
+  const activeUsers = engagement?.dauMau ? Math.round(engagement.dauMau * 100) : 50;
+
+  // Get contract info
+  const contractEnd = customer?.renewalDate || new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Build prompt for expansion proposal generation
+  const prompt = `You are a customer success manager creating an expansion proposal to upsell additional products and services to a successful customer. Generate a compelling proposal with pricing options and business case.
+
+Customer: ${customerName}
+Industry: ${industry}
+Current Tier: ${tier}
+Health Score: ${healthScore}
+Current ARR: $${arr.toLocaleString()}
+Feature Adoption: ${featureAdoption}%
+Active Users: ${activeUsers}
+Contract Renewal: ${contractEnd}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate an expansion proposal with:
+1. 3-5 expansion products/upgrades (modules, tier upgrades, seats, storage, support, professional services)
+2. 2-3 pricing options with different terms and discounts
+3. 4-6 business case items across efficiency, revenue, cost savings, risk reduction, competitive advantage
+4. ROI projection for the expansion investment
+5. 3-5 usage gaps that indicate expansion opportunity
+6. 3-5 growth signals observed in the account
+7. 3-4 next steps to advance the proposal
+
+Format your response as JSON:
+{
+  "expansionProducts": [
+    {
+      "name": "Product name",
+      "description": "What it provides",
+      "category": "module|tier_upgrade|seats|storage|support|professional_services",
+      "currentPlan": "Current offering",
+      "proposedPlan": "Proposed upgrade",
+      "monthlyPrice": 1500,
+      "annualPrice": 15000
+    }
+  ],
+  "pricingOptions": [
+    {
+      "name": "Option name",
+      "description": "What's included",
+      "monthlyTotal": 5000,
+      "annualTotal": 50000,
+      "discount": "15% discount",
+      "term": "12-month commitment",
+      "recommended": true
+    }
+  ],
+  "businessCase": [
+    {
+      "title": "Business case item title",
+      "description": "Detailed explanation",
+      "category": "efficiency|revenue|cost_savings|risk_reduction|competitive",
+      "impact": "Quantified impact or benefit"
+    }
+  ],
+  "roiProjection": {
+    "investmentIncrease": 25000,
+    "projectedBenefit": 75000,
+    "assumptions": ["Assumption 1", "Assumption 2"]
+  },
+  "usageGaps": ["Gap 1 description", "Gap 2 description"],
+  "growthSignals": ["Signal 1 observed", "Signal 2 observed"],
+  "nextSteps": ["Next step 1", "Next step 2"]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Calculate expansion amounts
+    const expansionProducts = (parsed.expansionProducts || []).map((p: any, idx: number) => ({
+      id: `product-${idx + 1}`,
+      name: p.name || `Product ${idx + 1}`,
+      description: p.description || '',
+      category: (p.category as ExpansionProduct['category']) || 'module',
+      currentPlan: p.currentPlan || 'Basic',
+      proposedPlan: p.proposedPlan || 'Enterprise',
+      monthlyPrice: p.monthlyPrice || Math.round(arr / 24),
+      annualPrice: p.annualPrice || Math.round(arr / 2),
+      included: true,
+    }));
+
+    const totalExpansion = expansionProducts.reduce((sum: number, p: ExpansionProduct) => sum + (p.included ? p.annualPrice : 0), 0);
+    const proposedArr = arr + totalExpansion;
+
+    // Process pricing options
+    const pricingOptions = (parsed.pricingOptions || []).map((o: any, idx: number) => ({
+      id: `option-${idx + 1}`,
+      name: o.name || `Option ${idx + 1}`,
+      description: o.description || '',
+      monthlyTotal: o.monthlyTotal || Math.round(totalExpansion / 12),
+      annualTotal: o.annualTotal || totalExpansion,
+      discount: o.discount || '0%',
+      term: o.term || '12 months',
+      recommended: idx === 0 ? true : (o.recommended || false),
+    }));
+
+    // Ensure at least 2 pricing options
+    if (pricingOptions.length < 2) {
+      pricingOptions.push(
+        { id: 'option-1', name: 'Annual Commitment', description: 'Best value with annual commitment', monthlyTotal: Math.round(totalExpansion * 0.85 / 12), annualTotal: Math.round(totalExpansion * 0.85), discount: '15% discount', term: '12-month commitment', recommended: true },
+        { id: 'option-2', name: 'Monthly Flex', description: 'Flexible month-to-month option', monthlyTotal: Math.round(totalExpansion / 12), annualTotal: totalExpansion, discount: 'No discount', term: 'Month-to-month', recommended: false }
+      );
+    }
+
+    // Process business case
+    const businessCase = (parsed.businessCase || []).map((b: any, idx: number) => ({
+      id: `case-${idx + 1}`,
+      title: b.title || `Business Case ${idx + 1}`,
+      description: b.description || '',
+      category: (b.category as BusinessCaseItem['category']) || 'efficiency',
+      impact: b.impact || 'Significant improvement expected',
+      included: true,
+    }));
+
+    // Ensure business case items
+    if (businessCase.length === 0) {
+      businessCase.push(
+        { id: 'case-1', title: 'Increased Productivity', description: 'Additional features will streamline workflows', category: 'efficiency', impact: '20% reduction in manual tasks', included: true },
+        { id: 'case-2', title: 'Revenue Growth', description: 'Enhanced capabilities enable new revenue streams', category: 'revenue', impact: `$${Math.round(arr * 0.15).toLocaleString()} potential annual revenue`, included: true },
+        { id: 'case-3', title: 'Risk Mitigation', description: 'Expanded support reduces operational risk', category: 'risk_reduction', impact: 'Reduced downtime and faster resolution', included: true },
+        { id: 'case-4', title: 'Competitive Edge', description: 'Advanced features provide market differentiation', category: 'competitive', impact: 'Stay ahead of industry trends', included: true }
+      );
+    }
+
+    // Process ROI projection
+    const investmentIncrease = parsed.roiProjection?.investmentIncrease || totalExpansion;
+    const projectedBenefit = parsed.roiProjection?.projectedBenefit || Math.round(totalExpansion * 2.5);
+    const roiProjection: ROIProjection = {
+      investmentIncrease,
+      projectedBenefit,
+      roiPercentage: Math.round(((projectedBenefit - investmentIncrease) / investmentIncrease) * 100),
+      paybackMonths: Math.round((investmentIncrease / projectedBenefit) * 12),
+      assumptions: parsed.roiProjection?.assumptions || [
+        'Based on similar customer expansion outcomes',
+        'Assumes 6-month ramp-up to full utilization',
+        'Includes projected efficiency gains and cost avoidance',
+      ],
+    };
+
+    // Process usage gaps and growth signals
+    const usageGaps = parsed.usageGaps || [
+      `Only ${featureAdoption}% feature adoption indicates room for growth`,
+      `${activeUsers} active users could expand with additional seats`,
+      'Advanced capabilities not yet unlocked',
+      'Support tier limiting response times',
+    ];
+
+    const growthSignals = parsed.growthSignals || [
+      `Strong health score of ${healthScore} indicates satisfied customer`,
+      `High login frequency (${loginFrequency}x/week) shows engagement`,
+      'Team growth signals need for additional capacity',
+      'Positive stakeholder feedback on current solution',
+    ];
+
+    const nextSteps = parsed.nextSteps || [
+      'Schedule proposal review meeting with decision makers',
+      'Prepare customized demo of proposed capabilities',
+      'Align with contract renewal timeline',
+      'Coordinate with finance on approval process',
+    ];
+
+    // Calculate dates
+    const today = new Date();
+    const validUntil = new Date(today);
+    validUntil.setDate(validUntil.getDate() + 30);
+
+    return {
+      title: `Expansion Proposal: ${customerName}`,
+      proposalDate: today.toISOString().slice(0, 10),
+      validUntil: validUntil.toISOString().slice(0, 10),
+      currentArrValue: arr,
+      proposedArrValue: proposedArr,
+      expansionAmount: totalExpansion,
+      expansionProducts,
+      pricingOptions,
+      businessCase,
+      roiProjection,
+      usageGaps,
+      growthSignals,
+      nextSteps,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Expansion proposal preview generation error:', error);
+
+    // Return fallback expansion proposal
+    const expansionAmount = Math.round(arr * 0.25);
+    const today = new Date();
+    const validUntil = new Date(today);
+    validUntil.setDate(validUntil.getDate() + 30);
+
+    return {
+      title: `Expansion Proposal: ${customerName}`,
+      proposalDate: today.toISOString().slice(0, 10),
+      validUntil: validUntil.toISOString().slice(0, 10),
+      currentArrValue: arr,
+      proposedArrValue: arr + expansionAmount,
+      expansionAmount,
+      expansionProducts: [
+        { id: 'product-1', name: 'Premium Support', description: 'Priority support with dedicated CSM', category: 'support', currentPlan: 'Standard Support', proposedPlan: 'Premium Support', monthlyPrice: Math.round(expansionAmount * 0.3 / 12), annualPrice: Math.round(expansionAmount * 0.3), included: true },
+        { id: 'product-2', name: 'Additional Seats', description: 'Expand team access', category: 'seats', currentPlan: `${activeUsers} seats`, proposedPlan: `${activeUsers + 25} seats`, monthlyPrice: Math.round(expansionAmount * 0.4 / 12), annualPrice: Math.round(expansionAmount * 0.4), included: true },
+        { id: 'product-3', name: 'Enterprise Tier', description: 'Unlock advanced features', category: 'tier_upgrade', currentPlan: tier, proposedPlan: 'Enterprise', monthlyPrice: Math.round(expansionAmount * 0.3 / 12), annualPrice: Math.round(expansionAmount * 0.3), included: true },
+      ],
+      pricingOptions: [
+        { id: 'option-1', name: 'Annual Commitment', description: 'Best value with annual commitment', monthlyTotal: Math.round(expansionAmount * 0.85 / 12), annualTotal: Math.round(expansionAmount * 0.85), discount: '15% discount', term: '12-month commitment', recommended: true },
+        { id: 'option-2', name: 'Monthly Flex', description: 'Flexible month-to-month option', monthlyTotal: Math.round(expansionAmount / 12), annualTotal: expansionAmount, discount: 'No discount', term: 'Month-to-month', recommended: false },
+      ],
+      businessCase: [
+        { id: 'case-1', title: 'Increased Productivity', description: 'Additional features will streamline workflows', category: 'efficiency', impact: '20% reduction in manual tasks', included: true },
+        { id: 'case-2', title: 'Team Scalability', description: 'Additional seats enable team growth', category: 'revenue', impact: 'Support 25+ new team members', included: true },
+        { id: 'case-3', title: 'Faster Support', description: 'Premium support reduces issue resolution time', category: 'risk_reduction', impact: '4-hour SLA vs 24-hour', included: true },
+        { id: 'case-4', title: 'Advanced Features', description: 'Enterprise features provide competitive advantage', category: 'competitive', impact: 'Access to latest capabilities', included: true },
+      ],
+      roiProjection: {
+        investmentIncrease: expansionAmount,
+        projectedBenefit: Math.round(expansionAmount * 2.5),
+        roiPercentage: 150,
+        paybackMonths: 5,
+        assumptions: [
+          'Based on similar customer outcomes',
+          'Assumes 6-month adoption ramp',
+          'Includes efficiency and productivity gains',
+        ],
+      },
+      usageGaps: [
+        `Only ${featureAdoption}% feature adoption - room for growth`,
+        `${activeUsers} active users could expand`,
+        'Support tier limiting response times',
+        'Advanced features not yet unlocked',
+      ],
+      growthSignals: [
+        `Strong health score of ${healthScore}`,
+        `High engagement with ${loginFrequency}x weekly logins`,
+        'Team growth signals',
+        'Positive stakeholder feedback',
+      ],
+      nextSteps: [
+        'Schedule proposal review meeting',
+        'Prepare customized demo',
+        'Align with renewal timeline',
+        'Coordinate finance approval',
+      ],
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -4866,4 +5212,5 @@ export const artifactGenerator = {
   generateTrainingProgramPreview,
   generateRenewalForecastPreview,
   generateValueSummaryPreview,
+  generateExpansionProposalPreview,
 };
