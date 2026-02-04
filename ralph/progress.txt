@@ -695,3 +695,39 @@
   - Actor types: customer, csm, support, product, leadership, external
   - Query detection patterns: 'escalation report', 'escalation', 'escalate this', 'escalate issue', 'executive escalation', 'urgent escalation', 'escalate to', 'raise escalation', 'formal escalation', 'critical issue', 'create escalation'
 ---
+
+## 2026-02-04 - US-022
+- **What was implemented**: Resolution plan generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateResolutionPlanPreview()` function (~330 lines) with types for ResolutionIssue, ResolutionAction, ResolutionDependency, ResolutionPlanPreviewResult
+  - `server/src/routes/cadg.ts` - Added resolution_plan detection and `/api/cadg/resolution-plan/save` endpoint (~250 lines)
+  - `components/AIPanel/CADGResolutionPlanPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added resolution plan preview state and handlers (~120 lines)
+- **Features**:
+  - **generateResolutionPlanPreview()**: Uses Claude to generate resolution plan with:
+    - Title, created date, target resolution date, overall status
+    - Issues list with categories (product, service, integration, performance, usability, security, compliance, other)
+    - Severity levels (critical, high, medium, low) and status tracking (open, in_progress, blocked, resolved)
+    - Action items with owners, priorities, due dates, status, and linked issues
+    - Dependencies with types (internal, external, customer, vendor) and blockedBy tracking
+    - Timeline description
+  - **CADGResolutionPlanPreview component**:
+    - Tab-based navigation for Overview, Issues, Actions, Dependencies
+    - Issue cards with enable/disable checkboxes, category/severity/status badges, expandable editing
+    - Action items with reordering controls, related issues linking (click to toggle)
+    - Dependency cards with type and blocker fields
+    - Key metrics cards: Open Issues, Pending Actions, Health Score, Days to Renewal
+    - Unsaved changes warning
+    - Cyan accent color theme
+  - **Backend endpoint**: POST `/api/cadg/resolution-plan/save`:
+    - Creates Google Doc with formatted markdown content (issues, actions, dependencies)
+    - Creates Google Sheets tracker with issues data
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Resolution plan uses `isResolutionPlanPreview: true` response type
+  - Use `interactionHistory` property from context, not `recentInteractions`
+  - For Google Sheets, use `sheetsService.createSpreadsheet()` not `createSheet()`
+  - For Google Sheets updateValues, pass options object with `range` and `values` properties
+  - Resolution plans link actions to issues via `relatedIssueIds` array
+  - Query detection patterns: 'resolution plan', 'action plan', 'issue resolution', 'problem resolution', 'fix plan', 'remediation plan', 'corrective action', 'resolve issues', 'address issues', 'issue tracker', 'action tracker'
+---
