@@ -18,6 +18,7 @@ import { CADGFeatureCampaignPreview, FeatureCampaignData, CustomerData as Featur
 import { CADGChampionDevelopmentPreview, ChampionDevelopmentData, CustomerData as ChampionDevelopmentCustomerData } from './CADGChampionDevelopmentPreview';
 import { CADGTrainingProgramPreview, TrainingProgramData, CustomerData as TrainingProgramCustomerData } from './CADGTrainingProgramPreview';
 import { CADGRenewalForecastPreview, RenewalForecastData, CustomerData as RenewalForecastCustomerData } from './CADGRenewalForecastPreview';
+import { CADGValueSummaryPreview, ValueSummaryData, CustomerData as ValueSummaryCustomerData } from './CADGValueSummaryPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -225,6 +226,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [renewalForecastPreviewData, setRenewalForecastPreviewData] = useState<{
     renewalForecast: RenewalForecastData;
     customer: RenewalForecastCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Value summary preview state for HITL workflow
+  const [showValueSummaryPreview, setShowValueSummaryPreview] = useState(false);
+  const [valueSummaryPreviewData, setValueSummaryPreviewData] = useState<{
+    valueSummary: ValueSummaryData;
+    customer: ValueSummaryCustomerData;
     planId: string;
   } | null>(null);
 
@@ -540,6 +549,41 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowTrainingProgramPreview(true);
         setStatus('pending'); // Keep in pending until training program is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a value summary preview (HITL workflow)
+      if (data.isValueSummaryPreview && data.preview) {
+        setValueSummaryPreviewData({
+          valueSummary: {
+            title: data.preview.title || 'Value Summary',
+            executiveSummary: data.preview.executiveSummary || '',
+            valueMetrics: data.preview.valueMetrics || [],
+            successStories: data.preview.successStories || [],
+            testimonials: data.preview.testimonials || [],
+            roiCalculation: data.preview.roiCalculation || {
+              investmentCost: 0,
+              annualBenefit: 0,
+              roiPercentage: 0,
+              paybackMonths: 0,
+              threeYearValue: 0,
+              assumptions: [],
+            },
+            keyHighlights: data.preview.keyHighlights || [],
+            nextSteps: data.preview.nextSteps || [],
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+          },
+          planId: data.planId,
+        });
+        setShowValueSummaryPreview(true);
+        setStatus('pending'); // Keep in pending until value summary is saved
         setIsApproving(false);
         return;
       }
@@ -1339,6 +1383,65 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving value summary from preview
+  const handleValueSummarySave = async (valueSummary: ValueSummaryData) => {
+    if (!valueSummaryPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/value-summary/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: valueSummaryPreviewData.planId,
+        title: valueSummary.title,
+        executiveSummary: valueSummary.executiveSummary,
+        valueMetrics: valueSummary.valueMetrics,
+        successStories: valueSummary.successStories,
+        testimonials: valueSummary.testimonials,
+        roiCalculation: valueSummary.roiCalculation,
+        keyHighlights: valueSummary.keyHighlights,
+        nextSteps: valueSummary.nextSteps,
+        notes: valueSummary.notes,
+        customerId: valueSummaryPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save value summary');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowValueSummaryPreview(false);
+    setValueSummaryPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.fileId || 'value-summary',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.fileUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.fileId || 'value-summary');
+  };
+
+  // Handle canceling value summary preview
+  const handleValueSummaryCancel = () => {
+    setShowValueSummaryPreview(false);
+    setValueSummaryPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1623,6 +1726,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={renewalForecastPreviewData.customer}
         onSave={handleRenewalForecastSave}
         onCancel={handleRenewalForecastCancel}
+      />
+    );
+  }
+
+  // Value summary preview for HITL workflow
+  if (showValueSummaryPreview && valueSummaryPreviewData) {
+    return (
+      <CADGValueSummaryPreview
+        valueSummary={valueSummaryPreviewData.valueSummary}
+        customer={valueSummaryPreviewData.customer}
+        onSave={handleValueSummarySave}
+        onCancel={handleValueSummaryCancel}
       />
     );
   }

@@ -953,6 +953,609 @@ class QBRSlidesService {
     const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     return date.toISOString().split('T')[0];
   }
+
+  /**
+   * Create a Value Summary presentation
+   * Used by CADG value_summary generator
+   */
+  async createValueSummaryPresentation(
+    userId: string,
+    data: {
+      title: string;
+      executiveSummary: string;
+      valueMetrics: Array<{
+        name: string;
+        value: string;
+        unit: string;
+        category: string;
+        description: string;
+      }>;
+      successStories: Array<{
+        title: string;
+        description: string;
+        impact: string;
+        date: string;
+        category: string;
+      }>;
+      testimonials: Array<{
+        quote: string;
+        author: string;
+        title: string;
+      }>;
+      roiCalculation: {
+        investmentCost: number;
+        annualBenefit: number;
+        roiPercentage: number;
+        paybackMonths: number;
+        threeYearValue: number;
+        assumptions?: string[];
+      };
+      keyHighlights: string[];
+      nextSteps: string[];
+    }
+  ): Promise<{ id: string; webViewLink: string }> {
+    const auth = await googleOAuth.getAuthenticatedClient(userId);
+    const slides = google.slides({ version: 'v1', auth });
+
+    // Create blank presentation
+    const presentation = await slides.presentations.create({
+      requestBody: {
+        title: data.title,
+      },
+    });
+
+    const presentationId = presentation.data.presentationId!;
+    const requests: slides_v1.Schema$Request[] = [];
+
+    // Get the default slide ID to delete it later
+    const defaultSlideId = presentation.data.slides?.[0]?.objectId;
+
+    // Generate unique IDs for slides
+    const slideIds = {
+      title: `title_slide_${Date.now()}`,
+      summary: `summary_slide_${Date.now()}`,
+      metrics: `metrics_slide_${Date.now()}`,
+      stories: `stories_slide_${Date.now()}`,
+      testimonials: `testimonials_slide_${Date.now()}`,
+      roi: `roi_slide_${Date.now()}`,
+      highlights: `highlights_slide_${Date.now()}`,
+      nextSteps: `next_steps_slide_${Date.now()}`,
+    };
+
+    // Create slides
+    Object.values(slideIds).forEach((slideId, index) => {
+      requests.push({
+        createSlide: {
+          objectId: slideId,
+          insertionIndex: index,
+          slideLayoutReference: {
+            predefinedLayout: 'BLANK',
+          },
+        },
+      });
+    });
+
+    // Execute slide creation
+    await slides.presentations.batchUpdate({
+      presentationId,
+      requestBody: { requests },
+    });
+
+    // Now add content to each slide
+    const contentRequests: slides_v1.Schema$Request[] = [];
+
+    // Title slide
+    const titleId = `title_text_${Date.now()}`;
+    const subtitleId = `subtitle_text_${Date.now()}`;
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: titleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.title,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 80, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 180, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: titleId,
+          text: data.title,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: titleId,
+          style: {
+            fontSize: { magnitude: 40, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: subtitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.title,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 270, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: subtitleId,
+          text: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        },
+      }
+    );
+
+    // Executive Summary slide
+    const summaryTitleId = `summary_title_${Date.now()}`;
+    const summaryContentId = `summary_content_${Date.now()}`;
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: summaryTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.summary,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: summaryTitleId,
+          text: 'Executive Summary',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: summaryTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: summaryContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.summary,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 300, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: summaryContentId,
+          text: data.executiveSummary,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: summaryContentId,
+          style: {
+            fontSize: { magnitude: 18, unit: 'PT' },
+          },
+          fields: 'fontSize',
+        },
+      }
+    );
+
+    // Key Value Metrics slide
+    const metricsTitleId = `metrics_title_${Date.now()}`;
+    const metricsContentId = `metrics_content_${Date.now()}`;
+    const metricsText = data.valueMetrics.map(m =>
+      `• ${m.name}: ${m.value}${m.unit === '%' || m.unit === 'count' ? m.unit : ' ' + m.unit}\n  ${m.description}`
+    ).join('\n\n');
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: metricsTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.metrics,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: metricsTitleId,
+          text: 'Key Value Metrics',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: metricsTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: metricsContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.metrics,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 350, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: metricsContentId,
+          text: metricsText || 'No metrics included.',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: metricsContentId,
+          style: {
+            fontSize: { magnitude: 14, unit: 'PT' },
+          },
+          fields: 'fontSize',
+        },
+      }
+    );
+
+    // Success Stories slide
+    const storiesTitleId = `stories_title_${Date.now()}`;
+    const storiesContentId = `stories_content_${Date.now()}`;
+    const storiesText = data.successStories.slice(0, 3).map(s =>
+      `${s.title} (${s.date})\n${s.description}\nImpact: ${s.impact}`
+    ).join('\n\n');
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: storiesTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.stories,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: storiesTitleId,
+          text: 'Success Stories',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: storiesTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: storiesContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.stories,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 350, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: storiesContentId,
+          text: storiesText || 'No stories included.',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: storiesContentId,
+          style: {
+            fontSize: { magnitude: 14, unit: 'PT' },
+          },
+          fields: 'fontSize',
+        },
+      }
+    );
+
+    // Testimonials slide
+    const testimonialsTitleId = `testimonials_title_${Date.now()}`;
+    const testimonialsContentId = `testimonials_content_${Date.now()}`;
+    const testimonialsText = data.testimonials.slice(0, 2).map(t =>
+      `"${t.quote}"\n— ${t.author}, ${t.title}`
+    ).join('\n\n');
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: testimonialsTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.testimonials,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: testimonialsTitleId,
+          text: 'Customer Testimonials',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: testimonialsTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: testimonialsContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.testimonials,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 350, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: testimonialsContentId,
+          text: testimonialsText || 'No testimonials included.',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: testimonialsContentId,
+          style: {
+            fontSize: { magnitude: 16, unit: 'PT' },
+            italic: true,
+          },
+          fields: 'fontSize,italic',
+        },
+      }
+    );
+
+    // ROI Analysis slide
+    const roiTitleId = `roi_title_${Date.now()}`;
+    const roiContentId = `roi_content_${Date.now()}`;
+    const roi = data.roiCalculation;
+    const roiText = `Investment: $${roi.investmentCost.toLocaleString()}
+Annual Benefit: $${roi.annualBenefit.toLocaleString()}
+ROI: ${roi.roiPercentage}%
+Payback Period: ${roi.paybackMonths} months
+3-Year Value: $${roi.threeYearValue.toLocaleString()}
+
+Assumptions:
+${(roi.assumptions || []).map(a => `• ${a}`).join('\n')}`;
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: roiTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.roi,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: roiTitleId,
+          text: 'ROI Analysis',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: roiTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: roiContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.roi,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 350, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: roiContentId,
+          text: roiText,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: roiContentId,
+          style: {
+            fontSize: { magnitude: 16, unit: 'PT' },
+          },
+          fields: 'fontSize',
+        },
+      }
+    );
+
+    // Key Highlights slide
+    const highlightsTitleId = `highlights_title_${Date.now()}`;
+    const highlightsContentId = `highlights_content_${Date.now()}`;
+    const highlightsText = data.keyHighlights.map(h => `• ${h}`).join('\n');
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: highlightsTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.highlights,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: highlightsTitleId,
+          text: 'Key Highlights',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: highlightsTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: highlightsContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.highlights,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 350, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: highlightsContentId,
+          text: highlightsText || 'No highlights.',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: highlightsContentId,
+          style: {
+            fontSize: { magnitude: 18, unit: 'PT' },
+          },
+          fields: 'fontSize',
+        },
+      }
+    );
+
+    // Next Steps slide
+    const nextStepsTitleId = `next_steps_title_${Date.now()}`;
+    const nextStepsContentId = `next_steps_content_${Date.now()}`;
+    const nextStepsText = data.nextSteps.map(s => `• ${s}`).join('\n');
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: nextStepsTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.nextSteps,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 50, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 36, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: nextStepsTitleId,
+          text: 'Next Steps',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: nextStepsTitleId,
+          style: {
+            fontSize: { magnitude: 28, unit: 'PT' },
+            bold: true,
+            foregroundColor: { opaqueColor: { rgbColor: COLORS.primary } },
+          },
+          fields: 'fontSize,bold,foregroundColor',
+        },
+      },
+      {
+        createShape: {
+          objectId: nextStepsContentId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.nextSteps,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 350, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 100, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: nextStepsContentId,
+          text: nextStepsText || 'No next steps.',
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: nextStepsContentId,
+          style: {
+            fontSize: { magnitude: 18, unit: 'PT' },
+          },
+          fields: 'fontSize',
+        },
+      }
+    );
+
+    // Delete the default blank slide
+    if (defaultSlideId) {
+      contentRequests.push({
+        deleteObject: {
+          objectId: defaultSlideId,
+        },
+      });
+    }
+
+    // Execute content updates
+    await slides.presentations.batchUpdate({
+      presentationId,
+      requestBody: { requests: contentRequests },
+    });
+
+    return {
+      id: presentationId,
+      webViewLink: `https://docs.google.com/presentation/d/${presentationId}/edit`,
+    };
+  }
 }
 
 export const qbrSlidesService = new QBRSlidesService();

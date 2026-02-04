@@ -572,6 +572,59 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a value summary artifact - return preview for HITL
+    const isValueSummaryArtifact = finalPlan.taskType === 'value_summary' ||
+                                    planRow.user_query?.toLowerCase().includes('value summary') ||
+                                    planRow.user_query?.toLowerCase().includes('value realization') ||
+                                    planRow.user_query?.toLowerCase().includes('roi summary') ||
+                                    planRow.user_query?.toLowerCase().includes('roi report') ||
+                                    planRow.user_query?.toLowerCase().includes('roi calculation') ||
+                                    planRow.user_query?.toLowerCase().includes('success metrics') ||
+                                    planRow.user_query?.toLowerCase().includes('value delivered') ||
+                                    planRow.user_query?.toLowerCase().includes('business value') ||
+                                    planRow.user_query?.toLowerCase().includes('customer value') ||
+                                    planRow.user_query?.toLowerCase().includes('demonstrate value') ||
+                                    planRow.user_query?.toLowerCase().includes('show value') ||
+                                    planRow.user_query?.toLowerCase().includes('prove value') ||
+                                    planRow.user_query?.toLowerCase().includes('value report');
+
+    if (isValueSummaryArtifact) {
+      // Generate value summary content but don't finalize - return preview for HITL
+      const valueSummaryPreview = await artifactGenerator.generateValueSummaryPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isValueSummaryPreview: true,
+        preview: {
+          title: valueSummaryPreview.title,
+          executiveSummary: valueSummaryPreview.executiveSummary,
+          valueMetrics: valueSummaryPreview.valueMetrics,
+          successStories: valueSummaryPreview.successStories,
+          testimonials: valueSummaryPreview.testimonials,
+          roiCalculation: valueSummaryPreview.roiCalculation,
+          keyHighlights: valueSummaryPreview.keyHighlights,
+          nextSteps: valueSummaryPreview.nextSteps,
+          notes: valueSummaryPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a renewal forecast artifact - return preview for HITL
     const isRenewalForecastArtifact = finalPlan.taskType === 'renewal_forecast' ||
                                        planRow.user_query?.toLowerCase().includes('renewal forecast') ||
@@ -967,6 +1020,9 @@ router.get('/artifact/:artifactId/export-sources', async (req: Request, res: Res
           break;
         case 'renewal_forecast':
           csvRows.push(`Renewal Forecast,Prediction,Renewal probability and timeline,Included`);
+          break;
+        case 'value_summary':
+          csvRows.push(`Value Summary,Analysis,ROI metrics and success stories,Included`);
           break;
         case 'customer_history':
           csvRows.push(`Interaction History,Timeline,Recent customer touchpoints,Included`);
@@ -3302,6 +3358,223 @@ router.post('/renewal-forecast/save', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save renewal forecast',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/value-summary/save
+ * Save finalized value summary after user review
+ */
+router.post('/value-summary/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      executiveSummary,
+      valueMetrics,
+      successStories,
+      testimonials,
+      roiCalculation,
+      keyHighlights,
+      nextSteps,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import services
+    const { qbrSlidesService } = await import('../services/google/qbrSlides.js');
+
+    // Filter to only included items
+    const includedMetrics = (valueMetrics || []).filter((m: any) => m.included);
+    const includedStories = (successStories || []).filter((s: any) => s.included);
+    const includedTestimonials = (testimonials || []).filter((t: any) => t.included);
+
+    // Build value metrics content for slides
+    const metricsContent = includedMetrics.map((m: any) =>
+      `• ${m.name}: ${m.value}${m.unit === '%' || m.unit === 'count' ? m.unit : ' ' + m.unit} - ${m.description}`
+    ).join('\n');
+
+    // Build success stories content
+    const storiesContent = includedStories.map((s: any) =>
+      `**${s.title}** (${s.date})\n${s.description}\nImpact: ${s.impact}`
+    ).join('\n\n');
+
+    // Build testimonials content
+    const testimonialsContent = includedTestimonials.map((t: any) =>
+      `"${t.quote}"\n— ${t.author}, ${t.title}`
+    ).join('\n\n');
+
+    // Build ROI summary
+    const roi = roiCalculation || {};
+    const roiContent = `
+Investment: $${(roi.investmentCost || 0).toLocaleString()}
+Annual Benefit: $${(roi.annualBenefit || 0).toLocaleString()}
+ROI: ${roi.roiPercentage || 0}%
+Payback Period: ${roi.paybackMonths || 0} months
+3-Year Value: $${(roi.threeYearValue || 0).toLocaleString()}
+    `.trim();
+
+    // Create Google Slides presentation for value summary
+    let slidesResult = null;
+    try {
+      // Build slide content for presentation
+      const slideContent = {
+        title: title,
+        sections: [
+          {
+            title: 'Executive Summary',
+            content: executiveSummary || 'Value delivered through our partnership.',
+          },
+          {
+            title: 'Key Value Metrics',
+            content: metricsContent || 'No metrics included.',
+          },
+          {
+            title: 'Success Stories',
+            content: storiesContent || 'No stories included.',
+          },
+          {
+            title: 'Customer Testimonials',
+            content: testimonialsContent || 'No testimonials included.',
+          },
+          {
+            title: 'ROI Analysis',
+            content: roiContent,
+          },
+          {
+            title: 'Key Highlights',
+            content: (keyHighlights || []).map((h: string) => `• ${h}`).join('\n'),
+          },
+          {
+            title: 'Next Steps',
+            content: (nextSteps || []).map((s: string) => `• ${s}`).join('\n'),
+          },
+        ],
+      };
+
+      // Use QBR slides service to create presentation (it handles generic slides too)
+      slidesResult = await qbrSlidesService.createValueSummaryPresentation(userId, {
+        title: title,
+        executiveSummary: executiveSummary || '',
+        valueMetrics: includedMetrics,
+        successStories: includedStories,
+        testimonials: includedTestimonials,
+        roiCalculation: roi,
+        keyHighlights: keyHighlights || [],
+        nextSteps: nextSteps || [],
+      });
+    } catch (err) {
+      console.warn('[CADG] Could not create value summary slides:', err);
+      // Try to create a simple document instead
+      try {
+        const { docsService } = await import('../services/google/docs.js');
+
+        // Build document content
+        const docContent = `# ${title}
+
+## Executive Summary
+${executiveSummary || 'N/A'}
+
+## Key Value Metrics
+${metricsContent || 'No metrics included.'}
+
+## Success Stories
+${storiesContent || 'No stories included.'}
+
+## Customer Testimonials
+${testimonialsContent || 'No testimonials included.'}
+
+## ROI Analysis
+${roiContent}
+
+## Key Highlights
+${(keyHighlights || []).map((h: string) => `• ${h}`).join('\n')}
+
+## Next Steps
+${(nextSteps || []).map((s: string) => `• ${s}`).join('\n')}
+
+${notes ? `\n## Notes\n${notes}` : ''}
+`;
+
+        const docsResult = await docsService.createDocument(userId, {
+          title: title,
+          content: docContent,
+        });
+
+        if (docsResult) {
+          slidesResult = {
+            id: docsResult.id,
+            webViewLink: docsResult.webViewLink,
+            isDocument: true,
+          };
+        }
+      } catch (docErr) {
+        console.warn('[CADG] Could not create value summary document:', docErr);
+      }
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'value_summary_created',
+            description: `Value summary created: ${title} - ${roi.roiPercentage || 0}% ROI`,
+            metadata: {
+              slidesId: slidesResult?.id,
+              slidesUrl: slidesResult?.webViewLink,
+              isDocument: slidesResult?.isDocument || false,
+              roiPercentage: roi.roiPercentage || 0,
+              metricsCount: includedMetrics.length,
+              storiesCount: includedStories.length,
+              testimonialsCount: includedTestimonials.length,
+              createdVia: 'cadg_value_summary_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log value summary activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      fileId: slidesResult?.id,
+      fileUrl: slidesResult?.webViewLink,
+      isDocument: slidesResult?.isDocument || false,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Value summary save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save value summary',
     });
   }
 });

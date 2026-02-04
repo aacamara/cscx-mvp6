@@ -4488,6 +4488,368 @@ Format your response as JSON:
   }
 }
 
+// ============================================
+// Value Summary Preview
+// ============================================
+
+interface ValueMetric {
+  id: string;
+  name: string;
+  value: string;
+  unit: string;
+  category: 'efficiency' | 'cost_savings' | 'revenue' | 'productivity' | 'satisfaction';
+  description: string;
+  included: boolean;
+}
+
+interface SuccessStory {
+  id: string;
+  title: string;
+  description: string;
+  impact: string;
+  date: string;
+  category: 'implementation' | 'adoption' | 'expansion' | 'innovation' | 'support';
+  included: boolean;
+}
+
+interface Testimonial {
+  id: string;
+  quote: string;
+  author: string;
+  title: string;
+  date: string;
+  included: boolean;
+}
+
+interface ROICalculation {
+  investmentCost: number;
+  annualBenefit: number;
+  roiPercentage: number;
+  paybackMonths: number;
+  threeYearValue: number;
+  assumptions: string[];
+}
+
+interface ValueSummaryPreviewResult {
+  title: string;
+  executiveSummary: string;
+  valueMetrics: ValueMetric[];
+  successStories: SuccessStory[];
+  testimonials: Testimonial[];
+  roiCalculation: ROICalculation;
+  keyHighlights: string[];
+  nextSteps: string[];
+  notes: string;
+}
+
+async function generateValueSummaryPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<ValueSummaryPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+  const arr = customer?.arr || 100000;
+  const industry = customer?.industryCode || 'Technology';
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 65;
+  const loginFrequency = engagement?.loginFrequency || 4.0;
+
+  // Build prompt for value summary generation
+  const prompt = `You are a customer success manager creating a comprehensive value summary to demonstrate ROI and success for a customer account. Generate persuasive value metrics, success stories, testimonials, and ROI calculations.
+
+Customer: ${customerName}
+Industry: ${industry}
+Health Score: ${healthScore}
+ARR: $${arr.toLocaleString()}
+Feature Adoption: ${featureAdoption}%
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a value summary with:
+1. 5-7 value metrics across efficiency, cost savings, revenue, productivity, and satisfaction
+2. 3-4 success stories highlighting implementation wins, adoption milestones, expansions, innovations
+3. 2-3 testimonial quotes from stakeholders
+4. ROI calculation with realistic assumptions
+5. 4-6 key highlights for executive presentation
+6. 3-4 next steps to continue delivering value
+
+Format your response as JSON:
+{
+  "executiveSummary": "2-3 sentence executive summary of value delivered",
+  "valueMetrics": [
+    {
+      "name": "Metric name",
+      "value": "25",
+      "unit": "%|hours|$|count",
+      "category": "efficiency|cost_savings|revenue|productivity|satisfaction",
+      "description": "How this value was achieved"
+    }
+  ],
+  "successStories": [
+    {
+      "title": "Story title",
+      "description": "Detailed description of what happened",
+      "impact": "Quantified impact statement",
+      "date": "YYYY-MM",
+      "category": "implementation|adoption|expansion|innovation|support"
+    }
+  ],
+  "testimonials": [
+    {
+      "quote": "The customer quote",
+      "author": "Person name",
+      "title": "Person title",
+      "date": "YYYY-MM"
+    }
+  ],
+  "roiCalculation": {
+    "investmentCost": number,
+    "annualBenefit": number,
+    "assumptions": ["assumption 1", "assumption 2"]
+  },
+  "keyHighlights": ["highlight 1", "highlight 2"],
+  "nextSteps": ["next step 1", "next step 2"]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const valueContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      executiveSummary?: string;
+      valueMetrics?: Array<{
+        name: string;
+        value?: string;
+        unit?: string;
+        category?: string;
+        description?: string;
+      }>;
+      successStories?: Array<{
+        title: string;
+        description?: string;
+        impact?: string;
+        date?: string;
+        category?: string;
+      }>;
+      testimonials?: Array<{
+        quote: string;
+        author?: string;
+        title?: string;
+        date?: string;
+      }>;
+      roiCalculation?: {
+        investmentCost?: number;
+        annualBenefit?: number;
+        assumptions?: string[];
+      };
+      keyHighlights?: string[];
+      nextSteps?: string[];
+    } = {};
+
+    try {
+      const jsonMatch = valueContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default value metrics
+    const defaultValueMetrics: ValueMetric[] = [
+      { id: 'metric-1', name: 'Time Saved', value: '40', unit: '%', category: 'efficiency', description: 'Reduction in manual processes', included: true },
+      { id: 'metric-2', name: 'Cost Reduction', value: '150000', unit: '$', category: 'cost_savings', description: 'Annual operational savings', included: true },
+      { id: 'metric-3', name: 'Revenue Impact', value: '12', unit: '%', category: 'revenue', description: 'Increase in customer retention revenue', included: true },
+      { id: 'metric-4', name: 'Productivity Gain', value: '25', unit: '%', category: 'productivity', description: 'Team output improvement', included: true },
+      { id: 'metric-5', name: 'Customer Satisfaction', value: '92', unit: '%', category: 'satisfaction', description: 'End-user satisfaction score', included: true },
+    ];
+
+    // Default success stories
+    const defaultSuccessStories: SuccessStory[] = [
+      { id: 'story-1', title: 'Successful Implementation', description: 'Completed onboarding ahead of schedule with full team adoption', impact: 'Achieved full deployment in 4 weeks vs 6 week target', date: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7), category: 'implementation', included: true },
+      { id: 'story-2', title: 'Feature Adoption Milestone', description: 'Reached 80% adoption across all key features', impact: 'Increased team productivity by 30%', date: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7), category: 'adoption', included: true },
+      { id: 'story-3', title: 'Expansion Success', description: 'Rolled out to additional departments after initial success', impact: 'Doubled active users from 50 to 100', date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7), category: 'expansion', included: true },
+    ];
+
+    // Default testimonials
+    const defaultTestimonials: Testimonial[] = [
+      { id: 'testimonial-1', quote: 'This solution has transformed how our team works. We\'ve seen significant improvements across all metrics.', author: 'Sarah Johnson', title: 'VP of Operations', date: new Date().toISOString().slice(0, 7), included: true },
+      { id: 'testimonial-2', quote: 'The implementation was smooth and the ongoing support has been exceptional.', author: 'Mike Chen', title: 'Director of IT', date: new Date().toISOString().slice(0, 7), included: true },
+    ];
+
+    // Default ROI calculation
+    const investmentCost = arr;
+    const annualBenefit = Math.round(arr * 2.5);
+    const defaultROI: ROICalculation = {
+      investmentCost,
+      annualBenefit,
+      roiPercentage: Math.round(((annualBenefit - investmentCost) / investmentCost) * 100),
+      paybackMonths: Math.round((investmentCost / annualBenefit) * 12),
+      threeYearValue: annualBenefit * 3 - investmentCost,
+      assumptions: [
+        'Based on current usage patterns and productivity gains',
+        'Assumes continued adoption growth trajectory',
+        'Includes direct cost savings and productivity improvements',
+      ],
+    };
+
+    // Process value metrics
+    const valueMetrics = (parsed.valueMetrics && parsed.valueMetrics.length > 0
+      ? parsed.valueMetrics
+      : defaultValueMetrics
+    ).map((m, idx) => ({
+      id: `metric-${idx + 1}`,
+      name: m.name || `Metric ${idx + 1}`,
+      value: m.value || '0',
+      unit: m.unit || '%',
+      category: (m.category as ValueMetric['category']) || 'efficiency',
+      description: m.description || '',
+      included: true,
+    }));
+
+    // Process success stories
+    const successStories = (parsed.successStories && parsed.successStories.length > 0
+      ? parsed.successStories
+      : defaultSuccessStories
+    ).map((s, idx) => ({
+      id: `story-${idx + 1}`,
+      title: s.title || `Success Story ${idx + 1}`,
+      description: s.description || '',
+      impact: s.impact || '',
+      date: s.date || new Date().toISOString().slice(0, 7),
+      category: (s.category as SuccessStory['category']) || 'implementation',
+      included: true,
+    }));
+
+    // Process testimonials
+    const testimonials = (parsed.testimonials && parsed.testimonials.length > 0
+      ? parsed.testimonials
+      : defaultTestimonials
+    ).map((t, idx) => ({
+      id: `testimonial-${idx + 1}`,
+      quote: t.quote || 'Great product and team!',
+      author: t.author || 'Customer',
+      title: t.title || 'Executive',
+      date: t.date || new Date().toISOString().slice(0, 7),
+      included: true,
+    }));
+
+    // Process ROI calculation
+    const roiData = parsed.roiCalculation || {};
+    const calcInvestment = roiData.investmentCost || defaultROI.investmentCost;
+    const calcBenefit = roiData.annualBenefit || defaultROI.annualBenefit;
+    const roiCalculation: ROICalculation = {
+      investmentCost: calcInvestment,
+      annualBenefit: calcBenefit,
+      roiPercentage: Math.round(((calcBenefit - calcInvestment) / calcInvestment) * 100),
+      paybackMonths: Math.round((calcInvestment / calcBenefit) * 12),
+      threeYearValue: calcBenefit * 3 - calcInvestment,
+      assumptions: roiData.assumptions || defaultROI.assumptions,
+    };
+
+    // Process highlights and next steps
+    const keyHighlights = (parsed.keyHighlights && parsed.keyHighlights.length > 0
+      ? parsed.keyHighlights
+      : [
+          `${featureAdoption}% feature adoption achieved`,
+          `Health score of ${healthScore} demonstrates strong engagement`,
+          `Consistent login activity at ${loginFrequency}x per week`,
+          'Positive stakeholder feedback across all levels',
+        ]
+    );
+
+    const nextSteps = (parsed.nextSteps && parsed.nextSteps.length > 0
+      ? parsed.nextSteps
+      : [
+          'Schedule executive business review to share results',
+          'Identify expansion opportunities based on success',
+          'Develop case study for internal and external use',
+          'Plan for next phase of value realization',
+        ]
+    );
+
+    return {
+      title: `Value Summary: ${customerName}`,
+      executiveSummary: parsed.executiveSummary || `${customerName} has realized significant value from our partnership, achieving ${featureAdoption}% feature adoption and demonstrating a ${roiCalculation.roiPercentage}% return on investment. Key wins include improved operational efficiency and measurable cost savings.`,
+      valueMetrics,
+      successStories,
+      testimonials,
+      roiCalculation,
+      keyHighlights,
+      nextSteps,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Value summary preview generation error:', error);
+
+    // Return fallback value summary
+    const investmentCost = arr;
+    const annualBenefit = Math.round(arr * 2.5);
+
+    return {
+      title: `Value Summary: ${customerName}`,
+      executiveSummary: `${customerName} has achieved strong results through our partnership, with ${featureAdoption}% feature adoption and consistent engagement patterns.`,
+      valueMetrics: [
+        { id: 'metric-1', name: 'Time Saved', value: '40', unit: '%', category: 'efficiency', description: 'Reduction in manual processes', included: true },
+        { id: 'metric-2', name: 'Cost Reduction', value: String(Math.round(arr * 0.15)), unit: '$', category: 'cost_savings', description: 'Annual operational savings', included: true },
+        { id: 'metric-3', name: 'Feature Adoption', value: String(featureAdoption), unit: '%', category: 'productivity', description: 'Key feature utilization', included: true },
+        { id: 'metric-4', name: 'User Satisfaction', value: '85', unit: '%', category: 'satisfaction', description: 'End-user satisfaction rating', included: true },
+      ],
+      successStories: [
+        { id: 'story-1', title: 'Successful Implementation', description: 'Completed onboarding with full team adoption', impact: 'Achieved full deployment on schedule', date: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7), category: 'implementation', included: true },
+        { id: 'story-2', title: 'Adoption Milestone', description: 'Reached target adoption across key features', impact: 'Improved team productivity', date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 7), category: 'adoption', included: true },
+      ],
+      testimonials: [
+        { id: 'testimonial-1', quote: 'The solution has made a real difference for our team.', author: 'Key Stakeholder', title: 'Executive', date: new Date().toISOString().slice(0, 7), included: true },
+      ],
+      roiCalculation: {
+        investmentCost,
+        annualBenefit,
+        roiPercentage: Math.round(((annualBenefit - investmentCost) / investmentCost) * 100),
+        paybackMonths: Math.round((investmentCost / annualBenefit) * 12),
+        threeYearValue: annualBenefit * 3 - investmentCost,
+        assumptions: [
+          'Based on current usage patterns',
+          'Includes productivity improvements',
+          'Assumes continued adoption',
+        ],
+      },
+      keyHighlights: [
+        `${featureAdoption}% feature adoption`,
+        `Health score of ${healthScore}`,
+        'Strong stakeholder engagement',
+        'Positive feedback from users',
+      ],
+      nextSteps: [
+        'Schedule executive review',
+        'Identify expansion opportunities',
+        'Develop case study',
+      ],
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -4503,4 +4865,5 @@ export const artifactGenerator = {
   generateChampionDevelopmentPreview,
   generateTrainingProgramPreview,
   generateRenewalForecastPreview,
+  generateValueSummaryPreview,
 };
