@@ -855,3 +855,43 @@
   - Dependencies have their own status tracking (resolved/pending/blocked) separate from phases
   - Query detection patterns: 'transformation roadmap', 'transformation plan', 'digital transformation', 'transformation journey', 'change roadmap', 'transformation timeline', 'maturity roadmap', 'evolution roadmap', 'adoption roadmap', 'implementation roadmap', 'rollout roadmap', 'deployment roadmap'
 ---
+
+## 2026-02-04 - US-026
+- **What was implemented**: Portfolio dashboard generator with full HITL editable preview (General Mode)
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generatePortfolioDashboardPreview()` function (~375 lines) with types for PortfolioCustomerEntry, PortfolioSummary, PortfolioFilters, PortfolioColumn
+  - `server/src/routes/cadg.ts` - Added portfolio_dashboard detection (~50 lines) and `/api/cadg/portfolio-dashboard/save` endpoint (~200 lines)
+  - `components/AIPanel/CADGPortfolioDashboardPreview.tsx` (created, ~900 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added portfolio dashboard preview state and handlers (~120 lines)
+- **Features**:
+  - **generatePortfolioDashboardPreview()**: Aggregates portfolio data with:
+    - Customer list with name, ARR, health score, tier, segment, renewal date, owner
+    - Health distribution (healthy/at_risk/critical)
+    - Summary metrics (total customers, total ARR, avg health, avg NPS)
+    - Renewals this quarter count and ARR
+    - Works in General Mode (no customer context required)
+    - Uses dataHelpers.aggregatePortfolioContext() for real data
+    - Falls back to sample data in template mode
+  - **CADGPortfolioDashboardPreview component**:
+    - Tab-based navigation for Overview, Customers, Filters, Columns
+    - Health distribution progress bar with emerald/amber/red coloring
+    - Filterable customer list with multi-select health/segment/tier/owner filters
+    - Date range filter (all/this quarter/next quarter/this year/custom)
+    - Sortable by name, ARR, health, renewal, NPS with asc/desc toggle
+    - Column visibility toggles for export customization
+    - Customer cards with health score, ARR, renewal countdown, status badge
+    - Select All / Clear All for bulk customer selection
+    - Unsaved changes warning
+    - Blue/indigo accent color theme
+  - **Backend endpoint**: POST `/api/cadg/portfolio-dashboard/save`:
+    - Creates Google Sheets with customer data and enabled columns
+    - Creates Google Doc summary with portfolio metrics and customer list
+    - Logs activity to agent_activities table (no customer_id for General Mode)
+- **Learnings for future iterations**:
+  - Portfolio dashboard uses `isPortfolioDashboardPreview: true` response type
+  - General Mode cards don't have customer context - set customerId to null in detection
+  - Portfolio data comes from aggregatePortfolioContext() in dataHelpers.ts
+  - For General Mode, don't include customer in preview data - only planId and dashboard data
+  - Filter state needs all arrays (healthLevels, segments, tiers, owners) populated from availableX arrays
+  - Query detection patterns: 'portfolio dashboard', 'portfolio overview', 'customer portfolio', 'my portfolio', 'all customers', 'all my customers', 'customer list', 'book of business', 'account list', 'show customers', 'customer health dashboard'
+---
