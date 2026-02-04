@@ -30,6 +30,7 @@ import { CADGAccountPlanPreview, AccountPlanData, CustomerData as AccountPlanCus
 import { CADGTransformationRoadmapPreview, TransformationRoadmapData, CustomerData as TransformationRoadmapCustomerData } from './CADGTransformationRoadmapPreview';
 import { CADGPortfolioDashboardPreview, PortfolioDashboardData, CustomerData as PortfolioDashboardCustomerData } from './CADGPortfolioDashboardPreview';
 import { CADGTeamMetricsPreview, TeamMetricsData } from './CADGTeamMetricsPreview';
+import { CADGRenewalPipelinePreview, RenewalPipelineData } from './CADGRenewalPipelinePreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -331,6 +332,13 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [showTeamMetricsPreview, setShowTeamMetricsPreview] = useState(false);
   const [teamMetricsPreviewData, setTeamMetricsPreviewData] = useState<{
     teamMetrics: TeamMetricsData;
+    planId: string;
+  } | null>(null);
+
+  // Renewal pipeline preview state for HITL workflow (General Mode)
+  const [showRenewalPipelinePreview, setShowRenewalPipelinePreview] = useState(false);
+  const [renewalPipelinePreviewData, setRenewalPipelinePreviewData] = useState<{
+    pipeline: RenewalPipelineData;
     planId: string;
   } | null>(null);
 
@@ -1074,6 +1082,53 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowTeamMetricsPreview(true);
         setStatus('pending'); // Keep in pending until team metrics is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a renewal pipeline preview (HITL workflow - General Mode)
+      if (data.isRenewalPipelinePreview && data.preview) {
+        setRenewalPipelinePreviewData({
+          pipeline: {
+            title: data.preview.title || 'Renewal Pipeline',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            lastUpdated: data.preview.lastUpdated || new Date().toISOString().slice(0, 10),
+            summary: data.preview.summary || {
+              totalRenewals: 0,
+              totalArr: 0,
+              avgProbability: 0,
+              avgHealthScore: 0,
+              lowRiskCount: 0,
+              mediumRiskCount: 0,
+              highRiskCount: 0,
+              criticalRiskCount: 0,
+              renewingThisMonth: 0,
+              renewingThisMonthArr: 0,
+              renewingThisQuarter: 0,
+              renewingThisQuarterArr: 0,
+            },
+            renewals: data.preview.renewals || [],
+            filters: data.preview.filters || {
+              riskLevels: ['low', 'medium', 'high', 'critical'],
+              owners: [],
+              tiers: [],
+              segments: [],
+              dateRange: { type: 'this_quarter' },
+              arrThreshold: { min: null, max: null },
+              groupBy: 'none',
+              sortBy: 'renewal_date',
+              sortDirection: 'asc',
+            },
+            columns: data.preview.columns || [],
+            availableOwners: data.preview.availableOwners || [],
+            availableTiers: data.preview.availableTiers || [],
+            availableSegments: data.preview.availableSegments || [],
+            notes: data.preview.notes || '',
+          },
+          planId: data.planId,
+        });
+        setShowRenewalPipelinePreview(true);
+        setStatus('pending'); // Keep in pending until renewal pipeline is saved
         setIsApproving(false);
         return;
       }
@@ -2669,6 +2724,68 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving renewal pipeline preview (General Mode)
+  const handleRenewalPipelineSave = async (pipeline: RenewalPipelineData) => {
+    const response = await fetch(`${API_URL}/api/cadg/renewal-pipeline/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: renewalPipelinePreviewData?.planId,
+        title: pipeline.title,
+        createdDate: pipeline.createdDate,
+        lastUpdated: pipeline.lastUpdated,
+        summary: pipeline.summary,
+        renewals: pipeline.renewals,
+        filters: pipeline.filters,
+        columns: pipeline.columns,
+        notes: pipeline.notes,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save renewal pipeline');
+    }
+
+    const result = await response.json();
+
+    // Close preview and show completion
+    setShowRenewalPipelinePreview(false);
+    setRenewalPipelinePreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.sheetsId || 'renewal-pipeline',
+      status: 'completed',
+      preview: `# ${pipeline.title}\n\nRenewal pipeline with ${pipeline.renewals.filter(r => r.enabled).length} renewals, $${(pipeline.summary.totalArr / 1000000).toFixed(1)}M ARR`,
+      storage: {
+        driveFileId: result.sheetsId,
+        driveUrl: result.sheetsUrl,
+        additionalFiles: result.docId ? [{
+          type: 'document',
+          fileId: result.docId,
+          url: result.docUrl,
+          title: 'Renewal Pipeline Report',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.sheetsId || 'renewal-pipeline');
+  };
+
+  // Handle canceling renewal pipeline preview
+  const handleRenewalPipelineCancel = () => {
+    setShowRenewalPipelinePreview(false);
+    setRenewalPipelinePreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -3095,6 +3212,17 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         teamMetrics={teamMetricsPreviewData.teamMetrics}
         onSave={handleTeamMetricsSave}
         onCancel={handleTeamMetricsCancel}
+      />
+    );
+  }
+
+  // Renewal pipeline preview mode (General Mode - no customer context)
+  if (showRenewalPipelinePreview && renewalPipelinePreviewData) {
+    return (
+      <CADGRenewalPipelinePreview
+        pipeline={renewalPipelinePreviewData.pipeline}
+        onSave={handleRenewalPipelineSave}
+        onCancel={handleRenewalPipelineCancel}
       />
     );
   }

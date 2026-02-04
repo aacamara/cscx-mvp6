@@ -1383,6 +1383,56 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a renewal pipeline artifact - return preview for HITL (General Mode)
+    const isRenewalPipelineArtifact = finalPlan.taskType === 'renewal_pipeline' ||
+                                      planRow.user_query?.toLowerCase().includes('renewal pipeline') ||
+                                      planRow.user_query?.toLowerCase().includes('renewals pipeline') ||
+                                      planRow.user_query?.toLowerCase().includes('upcoming renewals') ||
+                                      planRow.user_query?.toLowerCase().includes('renewal forecast') ||
+                                      planRow.user_query?.toLowerCase().includes('renewal calendar') ||
+                                      planRow.user_query?.toLowerCase().includes('renewal schedule') ||
+                                      planRow.user_query?.toLowerCase().includes('renewal tracker') ||
+                                      planRow.user_query?.toLowerCase().includes('renewal list') ||
+                                      planRow.user_query?.toLowerCase().includes('renewals this quarter') ||
+                                      planRow.user_query?.toLowerCase().includes('renewals this month') ||
+                                      planRow.user_query?.toLowerCase().includes('renewals due') ||
+                                      planRow.user_query?.toLowerCase().includes('upcoming renewals') ||
+                                      planRow.user_query?.toLowerCase().includes('show renewals') ||
+                                      planRow.user_query?.toLowerCase().includes('all renewals');
+
+    if (isRenewalPipelineArtifact) {
+      // Generate renewal pipeline content - this works in General Mode (no customer required)
+      const renewalPipelinePreview = await artifactGenerator.generateRenewalPipelinePreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: null, // General Mode - no specific customer
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isRenewalPipelinePreview: true,
+        preview: {
+          title: renewalPipelinePreview.title,
+          createdDate: renewalPipelinePreview.createdDate,
+          lastUpdated: renewalPipelinePreview.lastUpdated,
+          summary: renewalPipelinePreview.summary,
+          renewals: renewalPipelinePreview.renewals,
+          filters: renewalPipelinePreview.filters,
+          columns: renewalPipelinePreview.columns,
+          availableOwners: renewalPipelinePreview.availableOwners,
+          availableTiers: renewalPipelinePreview.availableTiers,
+          availableSegments: renewalPipelinePreview.availableSegments,
+          notes: renewalPipelinePreview.notes,
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -6918,6 +6968,255 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save team metrics',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/renewal-pipeline/save
+ * Save finalized renewal pipeline after user review and create Google Sheets
+ */
+router.post('/renewal-pipeline/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      lastUpdated,
+      summary,
+      renewals,
+      filters,
+      columns,
+      notes,
+    } = req.body;
+
+    // Get userId from auth context or request
+    const userId = (req as any).userId || req.headers['x-user-id'] as string;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID required',
+      });
+    }
+
+    // Filter enabled renewals and columns
+    const enabledRenewals = (renewals || []).filter((r: any) => r.enabled);
+    const enabledColumns = (columns || []).filter((c: any) => c.enabled);
+
+    // Risk level labels
+    const RISK_LABELS: Record<string, string> = {
+      low: 'Low Risk',
+      medium: 'Medium Risk',
+      high: 'High Risk',
+      critical: 'Critical Risk',
+    };
+
+    // Date range labels
+    const DATE_RANGE_LABELS: Record<string, string> = {
+      all: 'All Time',
+      this_month: 'This Month',
+      this_quarter: 'This Quarter',
+      next_quarter: 'Next Quarter',
+      next_6_months: 'Next 6 Months',
+      this_year: 'This Year',
+      custom: 'Custom Range',
+    };
+
+    // Group by labels
+    const GROUP_BY_LABELS: Record<string, string> = {
+      none: 'No Grouping',
+      month: 'By Month',
+      quarter: 'By Quarter',
+      owner: 'By Owner',
+      risk_level: 'By Risk Level',
+      tier: 'By Tier',
+    };
+
+    // Build document content
+    const documentContent = `# ${title || 'Renewal Pipeline'}
+
+**Generated:** ${createdDate || new Date().toISOString().slice(0, 10)}
+**Last Updated:** ${lastUpdated || new Date().toISOString().slice(0, 10)}
+
+---
+
+## Pipeline Summary
+
+| Metric | Value |
+|--------|-------|
+| Total Renewals | ${summary?.totalRenewals || enabledRenewals.length} |
+| Total ARR | $${(summary?.totalArr || 0).toLocaleString()} |
+| Average Probability | ${summary?.avgProbability || 0}% |
+| Average Health Score | ${summary?.avgHealthScore || 0}/100 |
+| Low Risk | ${summary?.lowRiskCount || 0} |
+| Medium Risk | ${summary?.mediumRiskCount || 0} |
+| High Risk | ${summary?.highRiskCount || 0} |
+| Critical Risk | ${summary?.criticalRiskCount || 0} |
+| Renewing This Month | ${summary?.renewingThisMonth || 0} ($${(summary?.renewingThisMonthArr || 0).toLocaleString()}) |
+| Renewing This Quarter | ${summary?.renewingThisQuarter || 0} ($${(summary?.renewingThisQuarterArr || 0).toLocaleString()}) |
+
+---
+
+## Filters Applied
+
+- **Risk Levels:** ${(filters?.riskLevels || []).map((r: string) => RISK_LABELS[r] || r).join(', ')}
+- **Date Range:** ${DATE_RANGE_LABELS[filters?.dateRange?.type] || 'All'}
+- **Owners:** ${(filters?.owners || []).join(', ') || 'All'}
+- **Tiers:** ${(filters?.tiers || []).join(', ') || 'All'}
+- **ARR Threshold:** ${filters?.arrThreshold?.min ? `Min: $${filters.arrThreshold.min.toLocaleString()}` : ''} ${filters?.arrThreshold?.max ? `Max: $${filters.arrThreshold.max.toLocaleString()}` : ''}
+- **Group By:** ${GROUP_BY_LABELS[filters?.groupBy] || 'None'}
+- **Sort By:** ${filters?.sortBy || 'renewal_date'} (${filters?.sortDirection || 'asc'})
+
+---
+
+## Renewal List
+
+| Customer | ARR | Renewal Date | Days | Probability | Health | Risk | Owner |
+|----------|-----|--------------|------|-------------|--------|------|-------|
+${enabledRenewals.map((r: any) => `| ${r.customerName} | $${(r.arr || 0).toLocaleString()} | ${r.renewalDate} | ${r.daysUntilRenewal} | ${r.probability}% | ${r.healthScore}/100 | ${RISK_LABELS[r.riskLevel] || r.riskLevel} | ${r.owner} |`).join('\n')}
+
+---
+
+## Renewal Details
+
+${enabledRenewals.map((r: any, idx: number) => `### ${idx + 1}. ${r.customerName}
+
+- **ARR:** $${(r.arr || 0).toLocaleString()}
+- **Renewal Date:** ${r.renewalDate}
+- **Days Until Renewal:** ${r.daysUntilRenewal}
+- **Probability:** ${r.probability}%
+- **Health Score:** ${r.healthScore}/100
+- **Risk Level:** ${RISK_LABELS[r.riskLevel] || r.riskLevel}
+- **Owner:** ${r.owner}
+- **Tier:** ${r.tier}
+- **Segment:** ${r.segment}
+- **NPS Score:** ${r.npsScore !== null ? r.npsScore : 'N/A'}
+- **Last Contact:** ${r.lastContactDate}
+`).join('\n')}
+
+---
+
+${notes ? `## Notes
+
+${notes}
+
+---
+
+` : ''}
+*Renewal pipeline generated via CSCX.AI Renewal Pipeline*
+`;
+
+    // Create Google Sheets with renewal data
+    let sheetsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { sheetsService } = await import('../services/google/sheets.js');
+
+      // Create spreadsheet
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: title || 'Renewal Pipeline',
+      });
+
+      if (sheetsResult?.id) {
+        // Build header row based on enabled columns
+        const columnHeaders = enabledColumns.map((col: any) => col.name);
+
+        // Build data rows
+        const dataRows = enabledRenewals.map((r: any) => {
+          const row: any[] = [];
+          enabledColumns.forEach((col: any) => {
+            switch (col.id) {
+              case 'customerName': row.push(r.customerName); break;
+              case 'arr': row.push(r.arr); break;
+              case 'renewalDate': row.push(r.renewalDate); break;
+              case 'daysUntilRenewal': row.push(r.daysUntilRenewal); break;
+              case 'probability': row.push(r.probability + '%'); break;
+              case 'healthScore': row.push(r.healthScore); break;
+              case 'riskLevel': row.push(RISK_LABELS[r.riskLevel] || r.riskLevel); break;
+              case 'owner': row.push(r.owner); break;
+              case 'tier': row.push(r.tier); break;
+              case 'segment': row.push(r.segment); break;
+              case 'npsScore': row.push(r.npsScore !== null ? r.npsScore : 'N/A'); break;
+              case 'lastContactDate': row.push(r.lastContactDate); break;
+              default: row.push(''); break;
+            }
+          });
+          return row;
+        });
+
+        // Update sheet with data
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1',
+          values: [columnHeaders, ...dataRows],
+        });
+      }
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create renewal pipeline spreadsheet:', sheetsErr);
+    }
+
+    // Create Google Doc with summary
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: `${title || 'Renewal Pipeline'} - Report`,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create renewal pipeline document:', docsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity (no customer ID for General Mode)
+    try {
+      const { config } = await import('../config/index.js');
+      const { createClient } = await import('@supabase/supabase-js');
+      if (config.supabaseUrl && config.supabaseServiceKey) {
+        const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+        await supabase.from('agent_activities').insert({
+          user_id: userId,
+          customer_id: null, // General Mode - no specific customer
+          activity_type: 'renewal_pipeline_created',
+          description: `Renewal pipeline created: ${title} - ${enabledRenewals.length} renewals, $${(summary?.totalArr || 0).toLocaleString()} ARR`,
+          metadata: {
+            sheetsId: sheetsResult?.id,
+            sheetsUrl: sheetsResult?.webViewLink,
+            docId: docsResult?.id,
+            docUrl: docsResult?.webViewLink,
+            totalRenewals: summary?.totalRenewals,
+            totalArr: summary?.totalArr,
+            avgProbability: summary?.avgProbability,
+            avgHealthScore: summary?.avgHealthScore,
+            lowRiskCount: summary?.lowRiskCount,
+            mediumRiskCount: summary?.mediumRiskCount,
+            highRiskCount: summary?.highRiskCount,
+            criticalRiskCount: summary?.criticalRiskCount,
+            renewingThisMonth: summary?.renewingThisMonth,
+            renewingThisQuarter: summary?.renewingThisQuarter,
+            createdVia: 'cadg_renewal_pipeline_preview',
+          },
+        });
+      }
+    } catch (err) {
+      console.warn('[CADG] Could not log renewal pipeline activity:', err);
+    }
+
+    res.json({
+      success: true,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Renewal pipeline save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save renewal pipeline',
     });
   }
 });

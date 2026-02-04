@@ -9067,6 +9067,374 @@ async function generateTeamMetricsPreview(params: {
   };
 }
 
+// ============================================================================
+// Renewal Pipeline Types
+// ============================================================================
+
+interface RenewalPipelineEntry {
+  id: string;
+  customerName: string;
+  arr: number;
+  renewalDate: string;
+  daysUntilRenewal: number;
+  probability: number;
+  healthScore: number;
+  owner: string;
+  riskLevel: 'low' | 'medium' | 'high' | 'critical';
+  tier: string;
+  segment: string;
+  npsScore: number | null;
+  lastContactDate: string;
+  enabled: boolean;
+}
+
+interface RenewalPipelineSummary {
+  totalRenewals: number;
+  totalArr: number;
+  avgProbability: number;
+  avgHealthScore: number;
+  lowRiskCount: number;
+  mediumRiskCount: number;
+  highRiskCount: number;
+  criticalRiskCount: number;
+  renewingThisMonth: number;
+  renewingThisMonthArr: number;
+  renewingThisQuarter: number;
+  renewingThisQuarterArr: number;
+}
+
+interface RenewalPipelineFilters {
+  riskLevels: ('low' | 'medium' | 'high' | 'critical')[];
+  owners: string[];
+  tiers: string[];
+  segments: string[];
+  dateRange: {
+    type: 'all' | 'this_month' | 'this_quarter' | 'next_quarter' | 'next_6_months' | 'this_year' | 'custom';
+    startDate?: string;
+    endDate?: string;
+  };
+  arrThreshold: {
+    min: number | null;
+    max: number | null;
+  };
+  groupBy: 'none' | 'month' | 'quarter' | 'owner' | 'risk_level' | 'tier';
+  sortBy: 'renewal_date' | 'arr' | 'probability' | 'health' | 'customer_name';
+  sortDirection: 'asc' | 'desc';
+}
+
+interface RenewalPipelineColumn {
+  id: string;
+  name: string;
+  enabled: boolean;
+  width?: string;
+}
+
+interface RenewalPipelinePreviewResult {
+  title: string;
+  createdDate: string;
+  lastUpdated: string;
+  summary: RenewalPipelineSummary;
+  renewals: RenewalPipelineEntry[];
+  filters: RenewalPipelineFilters;
+  columns: RenewalPipelineColumn[];
+  availableOwners: string[];
+  availableTiers: string[];
+  availableSegments: string[];
+  notes: string;
+}
+
+// ============================================================================
+// Generate Renewal Pipeline Preview
+// ============================================================================
+
+/**
+ * Generate renewal pipeline preview with editable filters
+ * This is a General Mode card - no customer context required
+ */
+async function generateRenewalPipelinePreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<RenewalPipelinePreviewResult> {
+  const { userId, isTemplate } = params;
+
+  // Import portfolio aggregation helper
+  const { aggregatePortfolioContext } = await import('./dataHelpers.js');
+
+  // Get portfolio data
+  const portfolioData = await aggregatePortfolioContext({
+    userId,
+  });
+
+  // Current date
+  const now = new Date();
+  const createdDate = now.toISOString().slice(0, 10);
+
+  // Calculate date boundaries
+  const thisMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  const currentQuarter = Math.floor(now.getMonth() / 3);
+  const quarterEnd = new Date(now.getFullYear(), (currentQuarter + 1) * 3, 0);
+  const nextQuarterEnd = new Date(now.getFullYear(), (currentQuarter + 2) * 3, 0);
+  const sixMonthsEnd = new Date(now.getFullYear(), now.getMonth() + 6, 0);
+  const yearEnd = new Date(now.getFullYear(), 11, 31);
+
+  // Build renewal entries
+  let renewals: RenewalPipelineEntry[] = [];
+  let availableOwners: string[] = [];
+  let availableTiers: string[] = [];
+  let availableSegments: string[] = [];
+
+  if (portfolioData.totalCustomers > 0 && !isTemplate) {
+    // Transform renewal pipeline data
+    portfolioData.renewalPipeline.forEach(r => {
+      const atRisk = portfolioData.atRiskCustomers.find(ar => ar.customerId === r.customerId);
+      renewals.push({
+        id: r.customerId,
+        customerName: r.customerName,
+        arr: r.arr,
+        renewalDate: r.renewalDate,
+        daysUntilRenewal: r.daysUntilRenewal,
+        probability: r.probability,
+        healthScore: atRisk?.healthScore || (r.riskLevel === 'low' ? 85 : r.riskLevel === 'medium' ? 55 : r.riskLevel === 'high' ? 35 : 25),
+        owner: r.owner,
+        riskLevel: r.riskLevel,
+        tier: r.arr >= 500000 ? 'Enterprise' : r.arr >= 100000 ? 'Mid-Market' : 'SMB',
+        segment: 'Default',
+        npsScore: null,
+        lastContactDate: createdDate,
+        enabled: true,
+      });
+    });
+
+    // Extract unique values
+    availableOwners = [...new Set(renewals.map(r => r.owner))].filter(o => o && o !== 'Unassigned');
+    availableTiers = [...new Set(renewals.map(r => r.tier))];
+    availableSegments = [...new Set(renewals.map(r => r.segment))];
+  } else {
+    // Generate sample data for template mode
+    renewals = [
+      {
+        id: 'renew-1',
+        customerName: 'Acme Corporation',
+        arr: 450000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 1, 15).toISOString().slice(0, 10),
+        daysUntilRenewal: 45,
+        probability: 92,
+        healthScore: 85,
+        owner: 'Sarah Chen',
+        riskLevel: 'low',
+        tier: 'Enterprise',
+        segment: 'Technology',
+        npsScore: 52,
+        lastContactDate: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-2',
+        customerName: 'TechCorp Industries',
+        arr: 320000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth(), 25).toISOString().slice(0, 10),
+        daysUntilRenewal: 14,
+        probability: 65,
+        healthScore: 52,
+        owner: 'James Wilson',
+        riskLevel: 'high',
+        tier: 'Enterprise',
+        segment: 'Manufacturing',
+        npsScore: 18,
+        lastContactDate: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-3',
+        customerName: 'Global Finance LLC',
+        arr: 680000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 2, 10).toISOString().slice(0, 10),
+        daysUntilRenewal: 70,
+        probability: 88,
+        healthScore: 78,
+        owner: 'Sarah Chen',
+        riskLevel: 'low',
+        tier: 'Enterprise',
+        segment: 'Financial Services',
+        npsScore: 45,
+        lastContactDate: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-4',
+        customerName: 'StartupX Inc',
+        arr: 85000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth(), 20).toISOString().slice(0, 10),
+        daysUntilRenewal: 9,
+        probability: 35,
+        healthScore: 28,
+        owner: 'Maria Garcia',
+        riskLevel: 'critical',
+        tier: 'SMB',
+        segment: 'Technology',
+        npsScore: -15,
+        lastContactDate: new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-5',
+        customerName: 'MegaRetail Corp',
+        arr: 275000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 1, 28).toISOString().slice(0, 10),
+        daysUntilRenewal: 58,
+        probability: 72,
+        healthScore: 62,
+        owner: 'James Wilson',
+        riskLevel: 'medium',
+        tier: 'Mid-Market',
+        segment: 'Retail',
+        npsScore: 32,
+        lastContactDate: new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-6',
+        customerName: 'HealthFirst Medical',
+        arr: 195000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 3, 5).toISOString().slice(0, 10),
+        daysUntilRenewal: 94,
+        probability: 55,
+        healthScore: 45,
+        owner: 'Maria Garcia',
+        riskLevel: 'high',
+        tier: 'Mid-Market',
+        segment: 'Healthcare',
+        npsScore: 10,
+        lastContactDate: new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-7',
+        customerName: 'EduLearn Systems',
+        arr: 125000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 2, 20).toISOString().slice(0, 10),
+        daysUntilRenewal: 80,
+        probability: 82,
+        healthScore: 72,
+        owner: 'Sarah Chen',
+        riskLevel: 'low',
+        tier: 'Mid-Market',
+        segment: 'Education',
+        npsScore: 48,
+        lastContactDate: new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+      {
+        id: 'renew-8',
+        customerName: 'DataDriven Analytics',
+        arr: 540000,
+        renewalDate: new Date(now.getFullYear(), now.getMonth() + 4, 15).toISOString().slice(0, 10),
+        daysUntilRenewal: 135,
+        probability: 78,
+        healthScore: 68,
+        owner: 'James Wilson',
+        riskLevel: 'medium',
+        tier: 'Enterprise',
+        segment: 'Technology',
+        npsScore: 38,
+        lastContactDate: new Date(now.getTime() - 6 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        enabled: true,
+      },
+    ];
+
+    availableOwners = ['Sarah Chen', 'James Wilson', 'Maria Garcia'];
+    availableTiers = ['Enterprise', 'Mid-Market', 'SMB'];
+    availableSegments = ['Technology', 'Manufacturing', 'Financial Services', 'Retail', 'Healthcare', 'Education'];
+  }
+
+  // Sort by days until renewal (soonest first)
+  renewals.sort((a, b) => a.daysUntilRenewal - b.daysUntilRenewal);
+
+  // Calculate summary
+  const enabledRenewals = renewals.filter(r => r.enabled);
+  const summary: RenewalPipelineSummary = {
+    totalRenewals: enabledRenewals.length,
+    totalArr: enabledRenewals.reduce((sum, r) => sum + r.arr, 0),
+    avgProbability: enabledRenewals.length > 0
+      ? Math.round(enabledRenewals.reduce((sum, r) => sum + r.probability, 0) / enabledRenewals.length)
+      : 0,
+    avgHealthScore: enabledRenewals.length > 0
+      ? Math.round(enabledRenewals.reduce((sum, r) => sum + r.healthScore, 0) / enabledRenewals.length)
+      : 0,
+    lowRiskCount: enabledRenewals.filter(r => r.riskLevel === 'low').length,
+    mediumRiskCount: enabledRenewals.filter(r => r.riskLevel === 'medium').length,
+    highRiskCount: enabledRenewals.filter(r => r.riskLevel === 'high').length,
+    criticalRiskCount: enabledRenewals.filter(r => r.riskLevel === 'critical').length,
+    renewingThisMonth: enabledRenewals.filter(r => {
+      const renewDate = new Date(r.renewalDate);
+      return renewDate <= thisMonthEnd;
+    }).length,
+    renewingThisMonthArr: enabledRenewals.filter(r => {
+      const renewDate = new Date(r.renewalDate);
+      return renewDate <= thisMonthEnd;
+    }).reduce((sum, r) => sum + r.arr, 0),
+    renewingThisQuarter: enabledRenewals.filter(r => {
+      const renewDate = new Date(r.renewalDate);
+      return renewDate <= quarterEnd;
+    }).length,
+    renewingThisQuarterArr: enabledRenewals.filter(r => {
+      const renewDate = new Date(r.renewalDate);
+      return renewDate <= quarterEnd;
+    }).reduce((sum, r) => sum + r.arr, 0),
+  };
+
+  // Default filters
+  const filters: RenewalPipelineFilters = {
+    riskLevels: ['low', 'medium', 'high', 'critical'],
+    owners: availableOwners,
+    tiers: availableTiers,
+    segments: availableSegments,
+    dateRange: {
+      type: 'this_quarter',
+    },
+    arrThreshold: {
+      min: null,
+      max: null,
+    },
+    groupBy: 'none',
+    sortBy: 'renewal_date',
+    sortDirection: 'asc',
+  };
+
+  // Default columns
+  const columns: RenewalPipelineColumn[] = [
+    { id: 'customerName', name: 'Customer', enabled: true, width: '200px' },
+    { id: 'arr', name: 'ARR', enabled: true, width: '100px' },
+    { id: 'renewalDate', name: 'Renewal Date', enabled: true, width: '110px' },
+    { id: 'daysUntilRenewal', name: 'Days', enabled: true, width: '70px' },
+    { id: 'probability', name: 'Probability', enabled: true, width: '90px' },
+    { id: 'healthScore', name: 'Health', enabled: true, width: '80px' },
+    { id: 'riskLevel', name: 'Risk', enabled: true, width: '90px' },
+    { id: 'owner', name: 'Owner', enabled: true, width: '120px' },
+    { id: 'tier', name: 'Tier', enabled: true, width: '100px' },
+    { id: 'segment', name: 'Segment', enabled: false, width: '120px' },
+    { id: 'npsScore', name: 'NPS', enabled: false, width: '60px' },
+    { id: 'lastContactDate', name: 'Last Contact', enabled: false, width: '110px' },
+  ];
+
+  return {
+    title: 'Renewal Pipeline',
+    createdDate,
+    lastUpdated: createdDate,
+    summary,
+    renewals,
+    filters,
+    columns,
+    availableOwners,
+    availableTiers,
+    availableSegments,
+    notes: '',
+  };
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -9094,4 +9462,5 @@ export const artifactGenerator = {
   generateTransformationRoadmapPreview,
   generatePortfolioDashboardPreview,
   generateTeamMetricsPreview,
+  generateRenewalPipelinePreview,
 };
