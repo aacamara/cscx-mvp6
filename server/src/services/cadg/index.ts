@@ -19,6 +19,29 @@ export { planService } from './planService.js';
 export { artifactGenerator } from './artifactGenerator.js';
 export { capabilityMatcher } from './capabilityMatcher.js';
 
+// Export data helpers
+export {
+  dataHelpers,
+  aggregateCustomerContext,
+  aggregatePortfolioContext,
+  getPlaybooksByType,
+  formatDataForDocument,
+} from './dataHelpers.js';
+export type {
+  CustomerContext,
+  PortfolioContext,
+  Stakeholder,
+  ContractInfo,
+  RenewalPipelineItem,
+  AtRiskCustomer,
+  TeamMetrics,
+  CSMInfo,
+  PlaybookType,
+  DocumentData,
+  DocumentSection,
+  DocumentMetadata,
+} from './dataHelpers.js';
+
 // Import services for orchestration
 import { contextAggregator } from './contextAggregator.js';
 import { taskClassifier } from './taskClassifier.js';
@@ -26,6 +49,7 @@ import { reasoningEngine } from './reasoningEngine.js';
 import { planService } from './planService.js';
 import { artifactGenerator } from './artifactGenerator.js';
 import { capabilityMatcher } from './capabilityMatcher.js';
+import { dataHelpers } from './dataHelpers.js';
 import {
   TaskType,
   ExecutionPlan,
@@ -124,13 +148,21 @@ export const cadgService = {
       });
 
       // Save plan to database
-      await planService.createPlan(
+      const saveResult = await planService.createPlan(
         plan,
         userId,
         customerId,
         userQuery,
         { knowledge: context.knowledge, metadata: context.metadata }
       );
+
+      if (!saveResult.success) {
+        console.error('[CADG] Failed to save plan to database:', saveResult.error);
+        // Still return the plan for display, but log the error
+        // The approval flow won't work, but user can see what would be generated
+      } else {
+        console.log('[CADG] Plan saved to database:', plan.planId);
+      }
 
       return {
         success: true,
@@ -199,6 +231,8 @@ export const cadgService = {
 
       // Update plan to completed
       await planService.updatePlanStatus(planId, 'completed');
+
+      console.log('[CADG] Execution completed, artifact generated');
 
       return {
         success: true,
@@ -314,6 +348,7 @@ export const cadgService = {
   planService,
   artifactGenerator,
   capabilityMatcher,
+  dataHelpers,
 };
 
 export default cadgService;
