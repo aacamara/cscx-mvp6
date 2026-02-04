@@ -1556,6 +1556,567 @@ ${(roi.assumptions || []).map(a => `• ${a}`).join('\n')}`;
       webViewLink: `https://docs.google.com/presentation/d/${presentationId}/edit`,
     };
   }
+
+  /**
+   * Create an executive briefing presentation
+   * Creates 5-7 slides based on slideCount for leadership presentations
+   */
+  async createExecutiveBriefingPresentation(
+    userId: string,
+    data: {
+      title: string;
+      preparedFor: string;
+      preparedBy: string;
+      briefingDate: string;
+      executiveSummary: string;
+      headlines: Array<{
+        headline: string;
+        detail: string;
+        sentiment: 'positive' | 'neutral' | 'negative';
+      }>;
+      keyMetrics: Array<{
+        name: string;
+        value: string;
+        trend: 'up' | 'down' | 'stable';
+        category: string;
+      }>;
+      strategicUpdates: Array<{
+        title: string;
+        description: string;
+        status: string;
+        category: string;
+      }>;
+      asks: Array<{
+        ask: string;
+        rationale: string;
+        priority: string;
+        owner: string;
+        dueDate: string;
+      }>;
+      nextSteps: string[];
+      healthScore: number;
+      daysUntilRenewal: number;
+      arr: number;
+      slideCount: 5 | 6 | 7;
+    }
+  ): Promise<{ id: string; webViewLink: string }> {
+    const auth = await googleOAuth.getAuthenticatedClient(userId);
+    const slides = google.slides({ version: 'v1', auth });
+
+    // Create blank presentation
+    const presentation = await slides.presentations.create({
+      requestBody: {
+        title: data.title,
+      },
+    });
+
+    const presentationId = presentation.data.presentationId!;
+    const requests: slides_v1.Schema$Request[] = [];
+
+    // Get the default slide ID to delete it later
+    const defaultSlideId = presentation.data.slides?.[0]?.objectId;
+
+    // Generate unique IDs for slides based on slideCount
+    const baseTime = Date.now();
+    const slideIds: Record<string, string> = {
+      title: `title_slide_${baseTime}`,
+      summary: `summary_slide_${baseTime}`,
+      headlines: `headlines_slide_${baseTime}`,
+      metrics: `metrics_slide_${baseTime}`,
+      updates: `updates_slide_${baseTime}`,
+      asks: `asks_slide_${baseTime}`,
+      nextSteps: `next_steps_slide_${baseTime}`,
+    };
+
+    // Determine which slides to create based on slideCount
+    const slidesToCreate = ['title', 'summary', 'headlines', 'metrics'];
+    if (data.slideCount >= 5) slidesToCreate.push('updates');
+    if (data.slideCount >= 6) slidesToCreate.push('asks');
+    if (data.slideCount >= 7) slidesToCreate.push('nextSteps');
+
+    // Create slides
+    slidesToCreate.forEach((slideKey, index) => {
+      requests.push({
+        createSlide: {
+          objectId: slideIds[slideKey],
+          insertionIndex: index,
+          slideLayoutReference: {
+            predefinedLayout: 'BLANK',
+          },
+        },
+      });
+    });
+
+    // Execute slide creation
+    await slides.presentations.batchUpdate({
+      presentationId,
+      requestBody: { requests },
+    });
+
+    // Now add content to each slide
+    const contentRequests: slides_v1.Schema$Request[] = [];
+
+    // Sentiment to emoji
+    const sentimentEmoji: Record<string, string> = {
+      positive: '✅',
+      neutral: '➖',
+      negative: '⚠️',
+    };
+
+    // Trend symbols
+    const trendSymbol: Record<string, string> = {
+      up: '↑',
+      down: '↓',
+      stable: '→',
+    };
+
+    // ========== Title Slide ==========
+    const titleId = `exec_title_${baseTime}`;
+    const subtitleId = `exec_subtitle_${baseTime}`;
+    const dateId = `exec_date_${baseTime}`;
+
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: titleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.title,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 80, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 160, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: titleId,
+          text: data.title,
+          insertionIndex: 0,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: titleId,
+          style: { fontSize: { magnitude: 36, unit: 'PT' }, bold: true },
+          fields: 'fontSize,bold',
+        },
+      },
+      {
+        createShape: {
+          objectId: subtitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.title,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 250, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: subtitleId,
+          text: `Prepared for: ${data.preparedFor}\nPrepared by: ${data.preparedBy}`,
+          insertionIndex: 0,
+        },
+      },
+      {
+        createShape: {
+          objectId: dateId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.title,
+            size: { width: { magnitude: 200, unit: 'PT' }, height: { magnitude: 30, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 500, translateY: 360, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: dateId,
+          text: data.briefingDate,
+          insertionIndex: 0,
+        },
+      }
+    );
+
+    // ========== Summary Slide ==========
+    const summaryTitleId = `summary_title_${baseTime}`;
+    const summaryBodyId = `summary_body_${baseTime}`;
+    const summaryMetricsId = `summary_metrics_${baseTime}`;
+
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: summaryTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.summary,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 30, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: summaryTitleId,
+          text: 'Executive Summary',
+          insertionIndex: 0,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: summaryTitleId,
+          style: { fontSize: { magnitude: 28, unit: 'PT' }, bold: true },
+          fields: 'fontSize,bold',
+        },
+      },
+      {
+        createShape: {
+          objectId: summaryBodyId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.summary,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 120, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 80, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: summaryBodyId,
+          text: data.executiveSummary,
+          insertionIndex: 0,
+        },
+      },
+      {
+        createShape: {
+          objectId: summaryMetricsId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.summary,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 80, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 280, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: summaryMetricsId,
+          text: `Key Account Metrics:\n• ARR: $${(data.arr || 0).toLocaleString()}\n• Health Score: ${data.healthScore}/100\n• Days to Renewal: ${data.daysUntilRenewal}`,
+          insertionIndex: 0,
+        },
+      }
+    );
+
+    // ========== Headlines Slide ==========
+    const headlinesTitleId = `headlines_title_${baseTime}`;
+    const headlinesBodyId = `headlines_body_${baseTime}`;
+
+    const headlinesText = data.headlines
+      .map((h) => `${sentimentEmoji[h.sentiment] || '•'} ${h.headline}\n   ${h.detail}`)
+      .join('\n\n');
+
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: headlinesTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.headlines,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 30, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: headlinesTitleId,
+          text: 'Key Headlines',
+          insertionIndex: 0,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: headlinesTitleId,
+          style: { fontSize: { magnitude: 28, unit: 'PT' }, bold: true },
+          fields: 'fontSize,bold',
+        },
+      },
+      {
+        createShape: {
+          objectId: headlinesBodyId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.headlines,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 300, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 80, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: headlinesBodyId,
+          text: headlinesText || 'No headlines available',
+          insertionIndex: 0,
+        },
+      }
+    );
+
+    // ========== Metrics Slide ==========
+    const metricsTitleId = `metrics_title_${baseTime}`;
+    const metricsBodyId = `metrics_body_${baseTime}`;
+
+    const metricsText = data.keyMetrics
+      .map((m) => `• ${m.name}: ${m.value} ${trendSymbol[m.trend] || ''} (${m.category})`)
+      .join('\n');
+
+    contentRequests.push(
+      {
+        createShape: {
+          objectId: metricsTitleId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.metrics,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 30, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: metricsTitleId,
+          text: 'Key Metrics',
+          insertionIndex: 0,
+        },
+      },
+      {
+        updateTextStyle: {
+          objectId: metricsTitleId,
+          style: { fontSize: { magnitude: 28, unit: 'PT' }, bold: true },
+          fields: 'fontSize,bold',
+        },
+      },
+      {
+        createShape: {
+          objectId: metricsBodyId,
+          shapeType: 'TEXT_BOX',
+          elementProperties: {
+            pageObjectId: slideIds.metrics,
+            size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 300, unit: 'PT' } },
+            transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 80, unit: 'PT' },
+          },
+        },
+      },
+      {
+        insertText: {
+          objectId: metricsBodyId,
+          text: metricsText || 'No metrics available',
+          insertionIndex: 0,
+        },
+      }
+    );
+
+    // ========== Updates Slide (if slideCount >= 5) ==========
+    if (slidesToCreate.includes('updates')) {
+      const updatesTitleId = `updates_title_${baseTime}`;
+      const updatesBodyId = `updates_body_${baseTime}`;
+
+      const statusEmoji: Record<string, string> = {
+        completed: '✅',
+        in_progress: '🔄',
+        planned: '📋',
+        at_risk: '⚠️',
+      };
+
+      const updatesText = data.strategicUpdates
+        .map((u) => `${statusEmoji[u.status] || '•'} ${u.title} (${u.category})\n   ${u.description}`)
+        .join('\n\n');
+
+      contentRequests.push(
+        {
+          createShape: {
+            objectId: updatesTitleId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideIds.updates,
+              size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+              transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 30, unit: 'PT' },
+            },
+          },
+        },
+        {
+          insertText: {
+            objectId: updatesTitleId,
+            text: 'Strategic Updates',
+            insertionIndex: 0,
+          },
+        },
+        {
+          updateTextStyle: {
+            objectId: updatesTitleId,
+            style: { fontSize: { magnitude: 28, unit: 'PT' }, bold: true },
+            fields: 'fontSize,bold',
+          },
+        },
+        {
+          createShape: {
+            objectId: updatesBodyId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideIds.updates,
+              size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 300, unit: 'PT' } },
+              transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 80, unit: 'PT' },
+            },
+          },
+        },
+        {
+          insertText: {
+            objectId: updatesBodyId,
+            text: updatesText || 'No strategic updates available',
+            insertionIndex: 0,
+          },
+        }
+      );
+    }
+
+    // ========== Asks Slide (if slideCount >= 6) ==========
+    if (slidesToCreate.includes('asks')) {
+      const asksTitleId = `asks_title_${baseTime}`;
+      const asksBodyId = `asks_body_${baseTime}`;
+
+      const priorityEmoji: Record<string, string> = {
+        high: '🔴',
+        medium: '🟡',
+        low: '🟢',
+      };
+
+      const asksText = data.asks
+        .map((a) => `${priorityEmoji[a.priority] || '•'} ${a.ask}\n   Owner: ${a.owner} | Due: ${a.dueDate}\n   ${a.rationale}`)
+        .join('\n\n');
+
+      contentRequests.push(
+        {
+          createShape: {
+            objectId: asksTitleId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideIds.asks,
+              size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+              transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 30, unit: 'PT' },
+            },
+          },
+        },
+        {
+          insertText: {
+            objectId: asksTitleId,
+            text: 'Asks & Requests',
+            insertionIndex: 0,
+          },
+        },
+        {
+          updateTextStyle: {
+            objectId: asksTitleId,
+            style: { fontSize: { magnitude: 28, unit: 'PT' }, bold: true },
+            fields: 'fontSize,bold',
+          },
+        },
+        {
+          createShape: {
+            objectId: asksBodyId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideIds.asks,
+              size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 300, unit: 'PT' } },
+              transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 80, unit: 'PT' },
+            },
+          },
+        },
+        {
+          insertText: {
+            objectId: asksBodyId,
+            text: asksText || 'No asks available',
+            insertionIndex: 0,
+          },
+        }
+      );
+    }
+
+    // ========== Next Steps Slide (if slideCount >= 7) ==========
+    if (slidesToCreate.includes('nextSteps')) {
+      const nextStepsTitleId = `nextsteps_title_${baseTime}`;
+      const nextStepsBodyId = `nextsteps_body_${baseTime}`;
+
+      const nextStepsText = data.nextSteps
+        .map((step, idx) => `${idx + 1}. ${step}`)
+        .join('\n');
+
+      contentRequests.push(
+        {
+          createShape: {
+            objectId: nextStepsTitleId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideIds.nextSteps,
+              size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 40, unit: 'PT' } },
+              transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 30, unit: 'PT' },
+            },
+          },
+        },
+        {
+          insertText: {
+            objectId: nextStepsTitleId,
+            text: 'Next Steps',
+            insertionIndex: 0,
+          },
+        },
+        {
+          updateTextStyle: {
+            objectId: nextStepsTitleId,
+            style: { fontSize: { magnitude: 28, unit: 'PT' }, bold: true },
+            fields: 'fontSize,bold',
+          },
+        },
+        {
+          createShape: {
+            objectId: nextStepsBodyId,
+            shapeType: 'TEXT_BOX',
+            elementProperties: {
+              pageObjectId: slideIds.nextSteps,
+              size: { width: { magnitude: 600, unit: 'PT' }, height: { magnitude: 300, unit: 'PT' } },
+              transform: { scaleX: 1, scaleY: 1, translateX: 36, translateY: 80, unit: 'PT' },
+            },
+          },
+        },
+        {
+          insertText: {
+            objectId: nextStepsBodyId,
+            text: nextStepsText || 'No next steps defined',
+            insertionIndex: 0,
+          },
+        }
+      );
+    }
+
+    // Delete default slide
+    if (defaultSlideId) {
+      contentRequests.push({
+        deleteObject: {
+          objectId: defaultSlideId,
+        },
+      });
+    }
+
+    // Execute content updates
+    await slides.presentations.batchUpdate({
+      presentationId,
+      requestBody: { requests: contentRequests },
+    });
+
+    return {
+      id: presentationId,
+      webViewLink: `https://docs.google.com/presentation/d/${presentationId}/edit`,
+    };
+  }
 }
 
 export const qbrSlidesService = new QBRSlidesService();

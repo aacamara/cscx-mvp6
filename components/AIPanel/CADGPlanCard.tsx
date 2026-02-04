@@ -25,6 +25,7 @@ import { CADGRiskAssessmentPreview, RiskAssessmentData, CustomerData as RiskAsse
 import { CADGSavePlayPreview, SavePlayData, CustomerData as SavePlayCustomerData } from './CADGSavePlayPreview';
 import { CADGEscalationReportPreview, EscalationReportData, CustomerData as EscalationReportCustomerData } from './CADGEscalationReportPreview';
 import { CADGResolutionPlanPreview, ResolutionPlanData, CustomerData as ResolutionPlanCustomerData } from './CADGResolutionPlanPreview';
+import { CADGExecutiveBriefingPreview, ExecutiveBriefingData, CustomerData as ExecutiveBriefingCustomerData } from './CADGExecutiveBriefingPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -288,6 +289,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [resolutionPlanPreviewData, setResolutionPlanPreviewData] = useState<{
     resolutionPlan: ResolutionPlanData;
     customer: ResolutionPlanCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Executive briefing preview state for HITL workflow
+  const [showExecutiveBriefingPreview, setShowExecutiveBriefingPreview] = useState(false);
+  const [executiveBriefingPreviewData, setExecutiveBriefingPreviewData] = useState<{
+    briefing: ExecutiveBriefingData;
+    customer: ExecutiveBriefingCustomerData;
     planId: string;
   } | null>(null);
 
@@ -841,6 +850,41 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowResolutionPlanPreview(true);
         setStatus('pending'); // Keep in pending until resolution plan is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is an executive briefing preview (HITL workflow)
+      if (data.isExecutiveBriefingPreview && data.preview) {
+        setExecutiveBriefingPreviewData({
+          briefing: {
+            title: data.preview.title || 'Executive Briefing',
+            preparedFor: data.preview.preparedFor || 'Leadership Team',
+            preparedBy: data.preview.preparedBy || 'Customer Success',
+            briefingDate: data.preview.briefingDate || new Date().toISOString().slice(0, 10),
+            slideCount: data.preview.slideCount || 5,
+            executiveSummary: data.preview.executiveSummary || '',
+            headlines: data.preview.headlines || [],
+            keyMetrics: data.preview.keyMetrics || [],
+            strategicUpdates: data.preview.strategicUpdates || [],
+            asks: data.preview.asks || [],
+            nextSteps: data.preview.nextSteps || [],
+            healthScore: data.preview.healthScore || 0,
+            daysUntilRenewal: data.preview.daysUntilRenewal || 0,
+            arr: data.preview.arr || 0,
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowExecutiveBriefingPreview(true);
+        setStatus('pending'); // Keep in pending until executive briefing is saved
         setIsApproving(false);
         return;
       }
@@ -2095,6 +2139,77 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving executive briefing from preview
+  const handleExecutiveBriefingSave = async (briefing: ExecutiveBriefingData) => {
+    if (!executiveBriefingPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/executive-briefing/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: executiveBriefingPreviewData.planId,
+        title: briefing.title,
+        preparedFor: briefing.preparedFor,
+        preparedBy: briefing.preparedBy,
+        briefingDate: briefing.briefingDate,
+        slideCount: briefing.slideCount,
+        executiveSummary: briefing.executiveSummary,
+        headlines: briefing.headlines,
+        keyMetrics: briefing.keyMetrics,
+        strategicUpdates: briefing.strategicUpdates,
+        asks: briefing.asks,
+        nextSteps: briefing.nextSteps,
+        healthScore: briefing.healthScore,
+        daysUntilRenewal: briefing.daysUntilRenewal,
+        arr: briefing.arr,
+        notes: briefing.notes,
+        customerId: executiveBriefingPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save executive briefing');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowExecutiveBriefingPreview(false);
+    setExecutiveBriefingPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.slidesId || result.docId || 'executive-briefing',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.slidesUrl || result.docUrl,
+        additionalFiles: result.docId && result.slidesId ? [{
+          type: 'document',
+          fileId: result.docId,
+          url: result.docUrl,
+          title: 'Executive Briefing Document',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.slidesId || result.docId || 'executive-briefing');
+  };
+
+  // Handle canceling executive briefing preview
+  const handleExecutiveBriefingCancel = () => {
+    setShowExecutiveBriefingPreview(false);
+    setExecutiveBriefingPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2463,6 +2578,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={resolutionPlanPreviewData.customer}
         onSave={handleResolutionPlanSave}
         onCancel={handleResolutionPlanCancel}
+      />
+    );
+  }
+
+  // Executive briefing preview mode
+  if (showExecutiveBriefingPreview && executiveBriefingPreviewData) {
+    return (
+      <CADGExecutiveBriefingPreview
+        briefing={executiveBriefingPreviewData.briefing}
+        customer={executiveBriefingPreviewData.customer}
+        onSave={handleExecutiveBriefingSave}
+        onCancel={handleExecutiveBriefingCancel}
       />
     );
   }

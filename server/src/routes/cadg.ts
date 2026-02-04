@@ -1048,6 +1048,68 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is an executive briefing artifact - return preview for HITL
+    const isExecutiveBriefingArtifact = finalPlan.taskType === 'executive_briefing' ||
+                                        planRow.user_query?.toLowerCase().includes('executive briefing') ||
+                                        planRow.user_query?.toLowerCase().includes('exec briefing') ||
+                                        planRow.user_query?.toLowerCase().includes('executive summary') ||
+                                        planRow.user_query?.toLowerCase().includes('leadership briefing') ||
+                                        planRow.user_query?.toLowerCase().includes('board briefing') ||
+                                        planRow.user_query?.toLowerCase().includes('c-suite briefing') ||
+                                        planRow.user_query?.toLowerCase().includes('executive deck') ||
+                                        planRow.user_query?.toLowerCase().includes('executive presentation') ||
+                                        planRow.user_query?.toLowerCase().includes('exec presentation') ||
+                                        planRow.user_query?.toLowerCase().includes('brief the exec') ||
+                                        planRow.user_query?.toLowerCase().includes('brief leadership') ||
+                                        planRow.user_query?.toLowerCase().includes('leadership presentation') ||
+                                        planRow.user_query?.toLowerCase().includes('stakeholder briefing') ||
+                                        planRow.user_query?.toLowerCase().includes('account overview for exec') ||
+                                        planRow.user_query?.toLowerCase().includes('account brief');
+
+    if (isExecutiveBriefingArtifact) {
+      // Generate executive briefing content but don't finalize - return preview for HITL
+      const executiveBriefingPreview = await artifactGenerator.generateExecutiveBriefingPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isExecutiveBriefingPreview: true,
+        preview: {
+          title: executiveBriefingPreview.title,
+          preparedFor: executiveBriefingPreview.preparedFor,
+          preparedBy: executiveBriefingPreview.preparedBy,
+          briefingDate: executiveBriefingPreview.briefingDate,
+          slideCount: executiveBriefingPreview.slideCount,
+          executiveSummary: executiveBriefingPreview.executiveSummary,
+          headlines: executiveBriefingPreview.headlines,
+          keyMetrics: executiveBriefingPreview.keyMetrics,
+          strategicUpdates: executiveBriefingPreview.strategicUpdates,
+          asks: executiveBriefingPreview.asks,
+          nextSteps: executiveBriefingPreview.nextSteps,
+          healthScore: executiveBriefingPreview.healthScore,
+          daysUntilRenewal: executiveBriefingPreview.daysUntilRenewal,
+          arr: executiveBriefingPreview.arr,
+          notes: executiveBriefingPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a resolution plan artifact - return preview for HITL
     const isResolutionPlanArtifact = finalPlan.taskType === 'resolution_plan' ||
                                      planRow.user_query?.toLowerCase().includes('resolution plan') ||
@@ -5047,6 +5109,257 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save escalation report',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/executive-briefing/save
+ * Save finalized executive briefing after user review and create Google Slides
+ */
+router.post('/executive-briefing/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      preparedFor,
+      preparedBy,
+      briefingDate,
+      slideCount,
+      executiveSummary,
+      headlines,
+      keyMetrics,
+      strategicUpdates,
+      asks,
+      nextSteps,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      notes,
+      customerId,
+    } = req.body;
+
+    // Get userId from session or request
+    const userId = (req as any).userId || req.body.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Filter enabled items only
+    const enabledHeadlines = (headlines || []).filter((h: any) => h.enabled);
+    const enabledMetrics = (keyMetrics || []).filter((m: any) => m.enabled);
+    const enabledUpdates = (strategicUpdates || []).filter((u: any) => u.enabled);
+    const enabledAsks = (asks || []).filter((a: any) => a.enabled);
+
+    // Status and sentiment labels for display
+    const SENTIMENT_LABELS: Record<string, string> = {
+      positive: '✅',
+      neutral: '➖',
+      negative: '⚠️',
+    };
+
+    const STATUS_LABELS: Record<string, string> = {
+      completed: 'Completed',
+      in_progress: 'In Progress',
+      planned: 'Planned',
+      at_risk: 'At Risk',
+    };
+
+    const TREND_LABELS: Record<string, string> = {
+      up: '↑',
+      down: '↓',
+      stable: '→',
+    };
+
+    const PRIORITY_LABELS: Record<string, string> = {
+      high: 'HIGH',
+      medium: 'MEDIUM',
+      low: 'LOW',
+    };
+
+    // Build document content for Google Slides (fallback to Doc if Slides fails)
+    const documentContent = `# ${title}
+
+**Prepared For:** ${preparedFor}
+**Prepared By:** ${preparedBy}
+**Date:** ${briefingDate}
+**Slide Count Target:** ${slideCount}
+
+---
+
+## Executive Summary
+
+${executiveSummary}
+
+---
+
+## Key Headlines
+
+${enabledHeadlines.map((h: any) => `### ${SENTIMENT_LABELS[h.sentiment] || ''} ${h.headline}
+
+${h.detail}
+`).join('\n')}
+
+---
+
+## Key Metrics
+
+| Metric | Value | Trend | Category |
+|--------|-------|-------|----------|
+${enabledMetrics.map((m: any) => `| ${m.name} | ${m.value} | ${TREND_LABELS[m.trend] || m.trend} | ${m.category} |`).join('\n')}
+
+---
+
+## Strategic Updates
+
+${enabledUpdates.map((u: any) => `### ${u.title}
+**Status:** ${STATUS_LABELS[u.status] || u.status} | **Category:** ${u.category}
+
+${u.description}
+`).join('\n')}
+
+---
+
+## Asks
+
+| Ask | Priority | Owner | Due Date |
+|-----|----------|-------|----------|
+${enabledAsks.map((a: any) => `| ${a.ask} | ${PRIORITY_LABELS[a.priority] || a.priority} | ${a.owner} | ${a.dueDate} |`).join('\n')}
+
+### Ask Details
+
+${enabledAsks.map((a: any, idx: number) => `#### ${idx + 1}. ${a.ask}
+**Priority:** ${PRIORITY_LABELS[a.priority] || a.priority}
+**Owner:** ${a.owner}
+**Due Date:** ${a.dueDate}
+
+**Rationale:** ${a.rationale}
+`).join('\n')}
+
+---
+
+## Next Steps
+
+${(nextSteps || []).map((step: string, idx: number) => `${idx + 1}. ${step}`).join('\n')}
+
+---
+
+## Account Overview
+
+| Metric | Value |
+|--------|-------|
+| ARR | $${(arr || 0).toLocaleString()} |
+| Health Score | ${healthScore}/100 |
+| Days to Renewal | ${daysUntilRenewal} |
+
+---
+
+${notes ? `## Internal Notes
+
+${notes}
+
+---
+
+` : ''}
+*Document generated via CSCX.AI Executive Briefing*
+`;
+
+    // Try to create Google Slides presentation first
+    let slidesResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { qbrSlidesService } = await import('../services/google/qbrSlides.js');
+
+      // Create executive briefing presentation
+      slidesResult = await qbrSlidesService.createExecutiveBriefingPresentation(userId, {
+        title,
+        preparedFor,
+        preparedBy,
+        briefingDate,
+        executiveSummary,
+        headlines: enabledHeadlines,
+        keyMetrics: enabledMetrics,
+        strategicUpdates: enabledUpdates,
+        asks: enabledAsks,
+        nextSteps,
+        healthScore,
+        daysUntilRenewal,
+        arr,
+        slideCount,
+      });
+    } catch (slidesErr) {
+      console.warn('[CADG] Could not create executive briefing slides:', slidesErr);
+    }
+
+    // Fallback to Google Doc if slides failed
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    if (!slidesResult) {
+      try {
+        const { docsService } = await import('../services/google/docs.js');
+        docsResult = await docsService.createDocument(userId, {
+          title: title,
+          content: documentContent,
+        });
+      } catch (docsErr) {
+        console.warn('[CADG] Could not create executive briefing document:', docsErr);
+      }
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity
+    if (customerId) {
+      try {
+        const { config } = await import('../config/index.js');
+        const { createClient } = await import('@supabase/supabase-js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'executive_briefing_created',
+            description: `Executive briefing created: ${title} - ${enabledHeadlines.length} headlines, ${enabledAsks.length} asks`,
+            metadata: {
+              slidesId: slidesResult?.id,
+              slidesUrl: slidesResult?.webViewLink,
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              slideCount,
+              healthScore,
+              arr,
+              daysUntilRenewal,
+              headlineCount: enabledHeadlines.length,
+              metricCount: enabledMetrics.length,
+              updateCount: enabledUpdates.length,
+              askCount: enabledAsks.length,
+              createdVia: 'cadg_executive_briefing_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log executive briefing activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      slidesId: slidesResult?.id,
+      slidesUrl: slidesResult?.webViewLink,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Executive briefing save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save executive briefing',
     });
   }
 });

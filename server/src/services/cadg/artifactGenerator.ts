@@ -6890,6 +6890,404 @@ Format your response as JSON:
   }
 }
 
+// =====================================================================
+// Executive Briefing Preview Types
+// =====================================================================
+
+interface ExecutiveHeadline {
+  id: string;
+  headline: string;
+  detail: string;
+  sentiment: 'positive' | 'neutral' | 'negative';
+  enabled: boolean;
+}
+
+interface ExecutiveMetric {
+  id: string;
+  name: string;
+  value: string;
+  previousValue?: string;
+  trend: 'up' | 'down' | 'stable';
+  category: 'health' | 'engagement' | 'adoption' | 'financial' | 'satisfaction';
+  enabled: boolean;
+}
+
+interface StrategicUpdate {
+  id: string;
+  title: string;
+  description: string;
+  status: 'completed' | 'in_progress' | 'planned' | 'at_risk';
+  category: 'growth' | 'retention' | 'expansion' | 'risk_mitigation' | 'innovation';
+  enabled: boolean;
+}
+
+interface ExecutiveAsk {
+  id: string;
+  ask: string;
+  rationale: string;
+  priority: 'high' | 'medium' | 'low';
+  owner: 'CSM' | 'Customer' | 'Product' | 'Engineering' | 'Leadership' | 'Sales';
+  dueDate: string;
+  enabled: boolean;
+}
+
+export interface ExecutiveBriefingPreviewResult {
+  title: string;
+  preparedFor: string;
+  preparedBy: string;
+  briefingDate: string;
+  slideCount: 5 | 6 | 7;
+  executiveSummary: string;
+  headlines: ExecutiveHeadline[];
+  keyMetrics: ExecutiveMetric[];
+  strategicUpdates: StrategicUpdate[];
+  asks: ExecutiveAsk[];
+  nextSteps: string[];
+  healthScore: number;
+  daysUntilRenewal: number;
+  arr: number;
+  notes: string;
+}
+
+/**
+ * Generate an executive briefing preview for customer presentations
+ * Provides editable HITL preview before creating final Google Slides
+ */
+async function generateExecutiveBriefingPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<ExecutiveBriefingPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 72;
+  const arr = customer?.arr || 150000;
+  const tier = customer?.tier || 'Enterprise';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const industryCode = customer?.industryCode || 'technology';
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 65;
+  const loginFrequency = engagement?.loginFrequency || 3.5;
+  const dauMau = engagement?.dauMau || 0.45;
+
+  // Get NPS score
+  const npsScore = customer?.npsScore || 35;
+
+  // Get risk signals
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high');
+
+  // Get recent activities
+  const activities = context.platformData.interactionHistory?.slice(0, 5) || [];
+
+  // Calculate days until renewal
+  const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+  // Determine health trend
+  const healthTrends = context.platformData.healthTrends || [];
+  const recentHealth = healthTrends.slice(0, 3);
+  let healthTrend: 'up' | 'down' | 'stable' = 'stable';
+  if (recentHealth.length >= 2) {
+    const diff = (recentHealth[0]?.score || healthScore) - (recentHealth[recentHealth.length - 1]?.score || healthScore);
+    if (diff > 5) healthTrend = 'up';
+    else if (diff < -5) healthTrend = 'down';
+  }
+
+  // Build prompt for executive briefing generation
+  const prompt = `You are a customer success manager creating a concise executive briefing presentation for leadership. Generate content for a 5-7 slide deck that summarizes account health, key wins, strategic updates, and asks.
+
+Customer: ${customerName}
+Industry: ${industryCode}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100 (trend: ${healthTrend})
+Current ARR: $${arr.toLocaleString()}
+Days Until Renewal: ${daysUntilRenewal}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+DAU/MAU Ratio: ${(dauMau * 100).toFixed(0)}%
+NPS Score: ${npsScore}
+High Risk Signals: ${hasHighRisk ? 'Yes' : 'No'}
+Recent Activities: ${activities.length} in last 30 days
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate an executive briefing with:
+1. Executive summary (2-3 sentences capturing the overall account status)
+2. 3-4 headlines (key talking points with positive/neutral/negative sentiment)
+3. 5-7 key metrics with current values, trends, and categories
+4. 3-5 strategic updates with status and category
+5. 2-4 asks (requests/recommendations for leadership)
+6. 3-5 next steps
+
+Format your response as JSON:
+{
+  "executiveSummary": "2-3 sentence summary of account status and outlook",
+  "headlines": [
+    {
+      "headline": "Brief headline (5-8 words)",
+      "detail": "Supporting detail (1-2 sentences)",
+      "sentiment": "positive|neutral|negative"
+    }
+  ],
+  "keyMetrics": [
+    {
+      "name": "Metric name",
+      "value": "Current value with unit",
+      "previousValue": "Previous period value (optional)",
+      "trend": "up|down|stable",
+      "category": "health|engagement|adoption|financial|satisfaction"
+    }
+  ],
+  "strategicUpdates": [
+    {
+      "title": "Update title",
+      "description": "Brief description of the update",
+      "status": "completed|in_progress|planned|at_risk",
+      "category": "growth|retention|expansion|risk_mitigation|innovation"
+    }
+  ],
+  "asks": [
+    {
+      "ask": "What is being requested",
+      "rationale": "Why this is important",
+      "priority": "high|medium|low",
+      "owner": "CSM|Customer|Product|Engineering|Leadership|Sales"
+    }
+  ],
+  "nextSteps": [
+    "Next step 1",
+    "Next step 2"
+  ]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Get executive summary
+    const executiveSummary = parsed.executiveSummary ||
+      `${customerName} is a ${tier} account with a health score of ${healthScore}/100 and ARR of $${arr.toLocaleString()}. ` +
+      `With ${daysUntilRenewal} days until renewal, the account shows ${healthTrend === 'up' ? 'improving' : healthTrend === 'down' ? 'declining' : 'stable'} engagement ` +
+      `and requires continued focus on ${hasHighRisk ? 'risk mitigation' : 'growth opportunities'}.`;
+
+    // Process headlines
+    const headlines: ExecutiveHeadline[] = (parsed.headlines || []).map((h: any, idx: number) => ({
+      id: `headline-${idx + 1}`,
+      headline: h.headline || `Headline ${idx + 1}`,
+      detail: h.detail || '',
+      sentiment: (h.sentiment as ExecutiveHeadline['sentiment']) || 'neutral',
+      enabled: true,
+    }));
+
+    // Ensure minimum headlines
+    if (headlines.length < 3) {
+      const defaultHeadlines: ExecutiveHeadline[] = [
+        { id: 'headline-1', headline: `${healthTrend === 'up' ? 'Strong' : healthTrend === 'down' ? 'Declining' : 'Stable'} Account Health`, detail: `Health score is ${healthScore}/100, ${healthTrend === 'up' ? 'showing positive momentum' : healthTrend === 'down' ? 'requiring attention' : 'maintaining consistency'}`, sentiment: healthTrend === 'down' ? 'negative' : healthTrend === 'up' ? 'positive' : 'neutral', enabled: true },
+        { id: 'headline-2', headline: `Renewal ${daysUntilRenewal < 60 ? 'Approaching' : 'On Track'}`, detail: `${daysUntilRenewal} days until renewal with ${hasHighRisk ? 'active risk signals' : 'no major concerns'}`, sentiment: daysUntilRenewal < 30 || hasHighRisk ? 'negative' : 'neutral', enabled: true },
+        { id: 'headline-3', headline: `${featureAdoption >= 70 ? 'Strong' : featureAdoption >= 50 ? 'Moderate' : 'Low'} Feature Adoption`, detail: `${featureAdoption}% feature adoption with ${loginFrequency.toFixed(1)} logins per week`, sentiment: featureAdoption >= 70 ? 'positive' : featureAdoption < 50 ? 'negative' : 'neutral', enabled: true },
+        { id: 'headline-4', headline: `User Engagement ${dauMau >= 0.5 ? 'High' : dauMau >= 0.3 ? 'Moderate' : 'Needs Attention'}`, detail: `DAU/MAU ratio of ${(dauMau * 100).toFixed(0)}% indicates ${dauMau >= 0.5 ? 'highly active' : dauMau >= 0.3 ? 'moderately engaged' : 'less active'} user base`, sentiment: dauMau >= 0.5 ? 'positive' : dauMau < 0.3 ? 'negative' : 'neutral', enabled: true },
+      ];
+
+      defaultHeadlines.forEach((defaultHeadline) => {
+        if (headlines.length < 3) {
+          headlines.push({ ...defaultHeadline, id: `headline-${headlines.length + 1}` });
+        }
+      });
+    }
+
+    // Process key metrics
+    const keyMetrics: ExecutiveMetric[] = (parsed.keyMetrics || []).map((m: any, idx: number) => ({
+      id: `metric-${idx + 1}`,
+      name: m.name || `Metric ${idx + 1}`,
+      value: String(m.value || '0'),
+      previousValue: m.previousValue ? String(m.previousValue) : undefined,
+      trend: (m.trend as ExecutiveMetric['trend']) || 'stable',
+      category: (m.category as ExecutiveMetric['category']) || 'health',
+      enabled: true,
+    }));
+
+    // Ensure minimum metrics
+    if (keyMetrics.length < 5) {
+      const defaultMetrics: ExecutiveMetric[] = [
+        { id: 'metric-1', name: 'Health Score', value: `${healthScore}/100`, previousValue: undefined, trend: healthTrend, category: 'health', enabled: true },
+        { id: 'metric-2', name: 'Feature Adoption', value: `${featureAdoption}%`, previousValue: undefined, trend: featureAdoption >= 60 ? 'up' : 'stable', category: 'adoption', enabled: true },
+        { id: 'metric-3', name: 'Login Frequency', value: `${loginFrequency.toFixed(1)}/week`, previousValue: undefined, trend: 'stable', category: 'engagement', enabled: true },
+        { id: 'metric-4', name: 'NPS Score', value: `${npsScore}`, previousValue: undefined, trend: npsScore > 30 ? 'up' : 'stable', category: 'satisfaction', enabled: true },
+        { id: 'metric-5', name: 'ARR', value: `$${arr.toLocaleString()}`, previousValue: undefined, trend: 'stable', category: 'financial', enabled: true },
+        { id: 'metric-6', name: 'DAU/MAU Ratio', value: `${(dauMau * 100).toFixed(0)}%`, previousValue: undefined, trend: dauMau >= 0.4 ? 'up' : 'stable', category: 'engagement', enabled: true },
+        { id: 'metric-7', name: 'Days to Renewal', value: `${daysUntilRenewal}`, previousValue: undefined, trend: 'down', category: 'financial', enabled: true },
+      ];
+
+      defaultMetrics.forEach((defaultMetric) => {
+        if (keyMetrics.length < 5) {
+          keyMetrics.push({ ...defaultMetric, id: `metric-${keyMetrics.length + 1}` });
+        }
+      });
+    }
+
+    // Process strategic updates
+    const strategicUpdates: StrategicUpdate[] = (parsed.strategicUpdates || []).map((u: any, idx: number) => ({
+      id: `update-${idx + 1}`,
+      title: u.title || `Update ${idx + 1}`,
+      description: u.description || '',
+      status: (u.status as StrategicUpdate['status']) || 'in_progress',
+      category: (u.category as StrategicUpdate['category']) || 'retention',
+      enabled: true,
+    }));
+
+    // Ensure minimum strategic updates
+    if (strategicUpdates.length < 3) {
+      const defaultUpdates: StrategicUpdate[] = [
+        { id: 'update-1', title: 'Quarterly Business Review', description: 'Completed QBR with executive sponsor, aligned on goals for next quarter', status: 'completed', category: 'retention', enabled: true },
+        { id: 'update-2', title: 'Feature Adoption Initiative', description: 'Launched training program to drive adoption of underutilized features', status: 'in_progress', category: 'growth', enabled: true },
+        { id: 'update-3', title: 'Expansion Opportunity', description: 'Identified potential for additional seats and modules based on usage patterns', status: 'planned', category: 'expansion', enabled: true },
+        { id: 'update-4', title: hasHighRisk ? 'Risk Mitigation Plan' : 'Success Plan Review', description: hasHighRisk ? 'Actively working on addressing identified risk signals' : 'Regular success plan review scheduled', status: hasHighRisk ? 'in_progress' : 'planned', category: hasHighRisk ? 'risk_mitigation' : 'retention', enabled: true },
+        { id: 'update-5', title: 'Champion Development', description: 'Building relationships with additional stakeholders for expansion', status: 'in_progress', category: 'growth', enabled: true },
+      ];
+
+      defaultUpdates.forEach((defaultUpdate) => {
+        if (strategicUpdates.length < 3) {
+          strategicUpdates.push({ ...defaultUpdate, id: `update-${strategicUpdates.length + 1}` });
+        }
+      });
+    }
+
+    // Process asks
+    const asks: ExecutiveAsk[] = (parsed.asks || []).map((a: any, idx: number) => ({
+      id: `ask-${idx + 1}`,
+      ask: a.ask || `Ask ${idx + 1}`,
+      rationale: a.rationale || '',
+      priority: (a.priority as ExecutiveAsk['priority']) || 'medium',
+      owner: (a.owner as ExecutiveAsk['owner']) || 'Leadership',
+      dueDate: new Date(Date.now() + (14 + idx * 7) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      enabled: true,
+    }));
+
+    // Ensure minimum asks
+    if (asks.length < 2) {
+      const defaultAsks: ExecutiveAsk[] = [
+        { id: 'ask-1', ask: 'Executive Sponsor Engagement', rationale: 'Strengthen relationship with executive sponsor through direct communication', priority: 'high', owner: 'Leadership', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'ask-2', ask: 'Product Roadmap Discussion', rationale: 'Share upcoming features to demonstrate continued investment and innovation', priority: 'medium', owner: 'Product', dueDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'ask-3', ask: hasHighRisk ? 'Risk Escalation Support' : 'Expansion Conversation', rationale: hasHighRisk ? 'Support needed to address critical risk factors' : 'Opportunity to discuss additional services and seats', priority: hasHighRisk ? 'high' : 'medium', owner: hasHighRisk ? 'Leadership' : 'Sales', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'ask-4', ask: 'Resource Allocation', rationale: 'Dedicated support resources for upcoming initiatives', priority: 'medium', owner: 'CSM', dueDate: new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      ];
+
+      defaultAsks.forEach((defaultAsk) => {
+        if (asks.length < 2) {
+          asks.push({ ...defaultAsk, id: `ask-${asks.length + 1}` });
+        }
+      });
+    }
+
+    // Process next steps
+    let nextSteps = parsed.nextSteps || [];
+    if (!Array.isArray(nextSteps) || nextSteps.length < 3) {
+      nextSteps = [
+        'Schedule follow-up with executive sponsor',
+        'Review expansion opportunities with sales',
+        'Continue monitoring health metrics weekly',
+        'Prepare renewal discussion materials',
+        hasHighRisk ? 'Execute risk mitigation plan' : 'Identify additional champions',
+      ];
+    }
+
+    // Determine optimal slide count based on content
+    const contentLength = headlines.length + strategicUpdates.length + asks.length;
+    let slideCount: 5 | 6 | 7 = 5;
+    if (contentLength >= 12) slideCount = 7;
+    else if (contentLength >= 9) slideCount = 6;
+
+    return {
+      title: `Executive Briefing: ${customerName}`,
+      preparedFor: 'Leadership Team',
+      preparedBy: 'Customer Success',
+      briefingDate: new Date().toISOString().slice(0, 10),
+      slideCount,
+      executiveSummary,
+      headlines,
+      keyMetrics,
+      strategicUpdates,
+      asks,
+      nextSteps,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Executive briefing preview generation error:', error);
+
+    // Return fallback executive briefing
+    const fallbackSummary = `${customerName} is a ${tier} account with a health score of ${healthScore}/100 and ARR of $${arr.toLocaleString()}. With ${daysUntilRenewal} days until renewal, the account requires continued engagement and strategic alignment.`;
+
+    const fallbackHeadlines: ExecutiveHeadline[] = [
+      { id: 'headline-1', headline: `${healthScore >= 70 ? 'Strong' : healthScore >= 50 ? 'Moderate' : 'At Risk'} Account Health`, detail: `Current health score of ${healthScore}/100`, sentiment: healthScore >= 70 ? 'positive' : healthScore >= 50 ? 'neutral' : 'negative', enabled: true },
+      { id: 'headline-2', headline: `Renewal in ${daysUntilRenewal} Days`, detail: 'Preparing for upcoming renewal discussion', sentiment: daysUntilRenewal > 60 ? 'neutral' : 'negative', enabled: true },
+      { id: 'headline-3', headline: `${featureAdoption}% Feature Adoption`, detail: 'Continued focus on driving feature utilization', sentiment: featureAdoption >= 70 ? 'positive' : 'neutral', enabled: true },
+    ];
+
+    const fallbackMetrics: ExecutiveMetric[] = [
+      { id: 'metric-1', name: 'Health Score', value: `${healthScore}/100`, trend: healthTrend, category: 'health', enabled: true },
+      { id: 'metric-2', name: 'Feature Adoption', value: `${featureAdoption}%`, trend: 'stable', category: 'adoption', enabled: true },
+      { id: 'metric-3', name: 'NPS Score', value: `${npsScore}`, trend: 'stable', category: 'satisfaction', enabled: true },
+      { id: 'metric-4', name: 'ARR', value: `$${arr.toLocaleString()}`, trend: 'stable', category: 'financial', enabled: true },
+      { id: 'metric-5', name: 'Days to Renewal', value: `${daysUntilRenewal}`, trend: 'down', category: 'financial', enabled: true },
+    ];
+
+    const fallbackUpdates: StrategicUpdate[] = [
+      { id: 'update-1', title: 'QBR Completed', description: 'Quarterly review completed successfully', status: 'completed', category: 'retention', enabled: true },
+      { id: 'update-2', title: 'Adoption Initiative', description: 'Working on improving feature utilization', status: 'in_progress', category: 'growth', enabled: true },
+      { id: 'update-3', title: 'Expansion Discussion', description: 'Exploring additional opportunities', status: 'planned', category: 'expansion', enabled: true },
+    ];
+
+    const fallbackAsks: ExecutiveAsk[] = [
+      { id: 'ask-1', ask: 'Executive Engagement', rationale: 'Strengthen sponsor relationship', priority: 'high', owner: 'Leadership', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'ask-2', ask: 'Product Roadmap Share', rationale: 'Demonstrate innovation', priority: 'medium', owner: 'Product', dueDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+    ];
+
+    const fallbackNextSteps = [
+      'Schedule executive sponsor meeting',
+      'Review expansion opportunities',
+      'Continue health monitoring',
+    ];
+
+    return {
+      title: `Executive Briefing: ${customerName}`,
+      preparedFor: 'Leadership Team',
+      preparedBy: 'Customer Success',
+      briefingDate: new Date().toISOString().slice(0, 10),
+      slideCount: 5,
+      executiveSummary: fallbackSummary,
+      headlines: fallbackHeadlines,
+      keyMetrics: fallbackMetrics,
+      strategicUpdates: fallbackUpdates,
+      asks: fallbackAsks,
+      nextSteps: fallbackNextSteps,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -6912,4 +7310,5 @@ export const artifactGenerator = {
   generateSavePlayPreview,
   generateEscalationReportPreview,
   generateResolutionPlanPreview,
+  generateExecutiveBriefingPreview,
 };
