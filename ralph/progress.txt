@@ -9,6 +9,7 @@
 - List operations: always generate unique IDs with `Date.now()` pattern
 - AI suggestions: use `/api/cadg/{type}/suggest` endpoints with `fieldType`, `currentValue`, `customerId`
 - TypeScript: export types alongside component for external use
+- **New TaskTypes require updates to**: contextAggregator.ts (TASK_KEYWORDS), reasoningEngine.ts (DEFAULT_SECTIONS, OUTPUT_FORMATS, estimateLength)
 
 ---
 
@@ -103,4 +104,20 @@
   - Field types: 'text', 'textarea', 'date', 'datetime', 'dropdown', 'multi-dropdown', 'list', 'list-complex', 'slider', 'toggle', 'number'
   - AI enhancement calls `/api/cadg/enhance` endpoint - needs backend implementation
   - Existing TypeScript errors in codebase are pre-existing, not from this change
+---
+
+## 2026-02-04 - US-004, US-005
+- **What was implemented**: Complete TaskType mappings for all CADG services
+- **Files changed**:
+  - `server/src/services/cadg/contextAggregator.ts` - Added TASK_KEYWORDS for all 23 new task types
+  - `server/src/services/cadg/reasoningEngine.ts` - Added DEFAULT_SECTIONS, OUTPUT_FORMATS, and estimateLength for all 23 new task types
+- **Key findings**:
+  - US-004 endpoint (GET /api/cadg/artifact/:artifactId/download) already existed in cadg.ts lines 428-502
+  - US-005 endpoint (GET /api/cadg/artifact/:artifactId/export-sources) already existed in cadg.ts lines 508-600
+  - Both endpoints use driveService.exportFile() which was already implemented
+  - The type system needed completion to support all new TaskTypes in the Record types
+- **Learnings for future iterations**:
+  - When adding new TaskTypes to types.ts, MUST also update: contextAggregator.ts TASK_KEYWORDS, reasoningEngine.ts DEFAULT_SECTIONS, OUTPUT_FORMATS, and estimateLength
+  - Record<TaskType, T> requires ALL keys from the TaskType union - TypeScript will error if any are missing
+  - Pre-existing TypeScript errors in other files (mcp/, artifactGenerator.ts) don't affect the CADG routes functionality
 ---

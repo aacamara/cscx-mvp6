@@ -71,8 +71,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Endpoint already existed in cadg.ts lines 428-502. Commit 8f3681d adds complete TaskType mappings."
     },
     {
       "id": "US-005",
@@ -87,8 +87,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Endpoint already existed in cadg.ts lines 508-600. Commit 8f3681d adds complete TaskType mappings."
     },
     {
       "id": "US-006",
