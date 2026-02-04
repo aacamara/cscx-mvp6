@@ -120,8 +120,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in commit 36656e3. Created CADGKickoffPlanPreview component and generateKickoffPlanPreview function."
     },
     {
       "id": "US-008",
@@ -136,8 +136,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in commit 4dd0545. Created CADGMilestonePlanPreview component and generateMilestonePlanPreview function with phase-based editing UI."
     },
     {
       "id": "US-009",

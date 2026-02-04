@@ -143,3 +143,70 @@
   - When creating risk level types, consider context - AtRiskCustomer excludes 'low' since they're already at risk
   - All helper functions handle missing database gracefully by returning empty defaults
 ---
+
+## 2026-02-04 - US-007
+- **What was implemented**: Kickoff plan generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateKickoffPlanPreview()` function
+  - `server/src/routes/cadg.ts` - Added kickoff_plan detection and `/api/cadg/kickoff-plan/save` endpoint
+  - `components/AIPanel/CADGKickoffPlanPreview.tsx` (created, ~650 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added kickoff plan preview state and handlers
+- **Features**:
+  - **generateKickoffPlanPreview()**: Uses Claude to generate kickoff plan with:
+    - Meeting title, date, duration
+    - Attendees list (name, email, role)
+    - Agenda items (topic, duration, owner)
+    - Goals list
+    - Next steps with action, owner, due date
+    - Notes section
+  - **CADGKickoffPlanPreview component**:
+    - Collapsible sections for Attendees, Agenda, Goals, Next Steps
+    - Full CRUD for all lists (add/remove/reorder)
+    - Role dropdown (Executive Sponsor, Project Lead, Key User, etc.)
+    - Duration dropdown (5-60 min)
+    - Owner dropdown (CSM, Customer, Implementation Team, Support, All)
+    - Date picker for meeting date and next step due dates
+    - Unsaved changes warning
+    - Teal accent color theme matching other preview components
+  - **Backend endpoint**: POST `/api/cadg/kickoff-plan/save` creates Google Doc with formatted content
+- **Learnings for future iterations**:
+  - Kickoff plans use `isKickoffPlanPreview: true` response type (distinct from `isDocumentPreview`)
+  - New preview components should export types (KickoffPlanData, CustomerData, etc.) for CADGPlanCard imports
+  - Preview detection in cadg.ts should check both taskType AND user query patterns
+  - Document content formatting uses markdown with tables for next steps
+---
+
+## 2026-02-04 - US-008
+- **What was implemented**: Milestone plan (30-60-90 day) generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateMilestonePlanPreview()` function (~280 lines)
+  - `server/src/routes/cadg.ts` - Added milestone_plan detection and `/api/cadg/milestone-plan/save` endpoint
+  - `components/AIPanel/CADGMilestonePlanPreview.tsx` (created, ~600 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added milestone plan preview state and handlers
+- **Features**:
+  - **generateMilestonePlanPreview()**: Uses Claude to generate 30-60-90 day plan with:
+    - Plan title and start date
+    - Three phases (30, 60, 90 days) with configurable names
+    - Goals per phase with completion checkboxes
+    - Milestones with target dates and owners
+    - Success criteria per phase
+    - Notes section
+  - **CADGMilestonePlanPreview component**:
+    - Tab-based phase navigation (green/blue/purple color coding)
+    - Phase header editing (name, days label)
+    - Goals with checkboxes for completion tracking
+    - Milestones with date pickers and owner dropdowns
+    - Success criteria editing
+    - Unsaved changes warning
+    - Purple accent color theme
+  - **Backend endpoint**: POST `/api/cadg/milestone-plan/save`:
+    - Creates Google Doc with formatted markdown content
+    - Creates Google Sheets tracker with all milestones across phases
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Milestone plans use `isMilestonePlanPreview: true` response type
+  - Phase-based UI works well with tab navigation rather than collapsible sections
+  - Color-coded phases (green/blue/purple) help users track progress visually
+  - Creating both Doc and Sheet for plans provides document + tracking benefits
+  - Query detection patterns should match multiple variations: '30-60-90', '30 60 90', 'milestone plan', 'first 90 days'
+---
