@@ -10,6 +10,7 @@ import { CADGDocumentPreview, DocumentData, DocumentSection, CustomerData as Doc
 import { CADGMeetingPrepPreview, MeetingPrepData, AgendaItem, TalkingPoint, RiskItem, CustomerData as MeetingCustomerData } from './CADGMeetingPrepPreview';
 import { CADGMeetingBookingModal, MeetingBookingData, BookedMeeting } from './CADGMeetingBookingModal';
 import { CADGKickoffPlanPreview, KickoffPlanData, CustomerData as KickoffCustomerData } from './CADGKickoffPlanPreview';
+import { CADGMilestonePlanPreview, MilestonePlanData, CustomerData as MilestoneCustomerData } from './CADGMilestonePlanPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -156,6 +157,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     planId: string;
   } | null>(null);
 
+  // Milestone plan preview state for HITL workflow
+  const [showMilestonePlanPreview, setShowMilestonePlanPreview] = useState(false);
+  const [milestonePlanPreviewData, setMilestonePlanPreviewData] = useState<{
+    milestonePlan: MilestonePlanData;
+    customer: MilestoneCustomerData;
+    planId: string;
+  } | null>(null);
+
   const { plan, capability, methodology, taskType, confidence, customerId } = metadata;
 
   // Detect template mode (no customer selected)
@@ -286,6 +295,29 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowKickoffPlanPreview(true);
         setStatus('pending'); // Keep in pending until kickoff plan is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a milestone plan preview (HITL workflow)
+      if (data.isMilestonePlanPreview && data.preview) {
+        setMilestonePlanPreviewData({
+          milestonePlan: {
+            title: data.preview.title || '30-60-90 Day Plan',
+            phases: data.preview.phases || [],
+            notes: data.preview.notes || '',
+            startDate: data.preview.startDate || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowMilestonePlanPreview(true);
+        setStatus('pending'); // Keep in pending until milestone plan is saved
         setIsApproving(false);
         return;
       }
@@ -568,6 +600,66 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving milestone plan from preview
+  const handleMilestonePlanSave = async (milestonePlan: MilestonePlanData) => {
+    if (!milestonePlanPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/milestone-plan/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: milestonePlanPreviewData.planId,
+        title: milestonePlan.title,
+        phases: milestonePlan.phases,
+        notes: milestonePlan.notes,
+        startDate: milestonePlan.startDate,
+        customerId: milestonePlanPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save milestone plan');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowMilestonePlanPreview(false);
+    setMilestonePlanPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+        additionalFiles: result.sheetUrl ? [{
+          type: 'sheets',
+          fileId: result.sheetId,
+          url: result.sheetUrl,
+          title: 'Milestone Tracker',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling milestone plan preview
+  const handleMilestonePlanCancel = () => {
+    setShowMilestonePlanPreview(false);
+    setMilestonePlanPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -756,6 +848,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={kickoffPlanPreviewData.customer}
         onSave={handleKickoffPlanSave}
         onCancel={handleKickoffPlanCancel}
+      />
+    );
+  }
+
+  // Milestone plan preview for HITL workflow
+  if (showMilestonePlanPreview && milestonePlanPreviewData) {
+    return (
+      <CADGMilestonePlanPreview
+        milestonePlan={milestonePlanPreviewData.milestonePlan}
+        customer={milestonePlanPreviewData.customer}
+        onSave={handleMilestonePlanSave}
+        onCancel={handleMilestonePlanCancel}
       />
     );
   }

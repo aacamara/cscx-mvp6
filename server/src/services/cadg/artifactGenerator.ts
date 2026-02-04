@@ -1289,6 +1289,284 @@ interface KickoffPlanPreviewResult {
 }
 
 /**
+ * Milestone plan preview result for HITL review
+ */
+interface MilestonePlanPreviewResult {
+  title: string;
+  phases: Array<{
+    id: string;
+    name: string;
+    daysLabel: string;
+    goals: Array<{ id: string; goal: string; completed: boolean }>;
+    milestones: Array<{ id: string; milestone: string; date: string; owner: string }>;
+    successCriteria: Array<{ id: string; criteria: string }>;
+  }>;
+  notes: string;
+  startDate: string;
+}
+
+/**
+ * Generate milestone plan (30-60-90 day) preview for HITL review
+ * Returns editable preview with phase-based goals, milestones, and success criteria
+ */
+async function generateMilestonePlanPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<MilestonePlanPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Build prompt for milestone plan generation
+  const prompt = `You are a customer success manager creating a 30-60-90 day onboarding/implementation plan. Generate a comprehensive milestone plan.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a milestone plan with 3 phases (30 days, 60 days, 90 days). For each phase include:
+1. 3-4 key goals (actionable objectives)
+2. 2-3 milestones with target dates and owners
+3. 2-3 success criteria to measure completion
+
+Format your response as JSON:
+{
+  "title": "30-60-90 Day Plan title",
+  "phases": [
+    {
+      "name": "First 30 Days",
+      "daysLabel": "Days 1-30",
+      "goals": ["Goal 1", "Goal 2", "Goal 3"],
+      "milestones": [
+        {"milestone": "Milestone description", "date": "YYYY-MM-DD", "owner": "CSM/Customer/Team"}
+      ],
+      "successCriteria": ["Criteria 1", "Criteria 2"]
+    },
+    ...
+  ],
+  "notes": "Any important notes or context"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const milestoneContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      phases?: Array<{
+        name: string;
+        daysLabel?: string;
+        goals?: string[];
+        milestones?: Array<{ milestone: string; date?: string; owner?: string }>;
+        successCriteria?: string[];
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = milestoneContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default start date (today)
+    const startDate = new Date();
+
+    // Helper to calculate date offset
+    const addDays = (date: Date, days: number): string => {
+      const result = new Date(date);
+      result.setDate(result.getDate() + days);
+      return result.toISOString().split('T')[0];
+    };
+
+    // Build default phases if not parsed
+    const defaultPhases = [
+      {
+        name: 'First 30 Days',
+        daysLabel: 'Days 1-30',
+        goals: [
+          'Complete initial setup and configuration',
+          'Train key users on core functionality',
+          'Establish communication cadence with stakeholders',
+          'Define success metrics and baseline measurements',
+        ],
+        milestones: [
+          { milestone: 'Kickoff meeting completed', date: addDays(startDate, 7), owner: 'CSM' },
+          { milestone: 'Initial training delivered', date: addDays(startDate, 21), owner: 'CSM' },
+          { milestone: 'First success check-in', date: addDays(startDate, 30), owner: 'CSM' },
+        ],
+        successCriteria: [
+          'All users have login access',
+          '80% of key users completed initial training',
+          'Communication plan established',
+        ],
+      },
+      {
+        name: 'Days 31-60',
+        daysLabel: 'Days 31-60',
+        goals: [
+          'Drive adoption of core features',
+          'Address any technical blockers',
+          'Expand user base within organization',
+          'Document early wins and value delivered',
+        ],
+        milestones: [
+          { milestone: 'Adoption review meeting', date: addDays(startDate, 45), owner: 'CSM' },
+          { milestone: 'User expansion completed', date: addDays(startDate, 55), owner: 'Customer' },
+          { milestone: '60-day success review', date: addDays(startDate, 60), owner: 'CSM' },
+        ],
+        successCriteria: [
+          'Feature adoption rate > 50%',
+          'No critical blockers open',
+          'At least one documented success story',
+        ],
+      },
+      {
+        name: 'Days 61-90',
+        daysLabel: 'Days 61-90',
+        goals: [
+          'Achieve target adoption metrics',
+          'Identify expansion opportunities',
+          'Plan for ongoing success partnership',
+          'Transition to steady-state engagement',
+        ],
+        milestones: [
+          { milestone: 'Full deployment completed', date: addDays(startDate, 75), owner: 'Customer' },
+          { milestone: 'Expansion discussion', date: addDays(startDate, 80), owner: 'CSM' },
+          { milestone: '90-day success review', date: addDays(startDate, 90), owner: 'CSM' },
+        ],
+        successCriteria: [
+          'Feature adoption rate > 70%',
+          'Positive NPS feedback collected',
+          'Ongoing engagement plan documented',
+        ],
+      },
+    ];
+
+    const phases = (parsed.phases && parsed.phases.length > 0 ? parsed.phases : defaultPhases).map((phase, phaseIdx) => {
+      const baseOffset = phaseIdx * 30;
+      return {
+        id: `phase-${phaseIdx + 1}`,
+        name: phase.name || `Phase ${phaseIdx + 1}`,
+        daysLabel: phase.daysLabel || `Days ${baseOffset + 1}-${baseOffset + 30}`,
+        goals: (phase.goals || []).map((goal, i) => ({
+          id: `goal-${phaseIdx}-${i + 1}`,
+          goal: typeof goal === 'string' ? goal : (goal as any).goal || '',
+          completed: false,
+        })),
+        milestones: (phase.milestones || []).map((m, i) => ({
+          id: `milestone-${phaseIdx}-${i + 1}`,
+          milestone: m.milestone,
+          date: m.date || addDays(startDate, baseOffset + (i + 1) * 10),
+          owner: m.owner || 'CSM',
+        })),
+        successCriteria: (phase.successCriteria || []).map((c, i) => ({
+          id: `criteria-${phaseIdx}-${i + 1}`,
+          criteria: typeof c === 'string' ? c : (c as any).criteria || '',
+        })),
+      };
+    });
+
+    return {
+      title: parsed.title || `30-60-90 Day Plan: ${customerName}`,
+      phases,
+      notes: parsed.notes || 'Adjust timelines and milestones based on customer-specific requirements and capacity.',
+      startDate: startDate.toISOString().split('T')[0],
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Milestone plan preview generation error:', error);
+
+    // Return fallback milestone plan
+    const fallbackStart = new Date();
+    const addDays = (date: Date, days: number): string => {
+      const result = new Date(date);
+      result.setDate(result.getDate() + days);
+      return result.toISOString().split('T')[0];
+    };
+
+    return {
+      title: `30-60-90 Day Plan: ${customerName}`,
+      phases: [
+        {
+          id: 'phase-1',
+          name: 'First 30 Days',
+          daysLabel: 'Days 1-30',
+          goals: [
+            { id: 'goal-1-1', goal: 'Complete initial setup', completed: false },
+            { id: 'goal-1-2', goal: 'Train key users', completed: false },
+            { id: 'goal-1-3', goal: 'Establish communication cadence', completed: false },
+          ],
+          milestones: [
+            { id: 'milestone-1-1', milestone: 'Kickoff meeting', date: addDays(fallbackStart, 7), owner: 'CSM' },
+            { id: 'milestone-1-2', milestone: 'Training complete', date: addDays(fallbackStart, 21), owner: 'CSM' },
+          ],
+          successCriteria: [
+            { id: 'criteria-1-1', criteria: 'All users have access' },
+            { id: 'criteria-1-2', criteria: 'Training completed' },
+          ],
+        },
+        {
+          id: 'phase-2',
+          name: 'Days 31-60',
+          daysLabel: 'Days 31-60',
+          goals: [
+            { id: 'goal-2-1', goal: 'Drive core feature adoption', completed: false },
+            { id: 'goal-2-2', goal: 'Address blockers', completed: false },
+          ],
+          milestones: [
+            { id: 'milestone-2-1', milestone: 'Adoption review', date: addDays(fallbackStart, 45), owner: 'CSM' },
+            { id: 'milestone-2-2', milestone: '60-day review', date: addDays(fallbackStart, 60), owner: 'CSM' },
+          ],
+          successCriteria: [
+            { id: 'criteria-2-1', criteria: 'Adoption rate > 50%' },
+          ],
+        },
+        {
+          id: 'phase-3',
+          name: 'Days 61-90',
+          daysLabel: 'Days 61-90',
+          goals: [
+            { id: 'goal-3-1', goal: 'Achieve target adoption', completed: false },
+            { id: 'goal-3-2', goal: 'Plan ongoing partnership', completed: false },
+          ],
+          milestones: [
+            { id: 'milestone-3-1', milestone: 'Full deployment', date: addDays(fallbackStart, 75), owner: 'Customer' },
+            { id: 'milestone-3-2', milestone: '90-day review', date: addDays(fallbackStart, 90), owner: 'CSM' },
+          ],
+          successCriteria: [
+            { id: 'criteria-3-1', criteria: 'Adoption rate > 70%' },
+            { id: 'criteria-3-2', criteria: 'Positive feedback collected' },
+          ],
+        },
+      ],
+      notes: '',
+      startDate: fallbackStart.toISOString().split('T')[0],
+    };
+  }
+}
+
+/**
  * Generate kickoff plan preview for HITL review
  * Returns editable preview with attendees, agenda, goals, and next steps
  */
@@ -1486,4 +1764,5 @@ export const artifactGenerator = {
   generateDocumentPreview,
   generateMeetingPrepPreview,
   generateKickoffPlanPreview,
+  generateMilestonePlanPreview,
 };
