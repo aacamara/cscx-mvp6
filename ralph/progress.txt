@@ -10,6 +10,7 @@
 - AI suggestions: use `/api/cadg/{type}/suggest` endpoints with `fieldType`, `currentValue`, `customerId`
 - TypeScript: export types alongside component for external use
 - **New TaskTypes require updates to**: contextAggregator.ts (TASK_KEYWORDS), reasoningEngine.ts (DEFAULT_SECTIONS, OUTPUT_FORMATS, estimateLength)
+- **Data aggregation**: Use `dataHelpers.aggregateCustomerContext()` for customer-specific cards, `aggregatePortfolioContext()` for General Mode cards
 
 ---
 
@@ -120,4 +121,25 @@
   - When adding new TaskTypes to types.ts, MUST also update: contextAggregator.ts TASK_KEYWORDS, reasoningEngine.ts DEFAULT_SECTIONS, OUTPUT_FORMATS, and estimateLength
   - Record<TaskType, T> requires ALL keys from the TaskType union - TypeScript will error if any are missing
   - Pre-existing TypeScript errors in other files (mcp/, artifactGenerator.ts) don't affect the CADG routes functionality
+---
+
+## 2026-02-04 - US-006
+- **What was implemented**: Shared data aggregation helpers for CADG generators
+- **Files changed**:
+  - `server/src/services/cadg/dataHelpers.ts` (created, ~900 lines)
+  - `server/src/services/cadg/index.ts` (updated exports)
+- **Features**:
+  - `aggregateCustomerContext()` - Gathers Customer360, health trends, engagement metrics, risk signals, interactions, renewal forecast, stakeholders, contracts
+  - `aggregatePortfolioContext()` - For General Mode cards (no customer required), aggregates total customers, ARR, health distribution, renewal pipeline, at-risk customers, team metrics, CSM info
+  - `getPlaybooksByType()` - Fetches playbooks by type (onboarding, adoption, renewal, risk, expansion, qbr, etc.) from knowledge base
+  - `formatDataForDocument()` - Prepares data structure for Google Docs/Slides/Sheets with sections and metadata
+- **Types exported**:
+  - CustomerContext, PortfolioContext, Stakeholder, ContractInfo
+  - RenewalPipelineItem, AtRiskCustomer, TeamMetrics, CSMInfo
+  - PlaybookType, DocumentData, DocumentSection, DocumentMetadata
+- **Learnings for future iterations**:
+  - Use `Array.from(map.entries()).forEach()` instead of `for...of` on Maps to avoid downlevelIteration issues
+  - Cast unknown metadata properties explicitly: `(r.metadata?.category as string)`
+  - When creating risk level types, consider context - AtRiskCustomer excludes 'low' since they're already at risk
+  - All helper functions handle missing database gracefully by returning empty defaults
 ---
