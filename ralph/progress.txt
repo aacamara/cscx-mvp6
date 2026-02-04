@@ -544,3 +544,42 @@
   - Calculate totals dynamically from included products in the component
   - Query detection patterns: 'expansion proposal', 'upsell proposal', 'growth proposal', 'upgrade proposal', 'account expansion', 'pricing proposal', 'cross-sell'
 ---
+
+## 2026-02-04 - US-018
+- **What was implemented**: Negotiation brief generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateNegotiationBriefPreview()` function (~330 lines) with types for ContractTerm, LeveragePoint, CounterStrategy, WalkAwayPoint
+  - `server/src/routes/cadg.ts` - Added negotiation_brief detection and `/api/cadg/negotiation-brief/save` endpoint (~200 lines)
+  - `components/AIPanel/CADGNegotiationBriefPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added negotiation brief preview state and handlers (~115 lines)
+- **Features**:
+  - **generateNegotiationBriefPreview()**: Uses Claude to generate negotiation brief with:
+    - Title, negotiation date, contract value, contract term
+    - Current terms with priority levels (must_have, important, nice_to_have)
+    - Leverage points with strength (strong, moderate, weak) and categories (value_delivered, relationship, market_position, strategic_fit, timing)
+    - Counter-strategies for objections with categories (price, scope, timeline, terms, competition)
+    - Walk-away points with severity levels (critical, important, minor)
+    - Competitor intelligence list
+    - Value delivered list
+    - Internal notes section
+  - **CADGNegotiationBriefPreview component**:
+    - Tab-based navigation for Overview, Terms, Leverage, Counter, Walk-Away
+    - Key metrics cards: Contract Value, Days to Renewal, Leverage Points, Walk-Away Points
+    - Expandable contract term cards with priority badges
+    - Leverage points with enable/disable checkboxes, strength badges, category badges
+    - Counter-strategy cards with category classification
+    - Walk-away points with severity indicators
+    - Value delivered and competitor intel list editing
+    - Internal notes textarea
+    - Unsaved changes warning
+    - Indigo/violet accent color theme
+  - **Backend endpoint**: POST `/api/cadg/negotiation-brief/save`:
+    - Creates Google Doc with formatted markdown content
+    - Logs activity to agent_activities table
+- **Learnings for future iterations**:
+  - Negotiation brief uses `isNegotiationBriefPreview: true` response type
+  - Toggle checkboxes for leverage points allow selective inclusion in final document
+  - Priority, strength, and severity indicators help users quickly assess importance
+  - Counter-strategies pair objection with response and evidence for comprehensive preparation
+  - Query detection patterns: 'negotiation brief', 'negotiation prep', 'negotiation strategy', 'renewal negotiation', 'contract negotiation', 'negotiate renewal', 'prepare negotiation', 'leverage points', 'counter strategy', 'walk-away', 'walkaway', 'bargaining', 'deal terms'
+---
