@@ -1226,6 +1226,67 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a transformation roadmap artifact - return preview for HITL
+    const isTransformationRoadmapArtifact = finalPlan.taskType === 'transformation_roadmap' ||
+                                            planRow.user_query?.toLowerCase().includes('transformation roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('transformation plan') ||
+                                            planRow.user_query?.toLowerCase().includes('digital transformation') ||
+                                            planRow.user_query?.toLowerCase().includes('transformation journey') ||
+                                            planRow.user_query?.toLowerCase().includes('change roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('transformation timeline') ||
+                                            planRow.user_query?.toLowerCase().includes('maturity roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('evolution roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('adoption roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('implementation roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('rollout roadmap') ||
+                                            planRow.user_query?.toLowerCase().includes('deployment roadmap');
+
+    if (isTransformationRoadmapArtifact) {
+      // Generate transformation roadmap content but don't finalize - return preview for HITL
+      const transformationRoadmapPreview = await artifactGenerator.generateTransformationRoadmapPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isTransformationRoadmapPreview: true,
+        preview: {
+          title: transformationRoadmapPreview.title,
+          visionStatement: transformationRoadmapPreview.visionStatement,
+          createdDate: transformationRoadmapPreview.createdDate,
+          timelineStart: transformationRoadmapPreview.timelineStart,
+          timelineEnd: transformationRoadmapPreview.timelineEnd,
+          totalDuration: transformationRoadmapPreview.totalDuration,
+          currentState: transformationRoadmapPreview.currentState,
+          targetState: transformationRoadmapPreview.targetState,
+          phases: transformationRoadmapPreview.phases,
+          milestones: transformationRoadmapPreview.milestones,
+          successCriteria: transformationRoadmapPreview.successCriteria,
+          dependencies: transformationRoadmapPreview.dependencies,
+          risks: transformationRoadmapPreview.risks,
+          keyStakeholders: transformationRoadmapPreview.keyStakeholders,
+          notes: transformationRoadmapPreview.notes,
+          healthScore: transformationRoadmapPreview.healthScore,
+          arr: transformationRoadmapPreview.arr,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -6013,6 +6074,293 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save resolution plan',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/transformation-roadmap/save
+ * Save finalized transformation roadmap after user review and create Google Slides
+ */
+router.post('/transformation-roadmap/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      visionStatement,
+      createdDate,
+      timelineStart,
+      timelineEnd,
+      totalDuration,
+      currentState,
+      targetState,
+      phases,
+      milestones,
+      successCriteria,
+      dependencies,
+      risks,
+      keyStakeholders,
+      notes,
+      healthScore,
+      arr,
+      customerId,
+    } = req.body;
+
+    // Get userId from session or request
+    const userId = (req as any).userId || req.body.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Filter enabled items only
+    const enabledPhases = (phases || []).filter((p: any) => p.enabled);
+    const enabledMilestones = (milestones || []).filter((m: any) => m.enabled);
+    const enabledCriteria = (successCriteria || []).filter((c: any) => c.enabled);
+    const enabledDependencies = (dependencies || []).filter((d: any) => d.enabled);
+    const enabledRisks = (risks || []).filter((r: any) => r.enabled);
+
+    // Status and labels for display
+    const STATUS_LABELS: Record<string, string> = {
+      planned: 'Planned',
+      in_progress: 'In Progress',
+      completed: 'Completed',
+      at_risk: 'At Risk',
+    };
+
+    const CATEGORY_LABELS: Record<string, string> = {
+      adoption: 'Adoption',
+      business: 'Business',
+      technical: 'Technical',
+      operational: 'Operational',
+      strategic: 'Strategic',
+    };
+
+    const DEPENDENCY_TYPE_LABELS: Record<string, string> = {
+      internal: 'Internal',
+      external: 'External',
+      customer: 'Customer',
+      vendor: 'Vendor',
+      technical: 'Technical',
+    };
+
+    const LIKELIHOOD_LABELS: Record<string, string> = {
+      high: 'High',
+      medium: 'Medium',
+      low: 'Low',
+    };
+
+    // Build document content for Google Doc
+    const documentContent = `# ${title}
+
+**Created:** ${createdDate}
+**Timeline:** ${timelineStart} to ${timelineEnd} (${totalDuration})
+
+---
+
+## Vision Statement
+
+${visionStatement}
+
+---
+
+## Current State
+
+${currentState}
+
+---
+
+## Target State
+
+${targetState}
+
+---
+
+## Transformation Phases
+
+${enabledPhases.map((phase: any, idx: number) => `### Phase ${idx + 1}: ${phase.name}
+
+**Duration:** ${phase.duration}
+**Timeline:** ${phase.startDate} to ${phase.endDate}
+**Owner:** ${phase.owner}
+**Status:** ${STATUS_LABELS[phase.status] || phase.status}
+
+${phase.description}
+
+**Objectives:**
+${(phase.objectives || []).map((obj: string) => `- ${obj}`).join('\n')}
+
+**Deliverables:**
+${(phase.deliverables || []).map((del: string) => `- ${del}`).join('\n')}
+`).join('\n')}
+
+---
+
+## Key Milestones
+
+| Milestone | Phase | Target Date | Status | Owner |
+|-----------|-------|-------------|--------|-------|
+${enabledMilestones.map((m: any) => {
+  const phase = enabledPhases.find((p: any) => p.id === m.phaseId);
+  return `| ${m.name} | ${phase?.name || 'N/A'} | ${m.targetDate} | ${STATUS_LABELS[m.status] || m.status} | ${m.owner} |`;
+}).join('\n')}
+
+### Milestone Details
+
+${enabledMilestones.map((m: any, idx: number) => `#### ${idx + 1}. ${m.name}
+
+**Target Date:** ${m.targetDate}
+**Status:** ${STATUS_LABELS[m.status] || m.status}
+**Owner:** ${m.owner}
+
+${m.description}
+`).join('\n')}
+
+---
+
+## Success Criteria
+
+| Criterion | Category | Measurable | Target Value |
+|-----------|----------|------------|--------------|
+${enabledCriteria.map((c: any) => `| ${c.criterion} | ${CATEGORY_LABELS[c.category] || c.category} | ${c.measurable ? 'Yes' : 'No'} | ${c.targetValue} |`).join('\n')}
+
+---
+
+## Dependencies
+
+| Dependency | Type | Owner | Status |
+|------------|------|-------|--------|
+${enabledDependencies.map((d: any) => `| ${d.description} | ${DEPENDENCY_TYPE_LABELS[d.type] || d.type} | ${d.owner} | ${d.status} |`).join('\n')}
+
+---
+
+## Risks & Mitigation
+
+| Risk | Likelihood | Impact | Mitigation Strategy |
+|------|------------|--------|---------------------|
+${enabledRisks.map((r: any) => `| ${r.risk} | ${LIKELIHOOD_LABELS[r.likelihood] || r.likelihood} | ${LIKELIHOOD_LABELS[r.impact] || r.impact} | ${r.mitigation} |`).join('\n')}
+
+---
+
+## Key Stakeholders
+
+${(keyStakeholders || []).map((s: string, idx: number) => `${idx + 1}. ${s}`).join('\n')}
+
+---
+
+${notes ? `## Internal Notes
+
+${notes}
+
+---
+
+` : ''}
+*Document generated via CSCX.AI Transformation Roadmap*
+`;
+
+    // Create Google Doc first
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create transformation roadmap document:', docsErr);
+    }
+
+    // Try to create Google Slides presentation
+    let slidesResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { qbrSlidesService } = await import('../services/google/qbrSlides.js');
+
+      // Build slides content
+      const slidesData = {
+        title,
+        visionStatement,
+        currentState,
+        targetState,
+        phases: enabledPhases,
+        milestones: enabledMilestones,
+        successCriteria: enabledCriteria,
+        risks: enabledRisks,
+        keyStakeholders,
+      };
+
+      // Create presentation using the transformation roadmap method if available
+      // Otherwise fall back to creating a basic presentation
+      if ((qbrSlidesService as any).createTransformationRoadmapPresentation) {
+        slidesResult = await (qbrSlidesService as any).createTransformationRoadmapPresentation(userId, slidesData);
+      } else {
+        // Create a basic presentation structure
+        const { slidesService } = await import('../services/google/slides.js');
+        if (slidesService?.createPresentation) {
+          slidesResult = await slidesService.createPresentation(userId, {
+            title: title,
+          });
+        }
+      }
+    } catch (slidesErr) {
+      console.warn('[CADG] Could not create transformation roadmap slides:', slidesErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity
+    if (customerId) {
+      try {
+        const { config } = await import('../config/index.js');
+        const { createClient } = await import('@supabase/supabase-js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'transformation_roadmap_created',
+            description: `Transformation roadmap created: ${title} - ${enabledPhases.length} phases, ${enabledMilestones.length} milestones`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              slidesId: slidesResult?.id,
+              slidesUrl: slidesResult?.webViewLink,
+              timelineStart,
+              timelineEnd,
+              totalDuration,
+              healthScore,
+              arr,
+              phaseCount: enabledPhases.length,
+              milestoneCount: enabledMilestones.length,
+              criteriaCount: enabledCriteria.length,
+              riskCount: enabledRisks.length,
+              createdVia: 'cadg_transformation_roadmap_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log transformation roadmap activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      slidesId: slidesResult?.id,
+      slidesUrl: slidesResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Transformation roadmap save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save transformation roadmap',
     });
   }
 });

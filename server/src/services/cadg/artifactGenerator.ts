@@ -7736,6 +7736,557 @@ Format your response as JSON:
   }
 }
 
+// =============================================================================
+// TRANSFORMATION ROADMAP PREVIEW
+// =============================================================================
+
+interface TransformationPhase {
+  id: string;
+  name: string;
+  description: string;
+  duration: string;
+  startDate: string;
+  endDate: string;
+  objectives: string[];
+  deliverables: string[];
+  owner: 'CSM' | 'Customer' | 'Product' | 'Engineering' | 'Sales' | 'Support' | 'Leadership' | 'All';
+  status: 'planned' | 'in_progress' | 'completed' | 'at_risk';
+  enabled: boolean;
+}
+
+interface TransformationMilestone {
+  id: string;
+  name: string;
+  description: string;
+  phaseId: string;
+  targetDate: string;
+  status: 'planned' | 'in_progress' | 'completed' | 'at_risk';
+  owner: string;
+  enabled: boolean;
+}
+
+interface TransformationSuccessCriterion {
+  id: string;
+  criterion: string;
+  category: 'adoption' | 'business' | 'technical' | 'operational' | 'strategic';
+  measurable: boolean;
+  targetValue: string;
+  enabled: boolean;
+}
+
+interface TransformationDependency {
+  id: string;
+  description: string;
+  type: 'internal' | 'external' | 'customer' | 'vendor' | 'technical';
+  owner: string;
+  status: 'resolved' | 'pending' | 'blocked';
+  enabled: boolean;
+}
+
+interface TransformationRisk {
+  id: string;
+  risk: string;
+  likelihood: 'high' | 'medium' | 'low';
+  impact: 'high' | 'medium' | 'low';
+  mitigation: string;
+  enabled: boolean;
+}
+
+export interface TransformationRoadmapPreviewResult {
+  title: string;
+  visionStatement: string;
+  createdDate: string;
+  timelineStart: string;
+  timelineEnd: string;
+  totalDuration: string;
+  currentState: string;
+  targetState: string;
+  phases: TransformationPhase[];
+  milestones: TransformationMilestone[];
+  successCriteria: TransformationSuccessCriterion[];
+  dependencies: TransformationDependency[];
+  risks: TransformationRisk[];
+  keyStakeholders: string[];
+  notes: string;
+  healthScore: number;
+  arr: number;
+}
+
+async function generateTransformationRoadmapPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<TransformationRoadmapPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 72;
+  const arr = customer?.arr || 150000;
+  const tier = customer?.tier || 'Enterprise';
+  const industryCode = customer?.industryCode || 'technology';
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 65;
+
+  // Get risk signals
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high');
+
+  // Calculate timeline (6-18 months typical for transformation)
+  const startDate = new Date();
+  const endDate = new Date();
+  endDate.setMonth(endDate.getMonth() + 12); // 12 months default
+  const timelineStart = startDate.toISOString().slice(0, 10);
+  const timelineEnd = endDate.toISOString().slice(0, 10);
+
+  // Build prompt for transformation roadmap generation
+  const prompt = `You are a customer success strategist creating a digital transformation roadmap. Generate a comprehensive roadmap that outlines the journey from current state to target state.
+
+Customer: ${customerName}
+Industry: ${industryCode}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100
+Current ARR: $${arr.toLocaleString()}
+Feature Adoption: ${featureAdoption}%
+High Risk Signals: ${hasHighRisk ? 'Yes' : 'No'}
+Timeline: ${timelineStart} to ${timelineEnd}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a transformation roadmap with:
+1. Vision statement (2-3 sentences describing the transformation goal)
+2. Current state description (where they are now)
+3. Target state description (where they want to be)
+4. 3-5 transformation phases with objectives, deliverables, and timelines
+5. 5-8 key milestones distributed across phases
+6. 4-6 success criteria with measurable targets
+7. 3-5 dependencies
+8. 3-5 risks with mitigation strategies
+9. Key stakeholders involved
+
+Format your response as JSON:
+{
+  "visionStatement": "2-3 sentence transformation vision",
+  "currentState": "Description of current state",
+  "targetState": "Description of target state",
+  "phases": [
+    {
+      "name": "Phase name (e.g., 'Foundation', 'Build', 'Scale', 'Optimize')",
+      "description": "Phase description",
+      "duration": "3 months",
+      "objectives": ["Objective 1", "Objective 2"],
+      "deliverables": ["Deliverable 1", "Deliverable 2"],
+      "owner": "CSM|Customer|Product|Engineering|Sales|Support|Leadership|All"
+    }
+  ],
+  "milestones": [
+    {
+      "name": "Milestone name",
+      "description": "Description",
+      "phaseIndex": 0,
+      "targetDate": "YYYY-MM-DD",
+      "owner": "Owner name"
+    }
+  ],
+  "successCriteria": [
+    {
+      "criterion": "Success criterion description",
+      "category": "adoption|business|technical|operational|strategic",
+      "measurable": true,
+      "targetValue": "Target value or percentage"
+    }
+  ],
+  "dependencies": [
+    {
+      "description": "Dependency description",
+      "type": "internal|external|customer|vendor|technical",
+      "owner": "Owner"
+    }
+  ],
+  "risks": [
+    {
+      "risk": "Risk description",
+      "likelihood": "high|medium|low",
+      "impact": "high|medium|low",
+      "mitigation": "Mitigation strategy"
+    }
+  ],
+  "keyStakeholders": ["Stakeholder 1", "Stakeholder 2"]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Get vision statement
+    const visionStatement = parsed.visionStatement ||
+      `Transform ${customerName} into a digitally mature organization that fully leverages our platform capabilities. ` +
+      `This transformation will drive operational excellence, improve user adoption to 90%+, and unlock significant business value through automation and insights.`;
+
+    // Get current and target state
+    const currentState = parsed.currentState ||
+      `${customerName} currently has ${featureAdoption}% feature adoption with ${healthScore}/100 health score. ` +
+      `Key opportunities exist to expand usage, improve user engagement, and leverage advanced capabilities that remain underutilized.`;
+
+    const targetState = parsed.targetState ||
+      `A fully adopted, deeply integrated solution with 90%+ feature adoption, active executive sponsorship, ` +
+      `and measurable business outcomes including ${hasHighRisk ? 'stabilized account health' : 'expansion opportunities'} and demonstrated ROI.`;
+
+    // Calculate phase dates
+    const totalMonths = 12;
+    const phaseCount = Math.max(parsed.phases?.length || 0, 3);
+    const monthsPerPhase = Math.floor(totalMonths / phaseCount);
+
+    // Process phases
+    const phases: TransformationPhase[] = (parsed.phases || []).map((phase: any, idx: number) => {
+      const phaseStart = new Date(startDate);
+      phaseStart.setMonth(phaseStart.getMonth() + (idx * monthsPerPhase));
+      const phaseEnd = new Date(phaseStart);
+      phaseEnd.setMonth(phaseEnd.getMonth() + monthsPerPhase);
+
+      return {
+        id: `phase-${idx + 1}`,
+        name: phase.name || `Phase ${idx + 1}`,
+        description: phase.description || '',
+        duration: phase.duration || `${monthsPerPhase} months`,
+        startDate: phaseStart.toISOString().slice(0, 10),
+        endDate: phaseEnd.toISOString().slice(0, 10),
+        objectives: phase.objectives || [],
+        deliverables: phase.deliverables || [],
+        owner: (phase.owner as TransformationPhase['owner']) || 'CSM',
+        status: idx === 0 ? 'in_progress' : 'planned',
+        enabled: true,
+      };
+    });
+
+    // Ensure minimum phases
+    if (phases.length < 3) {
+      const defaultPhases: TransformationPhase[] = [
+        {
+          id: 'phase-1',
+          name: 'Foundation',
+          description: 'Establish the groundwork for transformation including stakeholder alignment, baseline metrics, and quick wins',
+          duration: '3 months',
+          startDate: new Date(startDate).toISOString().slice(0, 10),
+          endDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 3)).toISOString().slice(0, 10),
+          objectives: ['Align stakeholders on transformation goals', 'Establish baseline metrics', 'Identify quick wins'],
+          deliverables: ['Stakeholder alignment document', 'Baseline metrics report', 'Quick wins roadmap'],
+          owner: 'CSM',
+          status: 'in_progress',
+          enabled: true,
+        },
+        {
+          id: 'phase-2',
+          name: 'Build & Adopt',
+          description: 'Drive core adoption, implement key workflows, and build internal capabilities',
+          duration: '4 months',
+          startDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 3)).toISOString().slice(0, 10),
+          endDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 7)).toISOString().slice(0, 10),
+          objectives: ['Achieve 75% feature adoption', 'Train power users', 'Implement core workflows'],
+          deliverables: ['Training program completed', 'Workflow documentation', 'Champion network established'],
+          owner: 'Customer',
+          status: 'planned',
+          enabled: true,
+        },
+        {
+          id: 'phase-3',
+          name: 'Scale & Optimize',
+          description: 'Expand usage across organization, optimize processes, and demonstrate ROI',
+          duration: '3 months',
+          startDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 7)).toISOString().slice(0, 10),
+          endDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 10)).toISOString().slice(0, 10),
+          objectives: ['Achieve 90% adoption', 'Quantify business value', 'Identify expansion opportunities'],
+          deliverables: ['ROI report', 'Expansion proposal', 'Success story documentation'],
+          owner: 'CSM',
+          status: 'planned',
+          enabled: true,
+        },
+        {
+          id: 'phase-4',
+          name: 'Sustain & Innovate',
+          description: 'Maintain momentum, explore advanced features, and plan for future growth',
+          duration: '2 months',
+          startDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 10)).toISOString().slice(0, 10),
+          endDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 12)).toISOString().slice(0, 10),
+          objectives: ['Sustain high adoption', 'Pilot advanced features', 'Plan year 2 roadmap'],
+          deliverables: ['Sustainability plan', 'Year 2 roadmap', 'Innovation pipeline'],
+          owner: 'All',
+          status: 'planned',
+          enabled: true,
+        },
+      ];
+
+      defaultPhases.forEach((defaultPhase, idx) => {
+        if (phases.length < 3) {
+          phases.push({ ...defaultPhase, id: `phase-${phases.length + 1}` });
+        }
+      });
+    }
+
+    // Process milestones
+    const milestones: TransformationMilestone[] = (parsed.milestones || []).map((ms: any, idx: number) => {
+      const phaseIndex = ms.phaseIndex !== undefined ? ms.phaseIndex : Math.floor(idx / 2);
+      const phaseId = `phase-${(phaseIndex % phases.length) + 1}`;
+
+      return {
+        id: `milestone-${idx + 1}`,
+        name: ms.name || `Milestone ${idx + 1}`,
+        description: ms.description || '',
+        phaseId,
+        targetDate: ms.targetDate || new Date(Date.now() + ((idx + 1) * 30) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: (ms.status as TransformationMilestone['status']) || 'planned',
+        owner: ms.owner || 'CSM',
+        enabled: true,
+      };
+    });
+
+    // Ensure minimum milestones
+    if (milestones.length < 5) {
+      const defaultMilestones: TransformationMilestone[] = [
+        { id: 'milestone-1', name: 'Kickoff Complete', description: 'Transformation kickoff meeting completed with all stakeholders', phaseId: 'phase-1', targetDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-2', name: 'Baseline Established', description: 'Current state metrics documented and baseline set', phaseId: 'phase-1', targetDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-3', name: 'Training Complete', description: 'Core user training program completed', phaseId: 'phase-2', targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'Customer', enabled: true },
+        { id: 'milestone-4', name: '75% Adoption', description: 'Feature adoption rate reaches 75%', phaseId: 'phase-2', targetDate: new Date(Date.now() + 150 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'Customer', enabled: true },
+        { id: 'milestone-5', name: 'ROI Demonstrated', description: 'Business value quantified and documented', phaseId: 'phase-3', targetDate: new Date(Date.now() + 240 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-6', name: '90% Adoption', description: 'Feature adoption rate reaches target of 90%', phaseId: 'phase-3', targetDate: new Date(Date.now() + 300 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'Customer', enabled: true },
+        { id: 'milestone-7', name: 'Transformation Complete', description: 'All transformation objectives achieved', phaseId: phases[phases.length - 1]?.id || 'phase-4', targetDate: timelineEnd, status: 'planned', owner: 'All', enabled: true },
+      ];
+
+      defaultMilestones.forEach((defaultMs) => {
+        if (milestones.length < 5) {
+          milestones.push({ ...defaultMs, id: `milestone-${milestones.length + 1}` });
+        }
+      });
+    }
+
+    // Process success criteria
+    const successCriteria: TransformationSuccessCriterion[] = (parsed.successCriteria || []).map((sc: any, idx: number) => ({
+      id: `criterion-${idx + 1}`,
+      criterion: sc.criterion || `Success Criterion ${idx + 1}`,
+      category: (sc.category as TransformationSuccessCriterion['category']) || 'business',
+      measurable: sc.measurable !== false,
+      targetValue: sc.targetValue || 'TBD',
+      enabled: true,
+    }));
+
+    // Ensure minimum success criteria
+    if (successCriteria.length < 4) {
+      const defaultCriteria: TransformationSuccessCriterion[] = [
+        { id: 'criterion-1', criterion: 'Feature adoption rate reaches target level', category: 'adoption', measurable: true, targetValue: '90%+ adoption', enabled: true },
+        { id: 'criterion-2', criterion: 'Demonstrated ROI and business value', category: 'business', measurable: true, targetValue: '3x ROI', enabled: true },
+        { id: 'criterion-3', criterion: 'User satisfaction and NPS improvement', category: 'adoption', measurable: true, targetValue: 'NPS > 50', enabled: true },
+        { id: 'criterion-4', criterion: 'Process efficiency gains realized', category: 'operational', measurable: true, targetValue: '30% time savings', enabled: true },
+        { id: 'criterion-5', criterion: 'Executive sponsorship maintained', category: 'strategic', measurable: false, targetValue: 'Quarterly engagement', enabled: true },
+        { id: 'criterion-6', criterion: 'Technical integration complete', category: 'technical', measurable: true, targetValue: '100% data sync', enabled: true },
+      ];
+
+      defaultCriteria.forEach((defaultCrit) => {
+        if (successCriteria.length < 4) {
+          successCriteria.push({ ...defaultCrit, id: `criterion-${successCriteria.length + 1}` });
+        }
+      });
+    }
+
+    // Process dependencies
+    const dependencies: TransformationDependency[] = (parsed.dependencies || []).map((dep: any, idx: number) => ({
+      id: `dependency-${idx + 1}`,
+      description: dep.description || `Dependency ${idx + 1}`,
+      type: (dep.type as TransformationDependency['type']) || 'internal',
+      owner: dep.owner || 'TBD',
+      status: 'pending',
+      enabled: true,
+    }));
+
+    // Ensure minimum dependencies
+    if (dependencies.length < 3) {
+      const defaultDependencies: TransformationDependency[] = [
+        { id: 'dependency-1', description: 'Executive sponsor availability for key meetings', type: 'customer', owner: 'Customer', status: 'pending', enabled: true },
+        { id: 'dependency-2', description: 'IT resources for technical integration', type: 'customer', owner: 'Customer IT', status: 'pending', enabled: true },
+        { id: 'dependency-3', description: 'Training content and enablement materials', type: 'internal', owner: 'CSM', status: 'pending', enabled: true },
+        { id: 'dependency-4', description: 'Change management support', type: 'customer', owner: 'Customer HR', status: 'pending', enabled: true },
+        { id: 'dependency-5', description: 'Product roadmap alignment', type: 'internal', owner: 'Product', status: 'pending', enabled: true },
+      ];
+
+      defaultDependencies.forEach((defaultDep) => {
+        if (dependencies.length < 3) {
+          dependencies.push({ ...defaultDep, id: `dependency-${dependencies.length + 1}` });
+        }
+      });
+    }
+
+    // Process risks
+    const risks: TransformationRisk[] = (parsed.risks || []).map((risk: any, idx: number) => ({
+      id: `risk-${idx + 1}`,
+      risk: risk.risk || `Risk ${idx + 1}`,
+      likelihood: (risk.likelihood as TransformationRisk['likelihood']) || 'medium',
+      impact: (risk.impact as TransformationRisk['impact']) || 'medium',
+      mitigation: risk.mitigation || 'Mitigation strategy TBD',
+      enabled: true,
+    }));
+
+    // Ensure minimum risks
+    if (risks.length < 3) {
+      const defaultRisks: TransformationRisk[] = [
+        { id: 'risk-1', risk: 'Competing organizational priorities reduce focus', likelihood: 'medium', impact: 'high', mitigation: 'Regular executive alignment and progress reviews', enabled: true },
+        { id: 'risk-2', risk: 'Key stakeholder or champion departure', likelihood: 'low', impact: 'high', mitigation: 'Build champion network with multiple contacts', enabled: true },
+        { id: 'risk-3', risk: 'Technical integration delays', likelihood: 'medium', impact: 'medium', mitigation: 'Early technical planning and contingency buffer', enabled: true },
+        { id: 'risk-4', risk: 'User resistance to change', likelihood: 'medium', impact: 'medium', mitigation: 'Change management program and quick wins', enabled: true },
+        { id: 'risk-5', risk: 'Budget constraints affecting resources', likelihood: 'low', impact: 'medium', mitigation: 'Clear ROI demonstration and phased approach', enabled: true },
+      ];
+
+      defaultRisks.forEach((defaultRisk) => {
+        if (risks.length < 3) {
+          risks.push({ ...defaultRisk, id: `risk-${risks.length + 1}` });
+        }
+      });
+    }
+
+    // Process key stakeholders
+    let keyStakeholders = parsed.keyStakeholders || [];
+    if (!Array.isArray(keyStakeholders) || keyStakeholders.length < 3) {
+      keyStakeholders = [
+        'Executive Sponsor',
+        'Project Lead',
+        'IT Administrator',
+        'Department Champions',
+        'CSM Team',
+      ];
+    }
+
+    // Calculate total duration
+    const totalDuration = `${totalMonths} months`;
+
+    return {
+      title: `Transformation Roadmap: ${customerName}`,
+      visionStatement,
+      createdDate: new Date().toISOString().slice(0, 10),
+      timelineStart,
+      timelineEnd,
+      totalDuration,
+      currentState,
+      targetState,
+      phases,
+      milestones,
+      successCriteria,
+      dependencies,
+      risks,
+      keyStakeholders,
+      notes: '',
+      healthScore,
+      arr,
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Transformation roadmap preview generation error:', error);
+
+    // Return fallback transformation roadmap
+    const fallbackVision = `Transform ${customerName} into a digitally mature organization that fully leverages platform capabilities to drive operational excellence and business value.`;
+
+    const fallbackPhases: TransformationPhase[] = [
+      {
+        id: 'phase-1',
+        name: 'Foundation',
+        description: 'Establish groundwork for transformation',
+        duration: '3 months',
+        startDate: timelineStart,
+        endDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 3)).toISOString().slice(0, 10),
+        objectives: ['Align stakeholders', 'Establish baselines', 'Identify quick wins'],
+        deliverables: ['Alignment document', 'Baseline report'],
+        owner: 'CSM',
+        status: 'in_progress',
+        enabled: true,
+      },
+      {
+        id: 'phase-2',
+        name: 'Build & Adopt',
+        description: 'Drive core adoption and capabilities',
+        duration: '4 months',
+        startDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 3)).toISOString().slice(0, 10),
+        endDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 7)).toISOString().slice(0, 10),
+        objectives: ['75% adoption', 'Train users', 'Implement workflows'],
+        deliverables: ['Training complete', 'Workflows documented'],
+        owner: 'Customer',
+        status: 'planned',
+        enabled: true,
+      },
+      {
+        id: 'phase-3',
+        name: 'Scale & Optimize',
+        description: 'Expand and demonstrate value',
+        duration: '5 months',
+        startDate: new Date(new Date(startDate).setMonth(startDate.getMonth() + 7)).toISOString().slice(0, 10),
+        endDate: timelineEnd,
+        objectives: ['90% adoption', 'Demonstrate ROI', 'Plan expansion'],
+        deliverables: ['ROI report', 'Expansion plan'],
+        owner: 'CSM',
+        status: 'planned',
+        enabled: true,
+      },
+    ];
+
+    const fallbackMilestones: TransformationMilestone[] = [
+      { id: 'milestone-1', name: 'Kickoff Complete', description: 'Kickoff meeting done', phaseId: 'phase-1', targetDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+      { id: 'milestone-2', name: 'Training Complete', description: 'Core training done', phaseId: 'phase-2', targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'Customer', enabled: true },
+      { id: 'milestone-3', name: '75% Adoption', description: 'Adoption target reached', phaseId: 'phase-2', targetDate: new Date(Date.now() + 150 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'Customer', enabled: true },
+      { id: 'milestone-4', name: 'ROI Demonstrated', description: 'Value quantified', phaseId: 'phase-3', targetDate: new Date(Date.now() + 240 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+      { id: 'milestone-5', name: 'Transformation Complete', description: 'All objectives achieved', phaseId: 'phase-3', targetDate: timelineEnd, status: 'planned', owner: 'All', enabled: true },
+    ];
+
+    const fallbackCriteria: TransformationSuccessCriterion[] = [
+      { id: 'criterion-1', criterion: 'Feature adoption > 90%', category: 'adoption', measurable: true, targetValue: '90%', enabled: true },
+      { id: 'criterion-2', criterion: 'ROI demonstrated', category: 'business', measurable: true, targetValue: '3x ROI', enabled: true },
+      { id: 'criterion-3', criterion: 'User satisfaction improved', category: 'adoption', measurable: true, targetValue: 'NPS > 50', enabled: true },
+      { id: 'criterion-4', criterion: 'Process efficiency gains', category: 'operational', measurable: true, targetValue: '30% savings', enabled: true },
+    ];
+
+    const fallbackDependencies: TransformationDependency[] = [
+      { id: 'dependency-1', description: 'Executive sponsor availability', type: 'customer', owner: 'Customer', status: 'pending', enabled: true },
+      { id: 'dependency-2', description: 'IT resources for integration', type: 'customer', owner: 'Customer IT', status: 'pending', enabled: true },
+      { id: 'dependency-3', description: 'Training materials ready', type: 'internal', owner: 'CSM', status: 'pending', enabled: true },
+    ];
+
+    const fallbackRisks: TransformationRisk[] = [
+      { id: 'risk-1', risk: 'Competing priorities', likelihood: 'medium', impact: 'high', mitigation: 'Regular exec alignment', enabled: true },
+      { id: 'risk-2', risk: 'Key stakeholder departure', likelihood: 'low', impact: 'high', mitigation: 'Multiple champions', enabled: true },
+      { id: 'risk-3', risk: 'Technical delays', likelihood: 'medium', impact: 'medium', mitigation: 'Buffer time planned', enabled: true },
+    ];
+
+    return {
+      title: `Transformation Roadmap: ${customerName}`,
+      visionStatement: fallbackVision,
+      createdDate: new Date().toISOString().slice(0, 10),
+      timelineStart,
+      timelineEnd,
+      totalDuration: '12 months',
+      currentState: `${customerName} currently has ${featureAdoption}% adoption with opportunities for improvement.`,
+      targetState: 'A fully adopted solution with 90%+ adoption and demonstrated business value.',
+      phases: fallbackPhases,
+      milestones: fallbackMilestones,
+      successCriteria: fallbackCriteria,
+      dependencies: fallbackDependencies,
+      risks: fallbackRisks,
+      keyStakeholders: ['Executive Sponsor', 'Project Lead', 'IT Admin', 'Champions', 'CSM'],
+      notes: '',
+      healthScore,
+      arr,
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -7760,4 +8311,5 @@ export const artifactGenerator = {
   generateResolutionPlanPreview,
   generateExecutiveBriefingPreview,
   generateAccountPlanPreview,
+  generateTransformationRoadmapPreview,
 };

@@ -27,6 +27,7 @@ import { CADGEscalationReportPreview, EscalationReportData, CustomerData as Esca
 import { CADGResolutionPlanPreview, ResolutionPlanData, CustomerData as ResolutionPlanCustomerData } from './CADGResolutionPlanPreview';
 import { CADGExecutiveBriefingPreview, ExecutiveBriefingData, CustomerData as ExecutiveBriefingCustomerData } from './CADGExecutiveBriefingPreview';
 import { CADGAccountPlanPreview, AccountPlanData, CustomerData as AccountPlanCustomerData } from './CADGAccountPlanPreview';
+import { CADGTransformationRoadmapPreview, TransformationRoadmapData, CustomerData as TransformationRoadmapCustomerData } from './CADGTransformationRoadmapPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -306,6 +307,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [accountPlanPreviewData, setAccountPlanPreviewData] = useState<{
     accountPlan: AccountPlanData;
     customer: AccountPlanCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Transformation roadmap preview state for HITL workflow
+  const [showTransformationRoadmapPreview, setShowTransformationRoadmapPreview] = useState(false);
+  const [transformationRoadmapPreviewData, setTransformationRoadmapPreviewData] = useState<{
+    roadmap: TransformationRoadmapData;
+    customer: TransformationRoadmapCustomerData;
     planId: string;
   } | null>(null);
 
@@ -929,6 +938,43 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowAccountPlanPreview(true);
         setStatus('pending'); // Keep in pending until account plan is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a transformation roadmap preview (HITL workflow)
+      if (data.isTransformationRoadmapPreview && data.preview) {
+        setTransformationRoadmapPreviewData({
+          roadmap: {
+            title: data.preview.title || 'Transformation Roadmap',
+            visionStatement: data.preview.visionStatement || '',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            timelineStart: data.preview.timelineStart || '',
+            timelineEnd: data.preview.timelineEnd || '',
+            totalDuration: data.preview.totalDuration || '12 months',
+            currentState: data.preview.currentState || '',
+            targetState: data.preview.targetState || '',
+            phases: data.preview.phases || [],
+            milestones: data.preview.milestones || [],
+            successCriteria: data.preview.successCriteria || [],
+            dependencies: data.preview.dependencies || [],
+            risks: data.preview.risks || [],
+            keyStakeholders: data.preview.keyStakeholders || [],
+            notes: data.preview.notes || '',
+            healthScore: data.preview.healthScore || 0,
+            arr: data.preview.arr || 0,
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowTransformationRoadmapPreview(true);
+        setStatus('pending'); // Keep in pending until transformation roadmap is saved
         setIsApproving(false);
         return;
       }
@@ -2325,6 +2371,79 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving transformation roadmap from preview
+  const handleTransformationRoadmapSave = async (roadmap: TransformationRoadmapData) => {
+    if (!transformationRoadmapPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/transformation-roadmap/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: transformationRoadmapPreviewData.planId,
+        title: roadmap.title,
+        visionStatement: roadmap.visionStatement,
+        createdDate: roadmap.createdDate,
+        timelineStart: roadmap.timelineStart,
+        timelineEnd: roadmap.timelineEnd,
+        totalDuration: roadmap.totalDuration,
+        currentState: roadmap.currentState,
+        targetState: roadmap.targetState,
+        phases: roadmap.phases,
+        milestones: roadmap.milestones,
+        successCriteria: roadmap.successCriteria,
+        dependencies: roadmap.dependencies,
+        risks: roadmap.risks,
+        keyStakeholders: roadmap.keyStakeholders,
+        notes: roadmap.notes,
+        healthScore: roadmap.healthScore,
+        arr: roadmap.arr,
+        customerId: transformationRoadmapPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save transformation roadmap');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowTransformationRoadmapPreview(false);
+    setTransformationRoadmapPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'transformation-roadmap',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+        additionalFiles: result.slidesId ? [{
+          type: 'slides',
+          fileId: result.slidesId,
+          url: result.slidesUrl,
+          title: 'Transformation Roadmap Presentation',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'transformation-roadmap');
+  };
+
+  // Handle canceling transformation roadmap preview
+  const handleTransformationRoadmapCancel = () => {
+    setShowTransformationRoadmapPreview(false);
+    setTransformationRoadmapPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2717,6 +2836,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={accountPlanPreviewData.customer}
         onSave={handleAccountPlanSave}
         onCancel={handleAccountPlanCancel}
+      />
+    );
+  }
+
+  // Transformation roadmap preview mode
+  if (showTransformationRoadmapPreview && transformationRoadmapPreviewData) {
+    return (
+      <CADGTransformationRoadmapPreview
+        roadmap={transformationRoadmapPreviewData.roadmap}
+        customer={transformationRoadmapPreviewData.customer}
+        onSave={handleTransformationRoadmapSave}
+        onCancel={handleTransformationRoadmapCancel}
       />
     );
   }
