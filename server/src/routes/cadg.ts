@@ -738,6 +738,63 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a negotiation brief artifact - return preview for HITL
+    const isNegotiationBriefArtifact = finalPlan.taskType === 'negotiation_brief' ||
+                                        planRow.user_query?.toLowerCase().includes('negotiation brief') ||
+                                        planRow.user_query?.toLowerCase().includes('negotiation prep') ||
+                                        planRow.user_query?.toLowerCase().includes('negotiation strategy') ||
+                                        planRow.user_query?.toLowerCase().includes('renewal negotiation') ||
+                                        planRow.user_query?.toLowerCase().includes('contract negotiation') ||
+                                        planRow.user_query?.toLowerCase().includes('negotiate renewal') ||
+                                        planRow.user_query?.toLowerCase().includes('prepare negotiation') ||
+                                        planRow.user_query?.toLowerCase().includes('leverage points') ||
+                                        planRow.user_query?.toLowerCase().includes('counter strategy') ||
+                                        planRow.user_query?.toLowerCase().includes('walk-away') ||
+                                        planRow.user_query?.toLowerCase().includes('walkaway') ||
+                                        planRow.user_query?.toLowerCase().includes('bargaining') ||
+                                        planRow.user_query?.toLowerCase().includes('deal terms');
+
+    if (isNegotiationBriefArtifact) {
+      // Generate negotiation brief content but don't finalize - return preview for HITL
+      const negotiationBriefPreview = await artifactGenerator.generateNegotiationBriefPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isNegotiationBriefPreview: true,
+        preview: {
+          title: negotiationBriefPreview.title,
+          negotiationDate: negotiationBriefPreview.negotiationDate,
+          contractValue: negotiationBriefPreview.contractValue,
+          contractTerm: negotiationBriefPreview.contractTerm,
+          renewalDate: negotiationBriefPreview.renewalDate,
+          currentTerms: negotiationBriefPreview.currentTerms,
+          leveragePoints: negotiationBriefPreview.leveragePoints,
+          counterStrategies: negotiationBriefPreview.counterStrategies,
+          walkAwayPoints: negotiationBriefPreview.walkAwayPoints,
+          competitorIntel: negotiationBriefPreview.competitorIntel,
+          valueDelivered: negotiationBriefPreview.valueDelivered,
+          internalNotes: negotiationBriefPreview.internalNotes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -3833,6 +3890,211 @@ ${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save expansion proposal',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/negotiation-brief/save
+ * Save finalized negotiation brief after user review
+ */
+router.post('/negotiation-brief/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      negotiationDate,
+      contractValue,
+      contractTerm,
+      renewalDate,
+      currentTerms,
+      leveragePoints,
+      counterStrategies,
+      walkAwayPoints,
+      competitorIntel,
+      valueDelivered,
+      internalNotes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import services
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Filter to only enabled leverage points
+    const enabledLeveragePoints = (leveragePoints || []).filter((l: any) => l.enabled);
+
+    // Priority labels
+    const priorityLabels: Record<string, string> = {
+      must_have: '🔴 Must Have',
+      important: '🟡 Important',
+      nice_to_have: '🟢 Nice to Have',
+    };
+
+    const strengthLabels: Record<string, string> = {
+      strong: '💪 Strong',
+      moderate: '➡️ Moderate',
+      weak: '⚠️ Weak',
+    };
+
+    const severityLabels: Record<string, string> = {
+      critical: '🚫 Critical',
+      important: '⚠️ Important',
+      minor: 'ℹ️ Minor',
+    };
+
+    const categoryLabels: Record<string, string> = {
+      value_delivered: 'Value Delivered',
+      relationship: 'Relationship',
+      market_position: 'Market Position',
+      strategic_fit: 'Strategic Fit',
+      timing: 'Timing',
+      price: 'Price',
+      scope: 'Scope',
+      timeline: 'Timeline',
+      terms: 'Terms',
+      competition: 'Competition',
+    };
+
+    // Build document content
+    const termsContent = (currentTerms || []).map((t: any) =>
+      `### ${t.term}\n**Current:** ${t.currentValue}\n**Target:** ${t.targetValue}\n**Priority:** ${priorityLabels[t.priority] || t.priority}${t.notes ? `\n*Notes: ${t.notes}*` : ''}`
+    ).join('\n\n');
+
+    const leverageContent = enabledLeveragePoints.map((l: any) =>
+      `### ${l.title}\n**Strength:** ${strengthLabels[l.strength] || l.strength} | **Category:** ${categoryLabels[l.category] || l.category}\n${l.description}`
+    ).join('\n\n');
+
+    const counterContent = (counterStrategies || []).map((c: any) =>
+      `### ${c.objection}\n**Category:** ${categoryLabels[c.category] || c.category}\n**Response:** ${c.response}\n**Evidence:** ${c.evidence}`
+    ).join('\n\n');
+
+    const walkAwayContent = (walkAwayPoints || []).map((w: any) =>
+      `### ${w.condition}\n**Severity:** ${severityLabels[w.severity] || w.severity}\n**Threshold:** ${w.threshold}\n**Rationale:** ${w.rationale}`
+    ).join('\n\n');
+
+    // Build full document content
+    const documentContent = `# ${title}
+
+**Negotiation Date:** ${negotiationDate || new Date().toISOString().slice(0, 10)}
+**Contract Value:** $${(contractValue || 0).toLocaleString()}
+**Contract Term:** ${contractTerm || '12 months'}
+**Renewal Date:** ${renewalDate || 'TBD'}
+
+---
+
+## Contract Terms
+
+${termsContent || 'No terms specified'}
+
+---
+
+## Leverage Points
+
+${leverageContent || 'No leverage points enabled'}
+
+---
+
+## Counter-Strategies
+
+${counterContent || 'No counter-strategies defined'}
+
+---
+
+## Walk-Away Points
+
+${walkAwayContent || 'No walk-away points defined'}
+
+---
+
+## Competitor Intelligence
+
+${(competitorIntel || []).map((c: string) => `• ${c}`).join('\n') || 'No competitor intel'}
+
+---
+
+## Value Delivered
+
+${(valueDelivered || []).map((v: string) => `• ${v}`).join('\n') || 'No value points'}
+
+${internalNotes ? `\n---\n\n## Internal Notes\n\n${internalNotes}` : ''}
+
+---
+
+*Generated by CSCX.AI - CONFIDENTIAL*`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create negotiation brief document:', docsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'negotiation_brief_created',
+            description: `Negotiation brief created: ${title} - $${(contractValue || 0).toLocaleString()} contract`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              contractValue,
+              contractTerm,
+              renewalDate,
+              termsCount: (currentTerms || []).length,
+              leveragePointsCount: enabledLeveragePoints.length,
+              counterStrategiesCount: (counterStrategies || []).length,
+              walkAwayPointsCount: (walkAwayPoints || []).length,
+              createdVia: 'cadg_negotiation_brief_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log negotiation brief activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Negotiation brief save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save negotiation brief',
     });
   }
 });

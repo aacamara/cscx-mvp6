@@ -5196,6 +5196,339 @@ Format your response as JSON:
   }
 }
 
+// ============================================
+// Negotiation Brief Types
+// ============================================
+
+interface ContractTerm {
+  id: string;
+  term: string;
+  currentValue: string;
+  targetValue: string;
+  priority: 'must_have' | 'important' | 'nice_to_have';
+  notes: string;
+}
+
+interface LeveragePoint {
+  id: string;
+  title: string;
+  description: string;
+  strength: 'strong' | 'moderate' | 'weak';
+  category: 'value_delivered' | 'relationship' | 'market_position' | 'strategic_fit' | 'timing';
+  enabled: boolean;
+}
+
+interface CounterStrategy {
+  id: string;
+  objection: string;
+  response: string;
+  evidence: string;
+  category: 'price' | 'scope' | 'timeline' | 'terms' | 'competition';
+}
+
+interface WalkAwayPoint {
+  id: string;
+  condition: string;
+  threshold: string;
+  rationale: string;
+  severity: 'critical' | 'important' | 'minor';
+}
+
+interface NegotiationBriefPreviewResult {
+  title: string;
+  negotiationDate: string;
+  contractValue: number;
+  contractTerm: string;
+  renewalDate: string;
+  currentTerms: ContractTerm[];
+  leveragePoints: LeveragePoint[];
+  counterStrategies: CounterStrategy[];
+  walkAwayPoints: WalkAwayPoint[];
+  competitorIntel: string[];
+  valueDelivered: string[];
+  internalNotes: string;
+}
+
+/**
+ * Generate a negotiation brief preview for renewal or expansion negotiations
+ * Provides editable HITL preview before creating final document
+ */
+async function generateNegotiationBriefPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<NegotiationBriefPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+  const arr = customer?.arr || 100000;
+  const industry = customer?.industryCode || 'Technology';
+  const tier = customer?.tier || 'Growth';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 65;
+  const loginFrequency = engagement?.loginFrequency || 4.0;
+
+  // Get risk signals
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasChurnRisk = riskSignals.some((r: any) => r.severity === 'high' || r.type === 'churn_risk');
+
+  // Build prompt for negotiation brief generation
+  const prompt = `You are a customer success manager preparing a negotiation brief for an upcoming contract renewal or expansion negotiation. Generate a comprehensive brief with leverage points, counter-strategies, and walk-away conditions.
+
+Customer: ${customerName}
+Industry: ${industry}
+Current Tier: ${tier}
+Health Score: ${healthScore}
+Current ARR: $${arr.toLocaleString()}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+Renewal Date: ${renewalDate}
+Churn Risk: ${hasChurnRisk ? 'Elevated' : 'Normal'}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a negotiation brief with:
+1. 4-6 contract terms being negotiated (price, duration, scope, SLA, payment terms, auto-renewal)
+2. 4-6 leverage points categorized by type (value delivered, relationship, market position, strategic fit, timing)
+3. 4-6 counter-strategies for common objections (price, scope, timeline, terms, competition)
+4. 3-4 walk-away points with severity levels
+5. 3-5 competitor intelligence points
+6. 4-6 value delivered highlights
+
+Format your response as JSON:
+{
+  "currentTerms": [
+    {
+      "term": "Term name",
+      "currentValue": "Current state",
+      "targetValue": "Target outcome",
+      "priority": "must_have|important|nice_to_have",
+      "notes": "Internal notes"
+    }
+  ],
+  "leveragePoints": [
+    {
+      "title": "Leverage point title",
+      "description": "Detailed description",
+      "strength": "strong|moderate|weak",
+      "category": "value_delivered|relationship|market_position|strategic_fit|timing"
+    }
+  ],
+  "counterStrategies": [
+    {
+      "objection": "Expected objection",
+      "response": "Recommended response",
+      "evidence": "Supporting evidence or data",
+      "category": "price|scope|timeline|terms|competition"
+    }
+  ],
+  "walkAwayPoints": [
+    {
+      "condition": "Walk-away condition",
+      "threshold": "Specific threshold",
+      "rationale": "Why this is a deal-breaker",
+      "severity": "critical|important|minor"
+    }
+  ],
+  "competitorIntel": ["Competitor insight 1", "Competitor insight 2"],
+  "valueDelivered": ["Value point 1", "Value point 2"]
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Process current terms
+    const currentTerms = (parsed.currentTerms || []).map((t: any, idx: number) => ({
+      id: `term-${idx + 1}`,
+      term: t.term || `Term ${idx + 1}`,
+      currentValue: t.currentValue || '',
+      targetValue: t.targetValue || '',
+      priority: (t.priority as ContractTerm['priority']) || 'important',
+      notes: t.notes || '',
+    }));
+
+    // Ensure minimum terms
+    if (currentTerms.length < 4) {
+      currentTerms.push(
+        { id: 'term-1', term: 'Annual Contract Value', currentValue: `$${arr.toLocaleString()}`, targetValue: `$${Math.round(arr * 1.1).toLocaleString()} (10% increase)`, priority: 'must_have', notes: 'Target 10% uplift minimum' },
+        { id: 'term-2', term: 'Contract Duration', currentValue: '12 months', targetValue: '24-36 months', priority: 'important', notes: 'Multi-year for discount' },
+        { id: 'term-3', term: 'Payment Terms', currentValue: 'Net 30', targetValue: 'Annual prepaid', priority: 'nice_to_have', notes: 'Offer discount for prepayment' },
+        { id: 'term-4', term: 'Service Level Agreement', currentValue: '99.5% uptime', targetValue: '99.9% uptime', priority: 'important', notes: 'Premium SLA available' },
+        { id: 'term-5', term: 'Seat Licenses', currentValue: '50 seats', targetValue: '75+ seats', priority: 'important', notes: 'Room for team growth' },
+        { id: 'term-6', term: 'Support Tier', currentValue: 'Standard', targetValue: 'Premium', priority: 'nice_to_have', notes: 'Upsell opportunity' }
+      );
+    }
+
+    // Process leverage points
+    const leveragePoints = (parsed.leveragePoints || []).map((l: any, idx: number) => ({
+      id: `leverage-${idx + 1}`,
+      title: l.title || `Leverage Point ${idx + 1}`,
+      description: l.description || '',
+      strength: (l.strength as LeveragePoint['strength']) || 'moderate',
+      category: (l.category as LeveragePoint['category']) || 'value_delivered',
+      enabled: true,
+    }));
+
+    // Ensure minimum leverage points
+    if (leveragePoints.length < 4) {
+      leveragePoints.push(
+        { id: 'leverage-1', title: 'Strong Product Adoption', description: `${featureAdoption}% feature adoption demonstrates value realization`, strength: 'strong', category: 'value_delivered', enabled: true },
+        { id: 'leverage-2', title: 'Executive Sponsorship', description: 'Strong relationship with VP-level stakeholders', strength: 'moderate', category: 'relationship', enabled: true },
+        { id: 'leverage-3', title: 'Strategic Account', description: `${tier} tier account with expansion potential`, strength: 'moderate', category: 'strategic_fit', enabled: true },
+        { id: 'leverage-4', title: 'Renewal Timing', description: `${Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000))} days until renewal`, strength: 'moderate', category: 'timing', enabled: true },
+        { id: 'leverage-5', title: 'Market Position', description: 'Leader in industry analyst reports', strength: 'strong', category: 'market_position', enabled: true },
+        { id: 'leverage-6', title: 'Health Score', description: `Health score of ${healthScore} indicates satisfied customer`, strength: healthScore >= 70 ? 'strong' : 'moderate', category: 'value_delivered', enabled: true }
+      );
+    }
+
+    // Process counter-strategies
+    const counterStrategies = (parsed.counterStrategies || []).map((c: any, idx: number) => ({
+      id: `counter-${idx + 1}`,
+      objection: c.objection || `Objection ${idx + 1}`,
+      response: c.response || '',
+      evidence: c.evidence || '',
+      category: (c.category as CounterStrategy['category']) || 'price',
+    }));
+
+    // Ensure minimum counter-strategies
+    if (counterStrategies.length < 4) {
+      counterStrategies.push(
+        { id: 'counter-1', objection: 'Price is too high', response: 'Focus on ROI and value delivered', evidence: `${featureAdoption}% adoption, measurable efficiency gains`, category: 'price' },
+        { id: 'counter-2', objection: 'Considering alternatives', response: 'Highlight switching costs and relationship value', evidence: 'Migration risk, training investment, integration complexity', category: 'competition' },
+        { id: 'counter-3', objection: 'Need shorter commitment', response: 'Offer flexibility with appropriate pricing', evidence: 'Month-to-month available at standard rates', category: 'terms' },
+        { id: 'counter-4', objection: 'Missing features', response: 'Review roadmap and custom development options', evidence: 'Upcoming releases address key gaps', category: 'scope' },
+        { id: 'counter-5', objection: 'Budget constraints', response: 'Explore phased implementation or payment plans', evidence: 'Quarterly payment options, scope reduction alternatives', category: 'price' },
+        { id: 'counter-6', objection: 'Implementation timeline concerns', response: 'Present accelerated onboarding program', evidence: 'Dedicated resources, proven 30-day go-live', category: 'timeline' }
+      );
+    }
+
+    // Process walk-away points
+    const walkAwayPoints = (parsed.walkAwayPoints || []).map((w: any, idx: number) => ({
+      id: `walkaway-${idx + 1}`,
+      condition: w.condition || `Condition ${idx + 1}`,
+      threshold: w.threshold || '',
+      rationale: w.rationale || '',
+      severity: (w.severity as WalkAwayPoint['severity']) || 'important',
+    }));
+
+    // Ensure minimum walk-away points
+    if (walkAwayPoints.length < 3) {
+      walkAwayPoints.push(
+        { id: 'walkaway-1', condition: 'Price below floor', threshold: `Less than $${Math.round(arr * 0.85).toLocaleString()} (15% discount max)`, rationale: 'Below this margin is unsustainable', severity: 'critical' },
+        { id: 'walkaway-2', condition: 'Excessive scope demands', threshold: 'More than 20% custom development without additional fee', rationale: 'Resource constraints and precedent concerns', severity: 'important' },
+        { id: 'walkaway-3', condition: 'Unreasonable terms', threshold: 'Payment terms beyond Net 60 or liability caps below 2x ACV', rationale: 'Financial and legal risk too high', severity: 'critical' },
+        { id: 'walkaway-4', condition: 'Competitor ultimatum', threshold: 'Take-it-or-leave-it demands tied to competitor bid', rationale: 'Race to bottom, relationship signals trouble', severity: 'important' }
+      );
+    }
+
+    // Process competitor intel
+    const competitorIntel = parsed.competitorIntel || [
+      'Primary competitor offers lower entry price but higher total cost of ownership',
+      'Market perception favors our product for enterprise features',
+      'Competitor recently raised prices 15%, reducing gap',
+      'Our NPS scores significantly higher than industry average',
+      'Integration ecosystem is a key differentiator',
+    ];
+
+    // Process value delivered
+    const valueDelivered = parsed.valueDelivered || [
+      `${featureAdoption}% feature adoption across organization`,
+      `${loginFrequency}x weekly average login frequency`,
+      `${healthScore} health score indicates strong engagement`,
+      'Measurable ROI from efficiency improvements',
+      'Successful expansion from initial deployment',
+      'Strong user satisfaction and advocacy',
+    ];
+
+    // Calculate contract term from renewal date
+    const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+    const contractTermStr = daysUntilRenewal > 180 ? '24 months' : '12 months';
+
+    return {
+      title: `Negotiation Brief: ${customerName}`,
+      negotiationDate: new Date().toISOString().slice(0, 10),
+      contractValue: arr,
+      contractTerm: contractTermStr,
+      renewalDate,
+      currentTerms,
+      leveragePoints,
+      counterStrategies,
+      walkAwayPoints,
+      competitorIntel,
+      valueDelivered,
+      internalNotes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Negotiation brief preview generation error:', error);
+
+    // Return fallback negotiation brief
+    const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+    return {
+      title: `Negotiation Brief: ${customerName}`,
+      negotiationDate: new Date().toISOString().slice(0, 10),
+      contractValue: arr,
+      contractTerm: daysUntilRenewal > 180 ? '24 months' : '12 months',
+      renewalDate,
+      currentTerms: [
+        { id: 'term-1', term: 'Annual Contract Value', currentValue: `$${arr.toLocaleString()}`, targetValue: `$${Math.round(arr * 1.1).toLocaleString()}`, priority: 'must_have', notes: 'Target 10% uplift' },
+        { id: 'term-2', term: 'Contract Duration', currentValue: '12 months', targetValue: '24 months', priority: 'important', notes: 'Multi-year for discount' },
+        { id: 'term-3', term: 'Payment Terms', currentValue: 'Net 30', targetValue: 'Annual prepaid', priority: 'nice_to_have', notes: '' },
+        { id: 'term-4', term: 'Service Level Agreement', currentValue: '99.5% uptime', targetValue: '99.9% uptime', priority: 'important', notes: '' },
+      ],
+      leveragePoints: [
+        { id: 'leverage-1', title: 'Strong Adoption', description: `${featureAdoption}% feature adoption`, strength: 'strong', category: 'value_delivered', enabled: true },
+        { id: 'leverage-2', title: 'Executive Relationship', description: 'Strong stakeholder alignment', strength: 'moderate', category: 'relationship', enabled: true },
+        { id: 'leverage-3', title: 'Strategic Account', description: `${tier} tier with expansion potential`, strength: 'moderate', category: 'strategic_fit', enabled: true },
+        { id: 'leverage-4', title: 'Renewal Timing', description: `${daysUntilRenewal} days until renewal`, strength: 'moderate', category: 'timing', enabled: true },
+      ],
+      counterStrategies: [
+        { id: 'counter-1', objection: 'Price is too high', response: 'Focus on ROI and value delivered', evidence: `${featureAdoption}% adoption, efficiency gains`, category: 'price' },
+        { id: 'counter-2', objection: 'Considering alternatives', response: 'Highlight switching costs', evidence: 'Migration risk, training, integrations', category: 'competition' },
+        { id: 'counter-3', objection: 'Need shorter term', response: 'Offer flexible options with pricing', evidence: 'Month-to-month at standard rates', category: 'terms' },
+        { id: 'counter-4', objection: 'Missing features', response: 'Review roadmap', evidence: 'Upcoming releases', category: 'scope' },
+      ],
+      walkAwayPoints: [
+        { id: 'walkaway-1', condition: 'Price below floor', threshold: `Less than $${Math.round(arr * 0.85).toLocaleString()}`, rationale: 'Unsustainable margin', severity: 'critical' },
+        { id: 'walkaway-2', condition: 'Excessive custom demands', threshold: 'More than 20% custom work', rationale: 'Resource constraints', severity: 'important' },
+        { id: 'walkaway-3', condition: 'Unreasonable terms', threshold: 'Beyond Net 60 or low liability', rationale: 'Financial/legal risk', severity: 'critical' },
+      ],
+      competitorIntel: [
+        'Primary competitor offers lower entry price but higher TCO',
+        'Market perception favors our enterprise features',
+        'Competitor recently raised prices',
+        'Our NPS scores higher than average',
+      ],
+      valueDelivered: [
+        `${featureAdoption}% feature adoption`,
+        `${loginFrequency}x weekly logins`,
+        `${healthScore} health score`,
+        'Measurable ROI',
+      ],
+      internalNotes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -5213,4 +5546,5 @@ export const artifactGenerator = {
   generateRenewalForecastPreview,
   generateValueSummaryPreview,
   generateExpansionProposalPreview,
+  generateNegotiationBriefPreview,
 };

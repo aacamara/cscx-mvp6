@@ -20,6 +20,7 @@ import { CADGTrainingProgramPreview, TrainingProgramData, CustomerData as Traini
 import { CADGRenewalForecastPreview, RenewalForecastData, CustomerData as RenewalForecastCustomerData } from './CADGRenewalForecastPreview';
 import { CADGValueSummaryPreview, ValueSummaryData, CustomerData as ValueSummaryCustomerData } from './CADGValueSummaryPreview';
 import { CADGExpansionProposalPreview, ExpansionProposalData, CustomerData as ExpansionProposalCustomerData } from './CADGExpansionProposalPreview';
+import { CADGNegotiationBriefPreview, NegotiationBriefData, CustomerData as NegotiationBriefCustomerData } from './CADGNegotiationBriefPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -243,6 +244,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [expansionProposalPreviewData, setExpansionProposalPreviewData] = useState<{
     expansionProposal: ExpansionProposalData;
     customer: ExpansionProposalCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Negotiation brief preview state for HITL workflow
+  const [showNegotiationBriefPreview, setShowNegotiationBriefPreview] = useState(false);
+  const [negotiationBriefPreviewData, setNegotiationBriefPreviewData] = useState<{
+    negotiationBrief: NegotiationBriefData;
+    customer: NegotiationBriefCustomerData;
     planId: string;
   } | null>(null);
 
@@ -632,6 +641,38 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowExpansionProposalPreview(true);
         setStatus('pending'); // Keep in pending until expansion proposal is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a negotiation brief preview (HITL workflow)
+      if (data.isNegotiationBriefPreview && data.preview) {
+        setNegotiationBriefPreviewData({
+          negotiationBrief: {
+            title: data.preview.title || 'Negotiation Brief',
+            negotiationDate: data.preview.negotiationDate || new Date().toISOString().slice(0, 10),
+            contractValue: data.preview.contractValue || 0,
+            contractTerm: data.preview.contractTerm || '12 months',
+            renewalDate: data.preview.renewalDate || '',
+            currentTerms: data.preview.currentTerms || [],
+            leveragePoints: data.preview.leveragePoints || [],
+            counterStrategies: data.preview.counterStrategies || [],
+            walkAwayPoints: data.preview.walkAwayPoints || [],
+            competitorIntel: data.preview.competitorIntel || [],
+            valueDelivered: data.preview.valueDelivered || [],
+            internalNotes: data.preview.internalNotes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowNegotiationBriefPreview(true);
+        setStatus('pending'); // Keep in pending until negotiation brief is saved
         setIsApproving(false);
         return;
       }
@@ -1554,6 +1595,68 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving negotiation brief from preview
+  const handleNegotiationBriefSave = async (negotiationBrief: NegotiationBriefData) => {
+    if (!negotiationBriefPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/negotiation-brief/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: negotiationBriefPreviewData.planId,
+        title: negotiationBrief.title,
+        negotiationDate: negotiationBrief.negotiationDate,
+        contractValue: negotiationBrief.contractValue,
+        contractTerm: negotiationBrief.contractTerm,
+        renewalDate: negotiationBrief.renewalDate,
+        currentTerms: negotiationBrief.currentTerms,
+        leveragePoints: negotiationBrief.leveragePoints,
+        counterStrategies: negotiationBrief.counterStrategies,
+        walkAwayPoints: negotiationBrief.walkAwayPoints,
+        competitorIntel: negotiationBrief.competitorIntel,
+        valueDelivered: negotiationBrief.valueDelivered,
+        internalNotes: negotiationBrief.internalNotes,
+        customerId: negotiationBriefPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save negotiation brief');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowNegotiationBriefPreview(false);
+    setNegotiationBriefPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'negotiation-brief',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'negotiation-brief');
+  };
+
+  // Handle canceling negotiation brief preview
+  const handleNegotiationBriefCancel = () => {
+    setShowNegotiationBriefPreview(false);
+    setNegotiationBriefPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1862,6 +1965,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={expansionProposalPreviewData.customer}
         onSave={handleExpansionProposalSave}
         onCancel={handleExpansionProposalCancel}
+      />
+    );
+  }
+
+  // Negotiation brief preview mode
+  if (showNegotiationBriefPreview && negotiationBriefPreviewData) {
+    return (
+      <CADGNegotiationBriefPreview
+        negotiationBrief={negotiationBriefPreviewData.negotiationBrief}
+        customer={negotiationBriefPreviewData.customer}
+        onSave={handleNegotiationBriefSave}
+        onCancel={handleNegotiationBriefCancel}
       />
     );
   }
