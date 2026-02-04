@@ -1027,3 +1027,33 @@
   - Save play status uses enabled/disabled pattern with status tracking
   - Query detection patterns: 'at-risk overview', 'at risk overview', 'at-risk customers', 'at risk customers', 'customers at risk', 'show at-risk', 'show at risk', 'risk overview', 'churn risk overview', 'high risk customers', 'critical customers', 'risky accounts', 'accounts at risk'
 ---
+
+## 2026-02-04 - US-030
+- **What was implemented**: Database migration with capability seeds for all 23 CADG card types
+- **Files changed**:
+  - `database/migrations/071_seed_cadg_capabilities.sql` (created, ~500 lines)
+- **Features**:
+  - **23 capability entries** covering all CADG card types:
+    - **Onboarding (4)**: kickoff_plan, milestone_plan, stakeholder_map, training_schedule
+    - **Adoption (4)**: usage_analysis, feature_campaign, champion_development, training_program
+    - **Renewal (4)**: renewal_forecast, value_summary, expansion_proposal, negotiation_brief
+    - **Risk (4)**: risk_assessment, save_play, escalation_report, resolution_plan
+    - **Strategic (3)**: executive_briefing, account_plan, transformation_roadmap
+    - **General Mode (4)**: portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview
+  - Each capability includes:
+    - 20+ trigger patterns for natural language matching
+    - Keywords array for fast lookup and GIN index matching
+    - Example prompts showing usage patterns
+    - Required inputs specification (customerId for customer cards, userId for General Mode)
+    - Output types (docs, sheets, slides)
+    - Execution metadata (service, method, requiresApproval, estimatedDuration)
+    - Related capabilities for suggestions
+  - Uses UPSERT pattern (ON CONFLICT DO UPDATE) for safe re-running
+  - General Mode cards have empty prerequisites array (no customer required)
+- **Learnings for future iterations**:
+  - Capability seeds use JSONB for trigger_patterns and example_prompts, TEXT[] for keywords
+  - UPSERT pattern allows migration to be run multiple times safely
+  - General Mode cards need userId in required_inputs instead of customerId
+  - Related capabilities help with suggestion chains (e.g., risk_assessment → save_play → escalation_report)
+  - Trigger patterns should cover variations: hyphenated (at-risk), spaces (at risk), alternative phrasings
+---

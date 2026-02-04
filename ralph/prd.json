@@ -477,8 +477,8 @@
         "Typecheck passes"
       ],
       "priority": 30,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Completed in commit 97c5bb2. Created migration 071_seed_cadg_capabilities.sql with 23 capability entries covering all CADG card types: Onboarding (4), Adoption (4), Renewal (4), Risk (4), Strategic (3), General Mode (4). Each capability includes 20+ trigger patterns, keywords, example prompts, input/output specs, and execution metadata. Uses UPSERT pattern for safe re-running."
     },
     {
       "id": "US-031",
