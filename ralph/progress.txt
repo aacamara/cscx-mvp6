@@ -471,3 +471,41 @@
   - HealthTrend type doesn't have 'trend' property - use 'score' instead for recent health data
   - Query detection patterns: 'renewal forecast', 'renewal prediction', 'renewal probability', 'renewal likelihood', 'forecast renewal', 'predict renewal', 'renewal outlook', 'renewal projections', 'will they renew', 'renewal risk', 'renewal chance'
 ---
+
+## 2026-02-04 - US-016
+- **What was implemented**: Value summary generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateValueSummaryPreview()` function (~300 lines)
+  - `server/src/routes/cadg.ts` - Added value_summary detection and `/api/cadg/value-summary/save` endpoint (~200 lines)
+  - `server/src/services/google/qbrSlides.ts` - Added `createValueSummaryPresentation()` method (~600 lines)
+  - `components/AIPanel/CADGValueSummaryPreview.tsx` (created, ~1150 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added value summary preview state and handlers
+- **Features**:
+  - **generateValueSummaryPreview()**: Uses Claude to generate value summary with:
+    - Executive summary
+    - Value metrics (efficiency, cost savings, revenue, productivity, satisfaction)
+    - Success stories with categories (implementation, adoption, expansion, innovation, support)
+    - Customer testimonials with author/title/quote
+    - ROI calculation with auto-computed metrics (ROI %, payback months, 3-year value)
+    - Key highlights and next steps
+  - **CADGValueSummaryPreview component**:
+    - Tab-based navigation for Overview, Metrics, Stories, Testimonials, ROI
+    - Value metrics with include/exclude checkboxes, category badges, unit selection
+    - Success stories with expandable cards, category dropdown, date picker
+    - Testimonials with quote editing, author/title fields
+    - ROI tab with auto-calculated metrics (investment + benefit = ROI%, payback, 3yr value)
+    - Key highlights and next steps list management
+    - Unsaved changes warning
+    - Emerald/teal accent color theme
+  - **Backend endpoint**: POST `/api/cadg/value-summary/save`:
+    - Creates Google Slides presentation with 8 slides (title, summary, metrics, stories, testimonials, ROI, highlights, next steps)
+    - Falls back to Google Doc if slides creation fails
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Value summary uses `isValueSummaryPreview: true` response type
+  - Customer360 has `industryCode` property, not `industry` - use correct property name
+  - ROI calculation should auto-compute derived values (roiPercentage, paybackMonths, threeYearValue) when investment or benefit changes
+  - Include/exclude toggles on items allow users to customize what appears in final presentation
+  - createValueSummaryPresentation method in qbrSlides.ts creates multi-slide presentations programmatically
+  - Query detection patterns: 'value summary', 'value realization', 'roi summary', 'roi report', 'roi calculation', 'success metrics', 'value delivered', 'business value', 'customer value', 'demonstrate value', 'show value', 'prove value', 'value report'
+---
