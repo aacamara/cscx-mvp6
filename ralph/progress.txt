@@ -583,3 +583,41 @@
   - Counter-strategies pair objection with response and evidence for comprehensive preparation
   - Query detection patterns: 'negotiation brief', 'negotiation prep', 'negotiation strategy', 'renewal negotiation', 'contract negotiation', 'negotiate renewal', 'prepare negotiation', 'leverage points', 'counter strategy', 'walk-away', 'walkaway', 'bargaining', 'deal terms'
 ---
+
+## 2026-02-04 - US-019
+- **What was implemented**: Risk assessment generator with full HITL editable preview
+- **Files changed**:
+  - `server/src/services/cadg/artifactGenerator.ts` - Added `generateRiskAssessmentPreview()` function (~290 lines)
+  - `server/src/routes/cadg.ts` - Added risk_assessment detection and `/api/cadg/risk-assessment/save` endpoint (~200 lines)
+  - `components/AIPanel/CADGRiskAssessmentPreview.tsx` (created, ~1100 lines)
+  - `components/AIPanel/CADGPlanCard.tsx` - Added risk assessment preview state and handlers (~115 lines)
+- **Features**:
+  - **generateRiskAssessmentPreview()**: Uses Claude to generate comprehensive risk assessment with:
+    - Overall risk score (0-100) with automatic risk level classification
+    - Risk factors with 8 categories: health, engagement, support, nps, usage, relationship, financial, competitive
+    - Severity levels: critical, high, medium, low with corresponding weights
+    - Mitigation actions with owner assignment, due dates, priorities, status tracking
+    - Related risk IDs linking actions to specific risks
+    - Executive summary
+  - **CADGRiskAssessmentPreview component**:
+    - Tab-based navigation for Overview, Risk Factors, Mitigation Actions, Summary
+    - Real-time risk score calculation based on enabled factors and weights
+    - Risk factor cards with enable/disable checkboxes, severity/category badges, weight sliders
+    - Mitigation action cards with reordering, CRUD operations, owner dropdown, priority/status selectors
+    - Related risks linking - click to toggle which risks each action addresses
+    - Executive summary textarea
+    - Risk breakdown by category in overview
+    - Unsaved changes warning
+    - Red/orange accent color theme
+  - **Backend endpoint**: POST `/api/cadg/risk-assessment/save`:
+    - Creates Google Doc with formatted risk assessment content
+    - Creates Google Sheets tracker with two tabs: Mitigation Actions, Risk Factors
+    - Logs activity for customer timeline
+- **Learnings for future iterations**:
+  - Risk assessment uses `isRiskAssessmentPreview: true` response type
+  - Use `AssessmentRiskFactor` type to avoid conflict with existing `RiskFactor` type (used in renewal forecast)
+  - GoogleSheet interface uses `id` and `webViewLink`, not `spreadsheetId` and `url`
+  - Use `sheetsService.updateValues()` method (not `updateSheet`) to populate spreadsheet data
+  - Risk calculation: weighted average of severity scores for enabled factors
+  - Query detection patterns: 'risk assessment', 'risk analysis', 'churn risk', 'at-risk', 'at risk', 'assess risk', 'evaluate risk', 'risk profile', 'risk factors', 'mitigation plan', 'health risk'
+---
