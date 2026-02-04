@@ -26,6 +26,7 @@ import { CADGSavePlayPreview, SavePlayData, CustomerData as SavePlayCustomerData
 import { CADGEscalationReportPreview, EscalationReportData, CustomerData as EscalationReportCustomerData } from './CADGEscalationReportPreview';
 import { CADGResolutionPlanPreview, ResolutionPlanData, CustomerData as ResolutionPlanCustomerData } from './CADGResolutionPlanPreview';
 import { CADGExecutiveBriefingPreview, ExecutiveBriefingData, CustomerData as ExecutiveBriefingCustomerData } from './CADGExecutiveBriefingPreview';
+import { CADGAccountPlanPreview, AccountPlanData, CustomerData as AccountPlanCustomerData } from './CADGAccountPlanPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -297,6 +298,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [executiveBriefingPreviewData, setExecutiveBriefingPreviewData] = useState<{
     briefing: ExecutiveBriefingData;
     customer: ExecutiveBriefingCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Account plan preview state for HITL workflow
+  const [showAccountPlanPreview, setShowAccountPlanPreview] = useState(false);
+  const [accountPlanPreviewData, setAccountPlanPreviewData] = useState<{
+    accountPlan: AccountPlanData;
+    customer: AccountPlanCustomerData;
     planId: string;
   } | null>(null);
 
@@ -885,6 +894,41 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowExecutiveBriefingPreview(true);
         setStatus('pending'); // Keep in pending until executive briefing is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is an account plan preview (HITL workflow)
+      if (data.isAccountPlanPreview && data.preview) {
+        setAccountPlanPreviewData({
+          accountPlan: {
+            title: data.preview.title || 'Strategic Account Plan',
+            planPeriod: data.preview.planPeriod || '',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            accountOverview: data.preview.accountOverview || '',
+            objectives: data.preview.objectives || [],
+            actionItems: data.preview.actionItems || [],
+            milestones: data.preview.milestones || [],
+            resources: data.preview.resources || [],
+            successCriteria: data.preview.successCriteria || [],
+            risks: data.preview.risks || [],
+            timeline: data.preview.timeline || '',
+            healthScore: data.preview.healthScore || 0,
+            daysUntilRenewal: data.preview.daysUntilRenewal || 0,
+            arr: data.preview.arr || 0,
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowAccountPlanPreview(true);
+        setStatus('pending'); // Keep in pending until account plan is saved
         setIsApproving(false);
         return;
       }
@@ -2210,6 +2254,77 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving account plan from preview
+  const handleAccountPlanSave = async (accountPlan: AccountPlanData) => {
+    if (!accountPlanPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/account-plan/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: accountPlanPreviewData.planId,
+        title: accountPlan.title,
+        planPeriod: accountPlan.planPeriod,
+        createdDate: accountPlan.createdDate,
+        accountOverview: accountPlan.accountOverview,
+        objectives: accountPlan.objectives,
+        actionItems: accountPlan.actionItems,
+        milestones: accountPlan.milestones,
+        resources: accountPlan.resources,
+        successCriteria: accountPlan.successCriteria,
+        risks: accountPlan.risks,
+        timeline: accountPlan.timeline,
+        healthScore: accountPlan.healthScore,
+        daysUntilRenewal: accountPlan.daysUntilRenewal,
+        arr: accountPlan.arr,
+        notes: accountPlan.notes,
+        customerId: accountPlanPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save account plan');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowAccountPlanPreview(false);
+    setAccountPlanPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'account-plan',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+        additionalFiles: result.sheetsId ? [{
+          type: 'spreadsheet',
+          fileId: result.sheetsId,
+          url: result.sheetsUrl,
+          title: 'Account Plan Tracker',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'account-plan');
+  };
+
+  // Handle canceling account plan preview
+  const handleAccountPlanCancel = () => {
+    setShowAccountPlanPreview(false);
+    setAccountPlanPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2590,6 +2705,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={executiveBriefingPreviewData.customer}
         onSave={handleExecutiveBriefingSave}
         onCancel={handleExecutiveBriefingCancel}
+      />
+    );
+  }
+
+  // Account plan preview mode
+  if (showAccountPlanPreview && accountPlanPreviewData) {
+    return (
+      <CADGAccountPlanPreview
+        accountPlan={accountPlanPreviewData.accountPlan}
+        customer={accountPlanPreviewData.customer}
+        onSave={handleAccountPlanSave}
+        onCancel={handleAccountPlanCancel}
       />
     );
   }

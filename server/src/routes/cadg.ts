@@ -1110,6 +1110,66 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is an account plan artifact - return preview for HITL
+    const isAccountPlanArtifact = finalPlan.taskType === 'account_plan' ||
+                                  planRow.user_query?.toLowerCase().includes('account plan') ||
+                                  planRow.user_query?.toLowerCase().includes('strategic plan') ||
+                                  planRow.user_query?.toLowerCase().includes('strategic account plan') ||
+                                  planRow.user_query?.toLowerCase().includes('account strategy') ||
+                                  planRow.user_query?.toLowerCase().includes('account roadmap') ||
+                                  planRow.user_query?.toLowerCase().includes('strategic roadmap') ||
+                                  planRow.user_query?.toLowerCase().includes('customer plan') ||
+                                  planRow.user_query?.toLowerCase().includes('annual plan') ||
+                                  planRow.user_query?.toLowerCase().includes('success plan') ||
+                                  planRow.user_query?.toLowerCase().includes('growth plan') ||
+                                  planRow.user_query?.toLowerCase().includes('engagement plan') ||
+                                  planRow.user_query?.toLowerCase().includes('partnership plan') ||
+                                  planRow.user_query?.toLowerCase().includes('relationship plan');
+
+    if (isAccountPlanArtifact) {
+      // Generate account plan content but don't finalize - return preview for HITL
+      const accountPlanPreview = await artifactGenerator.generateAccountPlanPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isAccountPlanPreview: true,
+        preview: {
+          title: accountPlanPreview.title,
+          planPeriod: accountPlanPreview.planPeriod,
+          createdDate: accountPlanPreview.createdDate,
+          accountOverview: accountPlanPreview.accountOverview,
+          objectives: accountPlanPreview.objectives,
+          actionItems: accountPlanPreview.actionItems,
+          milestones: accountPlanPreview.milestones,
+          resources: accountPlanPreview.resources,
+          successCriteria: accountPlanPreview.successCriteria,
+          risks: accountPlanPreview.risks,
+          timeline: accountPlanPreview.timeline,
+          healthScore: accountPlanPreview.healthScore,
+          daysUntilRenewal: accountPlanPreview.daysUntilRenewal,
+          arr: accountPlanPreview.arr,
+          notes: accountPlanPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a resolution plan artifact - return preview for HITL
     const isResolutionPlanArtifact = finalPlan.taskType === 'resolution_plan' ||
                                      planRow.user_query?.toLowerCase().includes('resolution plan') ||
@@ -5360,6 +5420,341 @@ ${notes}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save executive briefing',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/account-plan/save
+ * Save finalized account plan after user review and create Google Doc + Sheets
+ */
+router.post('/account-plan/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      planPeriod,
+      createdDate,
+      accountOverview,
+      objectives,
+      actionItems,
+      milestones,
+      resources,
+      successCriteria,
+      risks,
+      timeline,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      notes,
+      customerId,
+    } = req.body;
+
+    // Get userId from session or request
+    const userId = (req as any).userId || req.body.userId;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    // Filter enabled items only
+    const enabledObjectives = (objectives || []).filter((o: any) => o.enabled);
+    const enabledActions = (actionItems || []).filter((a: any) => a.enabled);
+    const enabledMilestones = (milestones || []).filter((m: any) => m.enabled);
+    const enabledResources = (resources || []).filter((r: any) => r.enabled);
+
+    // Status and priority labels for display
+    const PRIORITY_LABELS: Record<string, string> = {
+      high: 'HIGH',
+      medium: 'MEDIUM',
+      low: 'LOW',
+    };
+
+    const STATUS_LABELS: Record<string, string> = {
+      planned: 'Planned',
+      in_progress: 'In Progress',
+      completed: 'Completed',
+      blocked: 'Blocked',
+      at_risk: 'At Risk',
+    };
+
+    const CATEGORY_LABELS: Record<string, string> = {
+      growth: 'Growth',
+      retention: 'Retention',
+      expansion: 'Expansion',
+      adoption: 'Adoption',
+      risk_mitigation: 'Risk Mitigation',
+      strategic: 'Strategic',
+    };
+
+    const RESOURCE_TYPE_LABELS: Record<string, string> = {
+      budget: 'Budget',
+      headcount: 'Headcount',
+      tooling: 'Tooling',
+      training: 'Training',
+      support: 'Support',
+      other: 'Other',
+    };
+
+    // Build document content for Google Doc
+    const documentContent = `# ${title}
+
+**Plan Period:** ${planPeriod}
+**Created:** ${createdDate}
+
+---
+
+## Account Overview
+
+${accountOverview}
+
+---
+
+## Key Metrics
+
+| Metric | Value |
+|--------|-------|
+| ARR | $${(arr || 0).toLocaleString()} |
+| Health Score | ${healthScore}/100 |
+| Days to Renewal | ${daysUntilRenewal} |
+
+---
+
+## Strategic Objectives
+
+${enabledObjectives.map((obj: any, idx: number) => `### ${idx + 1}. ${obj.title}
+
+**Category:** ${CATEGORY_LABELS[obj.category] || obj.category}
+**Priority:** ${PRIORITY_LABELS[obj.priority] || obj.priority}
+**Target Date:** ${obj.targetDate}
+
+${obj.description}
+
+**Success Metrics:**
+${(obj.metrics || []).map((m: string) => `- ${m}`).join('\n')}
+`).join('\n')}
+
+---
+
+## Action Items
+
+| Action | Owner | Priority | Due Date | Status |
+|--------|-------|----------|----------|--------|
+${enabledActions.map((a: any) => `| ${a.action} | ${a.owner} | ${PRIORITY_LABELS[a.priority] || a.priority} | ${a.dueDate} | ${STATUS_LABELS[a.status] || a.status} |`).join('\n')}
+
+### Action Details
+
+${enabledActions.map((a: any, idx: number) => `#### ${idx + 1}. ${a.action}
+
+**Owner:** ${a.owner}
+**Priority:** ${PRIORITY_LABELS[a.priority] || a.priority}
+**Due Date:** ${a.dueDate}
+**Status:** ${STATUS_LABELS[a.status] || a.status}
+
+${a.description}
+
+${a.relatedObjectiveIds?.length ? `**Related Objectives:** ${a.relatedObjectiveIds.map((id: string) => {
+  const obj = enabledObjectives.find((o: any) => o.id === id);
+  return obj?.title || id;
+}).join(', ')}` : ''}
+`).join('\n')}
+
+---
+
+## Milestones
+
+| Milestone | Target Date | Status | Owner |
+|-----------|-------------|--------|-------|
+${enabledMilestones.map((m: any) => `| ${m.name} | ${m.targetDate} | ${STATUS_LABELS[m.status] || m.status} | ${m.owner} |`).join('\n')}
+
+### Milestone Details
+
+${enabledMilestones.map((m: any, idx: number) => `#### ${idx + 1}. ${m.name}
+
+**Target Date:** ${m.targetDate}
+**Status:** ${STATUS_LABELS[m.status] || m.status}
+**Owner:** ${m.owner}
+
+${m.description}
+`).join('\n')}
+
+---
+
+## Resources
+
+| Type | Description | Allocation |
+|------|-------------|------------|
+${enabledResources.map((r: any) => `| ${RESOURCE_TYPE_LABELS[r.type] || r.type} | ${r.description} | ${r.allocation} |`).join('\n')}
+
+---
+
+## Success Criteria
+
+${(successCriteria || []).map((c: string, idx: number) => `${idx + 1}. ${c}`).join('\n')}
+
+---
+
+## Identified Risks
+
+${(risks || []).map((r: string, idx: number) => `${idx + 1}. ${r}`).join('\n')}
+
+---
+
+## Timeline
+
+${timeline}
+
+---
+
+${notes ? `## Internal Notes
+
+${notes}
+
+---
+
+` : ''}
+*Document generated via CSCX.AI Strategic Account Plan*
+`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { docsService } = await import('../services/google/docs.js');
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create account plan document:', docsErr);
+    }
+
+    // Create Google Sheets milestone tracker
+    let sheetsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      const { sheetsService } = await import('../services/google/sheets.js');
+      sheetsResult = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Tracker`,
+      });
+
+      // Add objectives data
+      if (sheetsResult?.id) {
+        const objectivesData = [
+          ['Objective', 'Category', 'Priority', 'Target Date', 'Status', 'Metrics'],
+          ...enabledObjectives.map((obj: any) => [
+            obj.title,
+            CATEGORY_LABELS[obj.category] || obj.category,
+            PRIORITY_LABELS[obj.priority] || obj.priority,
+            obj.targetDate,
+            'Active',
+            (obj.metrics || []).join('; '),
+          ]),
+        ];
+
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: 'Sheet1!A1',
+          values: objectivesData,
+        });
+
+        // Add action items data in a new range
+        const actionsData = [
+          ['', ''],
+          ['Action Items', ''],
+          ['Action', 'Owner', 'Priority', 'Due Date', 'Status', 'Description'],
+          ...enabledActions.map((a: any) => [
+            a.action,
+            a.owner,
+            PRIORITY_LABELS[a.priority] || a.priority,
+            a.dueDate,
+            STATUS_LABELS[a.status] || a.status,
+            a.description,
+          ]),
+        ];
+
+        const actionsStartRow = enabledObjectives.length + 3;
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: `Sheet1!A${actionsStartRow}`,
+          values: actionsData,
+        });
+
+        // Add milestones data
+        const milestonesData = [
+          ['', ''],
+          ['Milestones', ''],
+          ['Milestone', 'Description', 'Target Date', 'Status', 'Owner'],
+          ...enabledMilestones.map((m: any) => [
+            m.name,
+            m.description,
+            m.targetDate,
+            STATUS_LABELS[m.status] || m.status,
+            m.owner,
+          ]),
+        ];
+
+        const milestonesStartRow = actionsStartRow + enabledActions.length + 5;
+        await sheetsService.updateValues(userId, sheetsResult.id, {
+          range: `Sheet1!A${milestonesStartRow}`,
+          values: milestonesData,
+        });
+      }
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create account plan tracker:', sheetsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity
+    if (customerId) {
+      try {
+        const { config } = await import('../config/index.js');
+        const { createClient } = await import('@supabase/supabase-js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'account_plan_created',
+            description: `Strategic account plan created: ${title} - ${enabledObjectives.length} objectives, ${enabledActions.length} actions, ${enabledMilestones.length} milestones`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              planPeriod,
+              healthScore,
+              arr,
+              daysUntilRenewal,
+              objectiveCount: enabledObjectives.length,
+              actionCount: enabledActions.length,
+              milestoneCount: enabledMilestones.length,
+              resourceCount: enabledResources.length,
+              createdVia: 'cadg_account_plan_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log account plan activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      sheetsId: sheetsResult?.id,
+      sheetsUrl: sheetsResult?.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Account plan save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save account plan',
     });
   }
 });

@@ -7288,6 +7288,454 @@ Format your response as JSON:
   }
 }
 
+// =====================================================================
+// Account Plan Preview Types
+// =====================================================================
+
+interface AccountObjective {
+  id: string;
+  title: string;
+  description: string;
+  category: 'growth' | 'retention' | 'expansion' | 'adoption' | 'risk_mitigation' | 'strategic';
+  priority: 'high' | 'medium' | 'low';
+  targetDate: string;
+  metrics: string[];
+  enabled: boolean;
+}
+
+interface AccountAction {
+  id: string;
+  action: string;
+  description: string;
+  owner: 'CSM' | 'Customer' | 'Product' | 'Engineering' | 'Sales' | 'Support' | 'Leadership';
+  priority: 'high' | 'medium' | 'low';
+  dueDate: string;
+  status: 'planned' | 'in_progress' | 'completed' | 'blocked';
+  relatedObjectiveIds: string[];
+  enabled: boolean;
+}
+
+interface AccountMilestone {
+  id: string;
+  name: string;
+  description: string;
+  targetDate: string;
+  status: 'planned' | 'in_progress' | 'completed' | 'at_risk';
+  owner: string;
+  enabled: boolean;
+}
+
+interface AccountResource {
+  id: string;
+  type: 'budget' | 'headcount' | 'tooling' | 'training' | 'support' | 'other';
+  description: string;
+  allocation: string;
+  enabled: boolean;
+}
+
+export interface AccountPlanPreviewResult {
+  title: string;
+  planPeriod: string;
+  createdDate: string;
+  accountOverview: string;
+  objectives: AccountObjective[];
+  actionItems: AccountAction[];
+  milestones: AccountMilestone[];
+  resources: AccountResource[];
+  successCriteria: string[];
+  risks: string[];
+  timeline: string;
+  healthScore: number;
+  daysUntilRenewal: number;
+  arr: number;
+  notes: string;
+}
+
+/**
+ * Generate an account plan preview for strategic planning
+ * Provides editable HITL preview before creating final Google Doc + Sheets
+ */
+async function generateAccountPlanPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<AccountPlanPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 72;
+  const arr = customer?.arr || 150000;
+  const tier = customer?.tier || 'Enterprise';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const industryCode = customer?.industryCode || 'technology';
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 65;
+  const loginFrequency = engagement?.loginFrequency || 3.5;
+  const dauMau = engagement?.dauMau || 0.45;
+
+  // Get NPS score
+  const npsScore = customer?.npsScore || 35;
+
+  // Get risk signals
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high');
+
+  // Get recent activities
+  const activities = context.platformData.interactionHistory?.slice(0, 5) || [];
+
+  // Calculate days until renewal
+  const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+  // Determine health trend
+  const healthTrends = context.platformData.healthTrends || [];
+  const recentHealth = healthTrends.slice(0, 3);
+  let healthTrend: 'up' | 'down' | 'stable' = 'stable';
+  if (recentHealth.length >= 2) {
+    const diff = (recentHealth[0]?.score || healthScore) - (recentHealth[recentHealth.length - 1]?.score || healthScore);
+    if (diff > 5) healthTrend = 'up';
+    else if (diff < -5) healthTrend = 'down';
+  }
+
+  // Determine plan period (next 12 months typically)
+  const startDate = new Date();
+  const endDate = new Date();
+  endDate.setMonth(endDate.getMonth() + 12);
+  const planPeriod = `${startDate.toISOString().slice(0, 7)} to ${endDate.toISOString().slice(0, 7)}`;
+
+  // Build prompt for account plan generation
+  const prompt = `You are a customer success manager creating a strategic account plan. Generate a comprehensive plan that aligns customer goals with your success strategy.
+
+Customer: ${customerName}
+Industry: ${industryCode}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100 (trend: ${healthTrend})
+Current ARR: $${arr.toLocaleString()}
+Days Until Renewal: ${daysUntilRenewal}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+DAU/MAU Ratio: ${(dauMau * 100).toFixed(0)}%
+NPS Score: ${npsScore}
+High Risk Signals: ${hasHighRisk ? 'Yes' : 'No'}
+Recent Activities: ${activities.length} in last 30 days
+Plan Period: ${planPeriod}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a strategic account plan with:
+1. Account overview (2-3 sentences summarizing the account and strategic direction)
+2. 4-6 strategic objectives with categories, priorities, target dates, and success metrics
+3. 6-10 action items with owners, priorities, due dates, and linked objectives
+4. 4-6 milestones for tracking progress
+5. 3-5 resource requirements
+6. 4-6 success criteria
+7. 3-5 identified risks
+8. Timeline description
+
+Format your response as JSON:
+{
+  "accountOverview": "2-3 sentence strategic overview",
+  "objectives": [
+    {
+      "title": "Objective title (e.g., 'Drive Product Adoption')",
+      "description": "Detailed description of the objective",
+      "category": "growth|retention|expansion|adoption|risk_mitigation|strategic",
+      "priority": "high|medium|low",
+      "targetDate": "YYYY-MM-DD",
+      "metrics": ["Metric 1", "Metric 2"]
+    }
+  ],
+  "actionItems": [
+    {
+      "action": "Action title",
+      "description": "What needs to be done",
+      "owner": "CSM|Customer|Product|Engineering|Sales|Support|Leadership",
+      "priority": "high|medium|low",
+      "dueDate": "YYYY-MM-DD",
+      "status": "planned|in_progress|completed|blocked",
+      "relatedObjectives": [0, 1]
+    }
+  ],
+  "milestones": [
+    {
+      "name": "Milestone name",
+      "description": "Description",
+      "targetDate": "YYYY-MM-DD",
+      "status": "planned|in_progress|completed|at_risk",
+      "owner": "CSM"
+    }
+  ],
+  "resources": [
+    {
+      "type": "budget|headcount|tooling|training|support|other",
+      "description": "Resource description",
+      "allocation": "Allocation details"
+    }
+  ],
+  "successCriteria": ["Criterion 1", "Criterion 2"],
+  "risks": ["Risk 1", "Risk 2"],
+  "timeline": "Overview of the plan timeline"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Get account overview
+    const accountOverview = parsed.accountOverview ||
+      `${customerName} is a ${tier} account with a health score of ${healthScore}/100 and ARR of $${arr.toLocaleString()}. ` +
+      `This strategic account plan focuses on ${hasHighRisk ? 'risk mitigation and retention' : 'growth and expansion'} over the next 12 months, ` +
+      `with key emphasis on ${featureAdoption >= 70 ? 'maintaining momentum' : 'driving product adoption'} and stakeholder engagement.`;
+
+    // Process objectives
+    const objectives: AccountObjective[] = (parsed.objectives || []).map((obj: any, idx: number) => ({
+      id: `objective-${idx + 1}`,
+      title: obj.title || `Objective ${idx + 1}`,
+      description: obj.description || '',
+      category: (obj.category as AccountObjective['category']) || 'strategic',
+      priority: (obj.priority as AccountObjective['priority']) || 'medium',
+      targetDate: obj.targetDate || new Date(Date.now() + ((idx + 1) * 30) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      metrics: obj.metrics || [],
+      enabled: true,
+    }));
+
+    // Ensure minimum objectives
+    if (objectives.length < 4) {
+      const defaultObjectives: AccountObjective[] = [
+        { id: 'objective-1', title: 'Drive Product Adoption', description: 'Increase feature utilization and user engagement across the organization', category: 'adoption', priority: 'high', targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['Feature adoption rate > 80%', 'Weekly active users +20%'], enabled: true },
+        { id: 'objective-2', title: 'Strengthen Executive Sponsorship', description: 'Build deeper relationships with key decision makers and champions', category: 'retention', priority: 'high', targetDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['Quarterly exec meetings', 'NPS > 50'], enabled: true },
+        { id: 'objective-3', title: 'Identify Expansion Opportunities', description: 'Explore additional use cases and departments for platform expansion', category: 'expansion', priority: 'medium', targetDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['2+ expansion conversations', 'Pipeline > $50K'], enabled: true },
+        { id: 'objective-4', title: hasHighRisk ? 'Mitigate Identified Risks' : 'Ensure Successful Renewal', description: hasHighRisk ? 'Address risk signals and stabilize the account' : 'Prepare for smooth renewal with demonstrated value', category: hasHighRisk ? 'risk_mitigation' : 'retention', priority: 'high', targetDate: new Date(renewalDate).toISOString().slice(0, 10), metrics: ['Health score > 75', 'All blockers resolved'], enabled: true },
+        { id: 'objective-5', title: 'Develop Internal Champions', description: 'Identify and nurture power users who can advocate for the platform', category: 'growth', priority: 'medium', targetDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['3+ champions identified', 'Champion training completed'], enabled: true },
+      ];
+
+      defaultObjectives.forEach((defaultObj) => {
+        if (objectives.length < 4) {
+          objectives.push({ ...defaultObj, id: `objective-${objectives.length + 1}` });
+        }
+      });
+    }
+
+    // Process action items
+    const actionItems: AccountAction[] = (parsed.actionItems || []).map((item: any, idx: number) => ({
+      id: `action-${idx + 1}`,
+      action: item.action || `Action ${idx + 1}`,
+      description: item.description || '',
+      owner: (item.owner as AccountAction['owner']) || 'CSM',
+      priority: (item.priority as AccountAction['priority']) || 'medium',
+      dueDate: item.dueDate || new Date(Date.now() + ((idx + 1) * 14) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      status: (item.status as AccountAction['status']) || 'planned',
+      relatedObjectiveIds: (item.relatedObjectives || []).map((objIdx: number) => `objective-${objIdx + 1}`),
+      enabled: true,
+    }));
+
+    // Ensure minimum action items
+    if (actionItems.length < 6) {
+      const defaultActions: AccountAction[] = [
+        { id: 'action-1', action: 'Schedule Quarterly Business Review', description: 'Plan and execute QBR with executive stakeholders', owner: 'CSM', priority: 'high', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-2'], enabled: true },
+        { id: 'action-2', action: 'Conduct Feature Adoption Workshop', description: 'Training session on underutilized features', owner: 'CSM', priority: 'high', dueDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-1'], enabled: true },
+        { id: 'action-3', action: 'Identify Expansion Champions', description: 'Map power users who can sponsor expansion', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-3', 'objective-5'], enabled: true },
+        { id: 'action-4', action: 'Create Value Summary Report', description: 'Document ROI and success metrics', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-4'], enabled: true },
+        { id: 'action-5', action: 'Product Roadmap Discussion', description: 'Share upcoming features with stakeholders', owner: 'Product', priority: 'medium', dueDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-2'], enabled: true },
+        { id: 'action-6', action: hasHighRisk ? 'Execute Risk Mitigation Plan' : 'Prepare Renewal Documentation', description: hasHighRisk ? 'Address identified risks with action plan' : 'Compile materials for renewal discussion', owner: 'CSM', priority: 'high', dueDate: new Date(Date.now() + (hasHighRisk ? 7 : 90) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: hasHighRisk ? 'in_progress' : 'planned', relatedObjectiveIds: ['objective-4'], enabled: true },
+        { id: 'action-7', action: 'Champion Development Program', description: 'Launch training and recognition for champions', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 75 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-5'], enabled: true },
+        { id: 'action-8', action: 'Health Score Review', description: 'Monthly review and address any declining metrics', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-1', 'objective-4'], enabled: true },
+      ];
+
+      defaultActions.forEach((defaultAction) => {
+        if (actionItems.length < 6) {
+          actionItems.push({ ...defaultAction, id: `action-${actionItems.length + 1}` });
+        }
+      });
+    }
+
+    // Process milestones
+    const milestones: AccountMilestone[] = (parsed.milestones || []).map((ms: any, idx: number) => ({
+      id: `milestone-${idx + 1}`,
+      name: ms.name || `Milestone ${idx + 1}`,
+      description: ms.description || '',
+      targetDate: ms.targetDate || new Date(Date.now() + ((idx + 1) * 30) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      status: (ms.status as AccountMilestone['status']) || 'planned',
+      owner: ms.owner || 'CSM',
+      enabled: true,
+    }));
+
+    // Ensure minimum milestones
+    if (milestones.length < 4) {
+      const defaultMilestones: AccountMilestone[] = [
+        { id: 'milestone-1', name: 'QBR Completed', description: 'Quarterly business review with executive team', targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-2', name: 'Adoption Target Achieved', description: 'Feature adoption rate reaches 75%+', targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-3', name: 'Expansion Proposal Delivered', description: 'Present expansion opportunity to stakeholders', targetDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-4', name: 'Renewal Discussion Initiated', description: 'Begin renewal conversations 90 days out', targetDate: new Date(renewalDate).getTime() - 90 * 24 * 60 * 60 * 1000 > Date.now() ? new Date(new Date(renewalDate).getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-5', name: 'Champion Program Launch', description: 'Formally launch champion development program', targetDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+        { id: 'milestone-6', name: hasHighRisk ? 'Risk Resolution' : 'Success Plan Update', description: hasHighRisk ? 'All critical risks addressed' : 'Annual success plan refresh', targetDate: new Date(Date.now() + (hasHighRisk ? 45 : 180) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: hasHighRisk ? 'in_progress' : 'planned', owner: 'CSM', enabled: true },
+      ];
+
+      defaultMilestones.forEach((defaultMs) => {
+        if (milestones.length < 4) {
+          milestones.push({ ...defaultMs, id: `milestone-${milestones.length + 1}` });
+        }
+      });
+    }
+
+    // Process resources
+    const resources: AccountResource[] = (parsed.resources || []).map((res: any, idx: number) => ({
+      id: `resource-${idx + 1}`,
+      type: (res.type as AccountResource['type']) || 'other',
+      description: res.description || `Resource ${idx + 1}`,
+      allocation: res.allocation || 'TBD',
+      enabled: true,
+    }));
+
+    // Ensure minimum resources
+    if (resources.length < 3) {
+      const defaultResources: AccountResource[] = [
+        { id: 'resource-1', type: 'headcount', description: 'Dedicated CSM time for strategic initiatives', allocation: '40% capacity allocation', enabled: true },
+        { id: 'resource-2', type: 'training', description: 'Customer training and enablement sessions', allocation: 'Quarterly training budget', enabled: true },
+        { id: 'resource-3', type: 'support', description: 'Priority support escalation path', allocation: 'Tier 1 support access', enabled: true },
+        { id: 'resource-4', type: 'tooling', description: 'Analytics and reporting tools', allocation: 'Full dashboard access', enabled: true },
+        { id: 'resource-5', type: 'budget', description: 'Customer event and engagement budget', allocation: '$5,000 annual allocation', enabled: true },
+      ];
+
+      defaultResources.forEach((defaultRes) => {
+        if (resources.length < 3) {
+          resources.push({ ...defaultRes, id: `resource-${resources.length + 1}` });
+        }
+      });
+    }
+
+    // Process success criteria
+    let successCriteria = parsed.successCriteria || [];
+    if (!Array.isArray(successCriteria) || successCriteria.length < 4) {
+      successCriteria = [
+        `Health score maintained above ${Math.max(healthScore, 75)}/100`,
+        `Feature adoption rate exceeds ${Math.max(featureAdoption + 10, 75)}%`,
+        'Quarterly executive engagement maintained',
+        `NPS score improves to ${Math.max(npsScore + 10, 50)}+`,
+        'All strategic objectives completed on time',
+        hasHighRisk ? 'All risk signals resolved' : 'Expansion pipeline identified',
+      ];
+    }
+
+    // Process risks
+    let risks = parsed.risks || [];
+    if (!Array.isArray(risks) || risks.length < 3) {
+      risks = [
+        hasHighRisk ? 'Active risk signals require immediate attention' : 'Potential budget constraints at renewal',
+        'Key champion departure risk',
+        'Competing priorities reducing engagement',
+        'Economic factors affecting expansion plans',
+        `${daysUntilRenewal < 90 ? 'Short runway to renewal - limited time for initiatives' : 'Market changes impacting strategic direction'}`,
+      ];
+    }
+
+    // Process timeline
+    const timeline = parsed.timeline ||
+      `This 12-month strategic account plan spans from ${planPeriod}. ` +
+      `Key focus areas include ${hasHighRisk ? 'risk mitigation in Q1, ' : ''}adoption initiatives in Q1-Q2, ` +
+      `expansion conversations in Q2-Q3, and renewal preparation ${daysUntilRenewal > 180 ? 'in Q4' : 'immediately'}. ` +
+      'Monthly health reviews and quarterly business reviews provide checkpoints for plan adjustment.';
+
+    return {
+      title: `Strategic Account Plan: ${customerName}`,
+      planPeriod,
+      createdDate: new Date().toISOString().slice(0, 10),
+      accountOverview,
+      objectives,
+      actionItems,
+      milestones,
+      resources,
+      successCriteria,
+      risks,
+      timeline,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Account plan preview generation error:', error);
+
+    // Return fallback account plan
+    const fallbackOverview = `${customerName} is a ${tier} account with a health score of ${healthScore}/100 and ARR of $${arr.toLocaleString()}. This strategic account plan outlines key objectives and actions to drive success and growth over the next 12 months.`;
+
+    const fallbackObjectives: AccountObjective[] = [
+      { id: 'objective-1', title: 'Drive Product Adoption', description: 'Increase feature utilization and user engagement', category: 'adoption', priority: 'high', targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['Feature adoption > 75%', 'WAU +15%'], enabled: true },
+      { id: 'objective-2', title: 'Strengthen Executive Relationships', description: 'Build deeper connections with key stakeholders', category: 'retention', priority: 'high', targetDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['Quarterly exec meetings', 'NPS improvement'], enabled: true },
+      { id: 'objective-3', title: 'Identify Growth Opportunities', description: 'Explore expansion and upsell potential', category: 'expansion', priority: 'medium', targetDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), metrics: ['2+ opportunities identified', 'Pipeline > $30K'], enabled: true },
+      { id: 'objective-4', title: 'Ensure Successful Renewal', description: 'Prepare for smooth renewal with demonstrated value', category: 'retention', priority: 'high', targetDate: new Date(renewalDate).toISOString().slice(0, 10), metrics: ['Health > 75', 'Value documented'], enabled: true },
+    ];
+
+    const fallbackActions: AccountAction[] = [
+      { id: 'action-1', action: 'Schedule QBR', description: 'Plan quarterly business review', owner: 'CSM', priority: 'high', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-2'], enabled: true },
+      { id: 'action-2', action: 'Feature Training Session', description: 'Conduct training on key features', owner: 'CSM', priority: 'high', dueDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-1'], enabled: true },
+      { id: 'action-3', action: 'Create Value Summary', description: 'Document ROI and success', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-4'], enabled: true },
+      { id: 'action-4', action: 'Champion Identification', description: 'Identify power users', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-3'], enabled: true },
+      { id: 'action-5', action: 'Health Check Review', description: 'Monthly health metrics review', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-1', 'objective-4'], enabled: true },
+      { id: 'action-6', action: 'Expansion Discussion', description: 'Explore additional opportunities', owner: 'CSM', priority: 'medium', dueDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', relatedObjectiveIds: ['objective-3'], enabled: true },
+    ];
+
+    const fallbackMilestones: AccountMilestone[] = [
+      { id: 'milestone-1', name: 'QBR Completed', description: 'Quarterly review completed', targetDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+      { id: 'milestone-2', name: 'Adoption Target Met', description: 'Feature adoption > 75%', targetDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+      { id: 'milestone-3', name: 'Expansion Opportunity', description: 'Identified expansion path', targetDate: new Date(Date.now() + 120 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+      { id: 'milestone-4', name: 'Renewal Preparation', description: 'Materials ready for renewal', targetDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'planned', owner: 'CSM', enabled: true },
+    ];
+
+    const fallbackResources: AccountResource[] = [
+      { id: 'resource-1', type: 'headcount', description: 'Dedicated CSM capacity', allocation: '40% allocation', enabled: true },
+      { id: 'resource-2', type: 'training', description: 'Training sessions', allocation: 'Quarterly budget', enabled: true },
+      { id: 'resource-3', type: 'support', description: 'Priority support', allocation: 'Tier 1 access', enabled: true },
+    ];
+
+    const fallbackSuccessCriteria = [
+      'Health score > 75/100',
+      'Feature adoption > 75%',
+      'Quarterly executive meetings',
+      'Successful renewal',
+    ];
+
+    const fallbackRisks = [
+      'Budget constraints at renewal',
+      'Key stakeholder departure',
+      'Competing priorities',
+    ];
+
+    return {
+      title: `Strategic Account Plan: ${customerName}`,
+      planPeriod,
+      createdDate: new Date().toISOString().slice(0, 10),
+      accountOverview: fallbackOverview,
+      objectives: fallbackObjectives,
+      actionItems: fallbackActions,
+      milestones: fallbackMilestones,
+      resources: fallbackResources,
+      successCriteria: fallbackSuccessCriteria,
+      risks: fallbackRisks,
+      timeline: 'This 12-month plan focuses on adoption, expansion, and renewal success with quarterly checkpoints.',
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -7311,4 +7759,5 @@ export const artifactGenerator = {
   generateEscalationReportPreview,
   generateResolutionPlanPreview,
   generateExecutiveBriefingPreview,
+  generateAccountPlanPreview,
 };
