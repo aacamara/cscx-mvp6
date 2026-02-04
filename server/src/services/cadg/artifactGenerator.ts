@@ -3070,6 +3070,523 @@ Format your response as JSON:
   }
 }
 
+/**
+ * Champion development preview result for HITL review
+ */
+interface ChampionDevelopmentPreviewResult {
+  title: string;
+  programGoal: string;
+  candidates: Array<{
+    id: string;
+    name: string;
+    role: string;
+    email: string;
+    engagementScore: number;
+    npsScore: number;
+    potentialLevel: 'high' | 'medium' | 'low';
+    strengths: string[];
+    developmentAreas: string[];
+    selected: boolean;
+  }>;
+  activities: Array<{
+    id: string;
+    name: string;
+    description: string;
+    category: 'training' | 'recognition' | 'networking' | 'contribution' | 'leadership';
+    frequency: string;
+    owner: string;
+    enabled: boolean;
+  }>;
+  rewards: Array<{
+    id: string;
+    name: string;
+    description: string;
+    type: 'recognition' | 'access' | 'swag' | 'event' | 'certificate';
+    criteria: string;
+    enabled: boolean;
+  }>;
+  timeline: {
+    startDate: string;
+    endDate: string;
+    milestones: Array<{
+      id: string;
+      name: string;
+      date: string;
+      description: string;
+    }>;
+  };
+  successMetrics: Array<{
+    id: string;
+    name: string;
+    current: number;
+    target: number;
+    unit: string;
+  }>;
+  notes: string;
+}
+
+/**
+ * Generate champion development preview for HITL review
+ * Returns editable preview with champion candidates, development activities, rewards, and timeline
+ */
+async function generateChampionDevelopmentPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<ChampionDevelopmentPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 75;
+
+  // Get engagement metrics from context
+  const engagement = context.platformData.engagementMetrics;
+
+  // Build prompt for champion development generation
+  const prompt = `You are a customer success manager creating a champion development program. Generate a comprehensive plan to identify, nurture, and develop customer champions who will advocate for your product.
+
+Customer: ${customerName}
+Health Score: ${healthScore}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+${engagement ? `Current Engagement Data:
+- Feature Adoption: ${engagement.featureAdoption}%
+- Login Frequency: ${engagement.loginFrequency} per week
+- Last Activity: ${engagement.lastActivityDays} days ago` : ''}
+
+Generate a champion development program with:
+1. Program title and primary goal
+2. 3-5 champion candidates with engagement scores, NPS, strengths, and development areas
+3. 4-6 development activities across categories (training, recognition, networking, contribution, leadership)
+4. 3-5 recognition rewards with criteria
+5. Program timeline with 3-4 key milestones
+6. 4-6 success metrics with current baselines and targets
+
+Format your response as JSON:
+{
+  "title": "Program title",
+  "programGoal": "Primary goal description",
+  "candidates": [
+    {
+      "name": "Person name",
+      "role": "Job title",
+      "email": "email@example.com",
+      "engagementScore": number (0-100),
+      "npsScore": number (-100 to 100),
+      "potentialLevel": "high|medium|low",
+      "strengths": ["Strength 1", "Strength 2"],
+      "developmentAreas": ["Area 1", "Area 2"]
+    }
+  ],
+  "activities": [
+    {
+      "name": "Activity name",
+      "description": "What this activity involves",
+      "category": "training|recognition|networking|contribution|leadership",
+      "frequency": "Weekly|Monthly|Quarterly|As needed",
+      "owner": "CSM|Customer|Product Team|Community"
+    }
+  ],
+  "rewards": [
+    {
+      "name": "Reward name",
+      "description": "What the champion receives",
+      "type": "recognition|access|swag|event|certificate",
+      "criteria": "How to earn this reward"
+    }
+  ],
+  "timeline": {
+    "startDate": "YYYY-MM-DD",
+    "endDate": "YYYY-MM-DD",
+    "milestones": [
+      {
+        "name": "Milestone name",
+        "date": "YYYY-MM-DD",
+        "description": "What happens at this milestone"
+      }
+    ]
+  },
+  "successMetrics": [
+    {
+      "name": "Metric name",
+      "current": number,
+      "target": number,
+      "unit": "percent|count|score|users"
+    }
+  ],
+  "notes": "Additional program notes"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 3000,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+    });
+
+    const textBlock = response.content.find((block) => block.type === 'text');
+    const programContent = textBlock?.text || '';
+
+    // Parse JSON response
+    let parsed: {
+      title?: string;
+      programGoal?: string;
+      candidates?: Array<{
+        name: string;
+        role?: string;
+        email?: string;
+        engagementScore?: number;
+        npsScore?: number;
+        potentialLevel?: string;
+        strengths?: string[];
+        developmentAreas?: string[];
+      }>;
+      activities?: Array<{
+        name: string;
+        description?: string;
+        category?: string;
+        frequency?: string;
+        owner?: string;
+      }>;
+      rewards?: Array<{
+        name: string;
+        description?: string;
+        type?: string;
+        criteria?: string;
+      }>;
+      timeline?: {
+        startDate?: string;
+        endDate?: string;
+        milestones?: Array<{
+          name: string;
+          date?: string;
+          description?: string;
+        }>;
+      };
+      successMetrics?: Array<{
+        name: string;
+        current?: number;
+        target?: number;
+        unit?: string;
+      }>;
+      notes?: string;
+    } = {};
+
+    try {
+      const jsonMatch = programContent.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        parsed = JSON.parse(jsonMatch[0]);
+      }
+    } catch {
+      // Parsing failed, use defaults
+    }
+
+    // Default dates (program starts in 2 weeks, runs 12 weeks)
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() + 14);
+    const endDate = new Date(startDate);
+    endDate.setDate(endDate.getDate() + 84); // 12 weeks
+
+    // Default champion candidates
+    const defaultCandidates = [
+      {
+        name: 'Sarah Chen',
+        role: 'Product Manager',
+        email: 'sarah.chen@example.com',
+        engagementScore: 92,
+        npsScore: 9,
+        potentialLevel: 'high' as const,
+        strengths: ['Power user', 'Active in community', 'Provides valuable feedback'],
+        developmentAreas: ['Public speaking', 'Content creation'],
+      },
+      {
+        name: 'Marcus Johnson',
+        role: 'Team Lead',
+        email: 'marcus.j@example.com',
+        engagementScore: 88,
+        npsScore: 8,
+        potentialLevel: 'high' as const,
+        strengths: ['Technical expertise', 'Trains team members', 'Early adopter'],
+        developmentAreas: ['Cross-department advocacy', 'Case study participation'],
+      },
+      {
+        name: 'Emily Rodriguez',
+        role: 'Operations Analyst',
+        email: 'emily.r@example.com',
+        engagementScore: 78,
+        npsScore: 7,
+        potentialLevel: 'medium' as const,
+        strengths: ['Creates documentation', 'Consistent usage', 'Positive attitude'],
+        developmentAreas: ['Feature exploration', 'Leadership opportunities'],
+      },
+      {
+        name: 'David Kim',
+        role: 'Senior Developer',
+        email: 'david.kim@example.com',
+        engagementScore: 85,
+        npsScore: 8,
+        potentialLevel: 'high' as const,
+        strengths: ['API integration expert', 'Builds internal tools', 'Shares best practices'],
+        developmentAreas: ['Customer reference calls', 'Conference speaking'],
+      },
+    ];
+
+    const defaultActivities = [
+      {
+        name: 'Champion Training Program',
+        description: 'Advanced product training and certification for champions',
+        category: 'training' as const,
+        frequency: 'Monthly',
+        owner: 'CSM',
+      },
+      {
+        name: 'Champion Recognition Awards',
+        description: 'Monthly recognition for champion contributions',
+        category: 'recognition' as const,
+        frequency: 'Monthly',
+        owner: 'CSM',
+      },
+      {
+        name: 'Champion Network Events',
+        description: 'Virtual meetups for champions to connect and share',
+        category: 'networking' as const,
+        frequency: 'Quarterly',
+        owner: 'Community',
+      },
+      {
+        name: 'Product Advisory Board',
+        description: 'Champions provide input on product roadmap',
+        category: 'contribution' as const,
+        frequency: 'Quarterly',
+        owner: 'Product Team',
+      },
+      {
+        name: 'Mentorship Program',
+        description: 'Champions mentor new users within their organization',
+        category: 'leadership' as const,
+        frequency: 'Ongoing',
+        owner: 'Customer',
+      },
+      {
+        name: 'Content Contribution',
+        description: 'Champions create tips, tutorials, or case studies',
+        category: 'contribution' as const,
+        frequency: 'As needed',
+        owner: 'Customer',
+      },
+    ];
+
+    const defaultRewards = [
+      {
+        name: 'Champion of the Month',
+        description: 'Featured recognition in newsletter and community',
+        type: 'recognition' as const,
+        criteria: 'Outstanding contribution or advocacy',
+      },
+      {
+        name: 'Early Access Program',
+        description: 'Beta access to new features before general release',
+        type: 'access' as const,
+        criteria: 'Active champion for 3+ months',
+      },
+      {
+        name: 'Champion Swag Kit',
+        description: 'Exclusive branded merchandise and gifts',
+        type: 'swag' as const,
+        criteria: 'Complete champion onboarding',
+      },
+      {
+        name: 'VIP Conference Pass',
+        description: 'Free ticket to annual user conference',
+        type: 'event' as const,
+        criteria: 'Top 10% champion engagement',
+      },
+      {
+        name: 'Champion Certification',
+        description: 'Official certification badge and credential',
+        type: 'certificate' as const,
+        criteria: 'Complete advanced training program',
+      },
+    ];
+
+    const milestone1Date = new Date(startDate);
+    milestone1Date.setDate(milestone1Date.getDate() + 7);
+    const milestone2Date = new Date(startDate);
+    milestone2Date.setDate(milestone2Date.getDate() + 30);
+    const milestone3Date = new Date(startDate);
+    milestone3Date.setDate(milestone3Date.getDate() + 60);
+
+    const defaultTimeline = {
+      startDate: startDate.toISOString().split('T')[0],
+      endDate: endDate.toISOString().split('T')[0],
+      milestones: [
+        {
+          name: 'Program Launch',
+          date: startDate.toISOString().split('T')[0],
+          description: 'Kick off champion program with initial cohort',
+        },
+        {
+          name: 'First Champion Training',
+          date: milestone1Date.toISOString().split('T')[0],
+          description: 'Complete first advanced training session',
+        },
+        {
+          name: 'Mid-Program Review',
+          date: milestone2Date.toISOString().split('T')[0],
+          description: 'Assess progress and gather champion feedback',
+        },
+        {
+          name: 'Program Expansion',
+          date: milestone3Date.toISOString().split('T')[0],
+          description: 'Invite second cohort based on learnings',
+        },
+      ],
+    };
+
+    const defaultSuccessMetrics = [
+      { name: 'Active Champions', current: 0, target: 10, unit: 'users' },
+      { name: 'Champion Engagement Score', current: 0, target: 85, unit: 'score' },
+      { name: 'Internal Training Sessions', current: 0, target: 20, unit: 'count' },
+      { name: 'Reference Calls Completed', current: 0, target: 5, unit: 'count' },
+      { name: 'Content Contributions', current: 0, target: 15, unit: 'count' },
+      { name: 'Champion NPS', current: 0, target: 9, unit: 'score' },
+    ];
+
+    const candidates = (parsed.candidates && parsed.candidates.length > 0
+      ? parsed.candidates
+      : defaultCandidates
+    ).map((c, idx) => ({
+      id: `candidate-${idx + 1}`,
+      name: c.name || `Champion ${idx + 1}`,
+      role: c.role || 'Team Member',
+      email: c.email || `champion${idx + 1}@example.com`,
+      engagementScore: c.engagementScore || 75,
+      npsScore: c.npsScore || 7,
+      potentialLevel: (c.potentialLevel as 'high' | 'medium' | 'low') || 'medium',
+      strengths: c.strengths || ['Active user'],
+      developmentAreas: c.developmentAreas || ['Leadership'],
+      selected: true,
+    }));
+
+    const activities = (parsed.activities && parsed.activities.length > 0
+      ? parsed.activities
+      : defaultActivities
+    ).map((a, idx) => ({
+      id: `activity-${idx + 1}`,
+      name: a.name || `Activity ${idx + 1}`,
+      description: a.description || '',
+      category: (a.category as 'training' | 'recognition' | 'networking' | 'contribution' | 'leadership') || 'training',
+      frequency: a.frequency || 'Monthly',
+      owner: a.owner || 'CSM',
+      enabled: true,
+    }));
+
+    const rewards = (parsed.rewards && parsed.rewards.length > 0
+      ? parsed.rewards
+      : defaultRewards
+    ).map((r, idx) => ({
+      id: `reward-${idx + 1}`,
+      name: r.name || `Reward ${idx + 1}`,
+      description: r.description || '',
+      type: (r.type as 'recognition' | 'access' | 'swag' | 'event' | 'certificate') || 'recognition',
+      criteria: r.criteria || '',
+      enabled: true,
+    }));
+
+    const timeline = parsed.timeline && parsed.timeline.milestones && parsed.timeline.milestones.length > 0
+      ? {
+          startDate: parsed.timeline.startDate || defaultTimeline.startDate,
+          endDate: parsed.timeline.endDate || defaultTimeline.endDate,
+          milestones: parsed.timeline.milestones.map((m, idx) => ({
+            id: `milestone-${idx + 1}`,
+            name: m.name || `Milestone ${idx + 1}`,
+            date: m.date || defaultTimeline.milestones[idx]?.date || defaultTimeline.startDate,
+            description: m.description || '',
+          })),
+        }
+      : {
+          ...defaultTimeline,
+          milestones: defaultTimeline.milestones.map((m, idx) => ({
+            id: `milestone-${idx + 1}`,
+            ...m,
+          })),
+        };
+
+    const successMetrics = (parsed.successMetrics && parsed.successMetrics.length > 0
+      ? parsed.successMetrics
+      : defaultSuccessMetrics
+    ).map((m, idx) => ({
+      id: `metric-${idx + 1}`,
+      name: m.name || `Metric ${idx + 1}`,
+      current: m.current || 0,
+      target: m.target || 50,
+      unit: m.unit || 'count',
+    }));
+
+    return {
+      title: parsed.title || `Champion Development Program: ${customerName}`,
+      programGoal: parsed.programGoal || 'Identify and develop customer champions who will advocate for our product, drive internal adoption, and provide valuable feedback for product improvement.',
+      candidates,
+      activities,
+      rewards,
+      timeline,
+      successMetrics,
+      notes: parsed.notes || 'Review champion candidates, customize activities and rewards, and adjust timeline milestones as needed.',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Champion development preview generation error:', error);
+
+    // Return fallback champion development program
+    const fallbackStart = new Date();
+    fallbackStart.setDate(fallbackStart.getDate() + 14);
+    const fallbackEnd = new Date(fallbackStart);
+    fallbackEnd.setDate(fallbackEnd.getDate() + 84);
+
+    return {
+      title: `Champion Development Program: ${customerName}`,
+      programGoal: 'Identify and develop customer champions who will advocate for our product.',
+      candidates: [
+        { id: 'candidate-1', name: 'Sarah Chen', role: 'Product Manager', email: 'sarah@example.com', engagementScore: 90, npsScore: 9, potentialLevel: 'high', strengths: ['Power user', 'Community active'], developmentAreas: ['Public speaking'], selected: true },
+        { id: 'candidate-2', name: 'Marcus Johnson', role: 'Team Lead', email: 'marcus@example.com', engagementScore: 85, npsScore: 8, potentialLevel: 'high', strengths: ['Technical expertise', 'Trains team'], developmentAreas: ['Content creation'], selected: true },
+        { id: 'candidate-3', name: 'Emily Rodriguez', role: 'Analyst', email: 'emily@example.com', engagementScore: 78, npsScore: 7, potentialLevel: 'medium', strengths: ['Documentation', 'Consistent usage'], developmentAreas: ['Feature exploration'], selected: true },
+      ],
+      activities: [
+        { id: 'activity-1', name: 'Champion Training', description: 'Advanced product training', category: 'training', frequency: 'Monthly', owner: 'CSM', enabled: true },
+        { id: 'activity-2', name: 'Recognition Awards', description: 'Monthly champion recognition', category: 'recognition', frequency: 'Monthly', owner: 'CSM', enabled: true },
+        { id: 'activity-3', name: 'Network Events', description: 'Champion meetups', category: 'networking', frequency: 'Quarterly', owner: 'Community', enabled: true },
+      ],
+      rewards: [
+        { id: 'reward-1', name: 'Champion of the Month', description: 'Featured recognition', type: 'recognition', criteria: 'Outstanding contribution', enabled: true },
+        { id: 'reward-2', name: 'Early Access', description: 'Beta feature access', type: 'access', criteria: '3+ months active', enabled: true },
+        { id: 'reward-3', name: 'Swag Kit', description: 'Branded merchandise', type: 'swag', criteria: 'Complete onboarding', enabled: true },
+      ],
+      timeline: {
+        startDate: fallbackStart.toISOString().split('T')[0],
+        endDate: fallbackEnd.toISOString().split('T')[0],
+        milestones: [
+          { id: 'milestone-1', name: 'Program Launch', date: fallbackStart.toISOString().split('T')[0], description: 'Kick off with initial cohort' },
+          { id: 'milestone-2', name: 'First Training', date: fallbackStart.toISOString().split('T')[0], description: 'Complete first session' },
+        ],
+      },
+      successMetrics: [
+        { id: 'metric-1', name: 'Active Champions', current: 0, target: 10, unit: 'users' },
+        { id: 'metric-2', name: 'Engagement Score', current: 0, target: 85, unit: 'score' },
+        { id: 'metric-3', name: 'Training Sessions', current: 0, target: 20, unit: 'count' },
+      ],
+      notes: '',
+    };
+  }
+}
+
 export const artifactGenerator = {
   generate,
   getArtifact,
@@ -3082,4 +3599,5 @@ export const artifactGenerator = {
   generateTrainingSchedulePreview,
   generateUsageAnalysisPreview,
   generateFeatureCampaignPreview,
+  generateChampionDevelopmentPreview,
 };

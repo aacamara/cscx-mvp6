@@ -477,6 +477,54 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a champion development artifact - return preview for HITL
+    const isChampionDevelopmentArtifact = finalPlan.taskType === 'champion_development' ||
+                                           planRow.user_query?.toLowerCase().includes('champion development') ||
+                                           planRow.user_query?.toLowerCase().includes('champion program') ||
+                                           planRow.user_query?.toLowerCase().includes('develop champions') ||
+                                           planRow.user_query?.toLowerCase().includes('customer champions') ||
+                                           planRow.user_query?.toLowerCase().includes('champion candidates') ||
+                                           planRow.user_query?.toLowerCase().includes('identify champions') ||
+                                           planRow.user_query?.toLowerCase().includes('nurture champions') ||
+                                           planRow.user_query?.toLowerCase().includes('power users') ||
+                                           planRow.user_query?.toLowerCase().includes('advocate program');
+
+    if (isChampionDevelopmentArtifact) {
+      // Generate champion development content but don't finalize - return preview for HITL
+      const championDevelopmentPreview = await artifactGenerator.generateChampionDevelopmentPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isChampionDevelopmentPreview: true,
+        preview: {
+          title: championDevelopmentPreview.title,
+          programGoal: championDevelopmentPreview.programGoal,
+          candidates: championDevelopmentPreview.candidates,
+          activities: championDevelopmentPreview.activities,
+          rewards: championDevelopmentPreview.rewards,
+          timeline: championDevelopmentPreview.timeline,
+          successMetrics: championDevelopmentPreview.successMetrics,
+          notes: championDevelopmentPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Check if this is a training schedule artifact - return preview for HITL
     const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
                                         planRow.user_query?.toLowerCase().includes('training schedule') ||
@@ -2586,6 +2634,183 @@ ${notes || 'No additional notes.'}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save feature campaign',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/champion-development/save
+ * Save finalized champion development program after user review
+ */
+router.post('/champion-development/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      programGoal,
+      candidates,
+      activities,
+      rewards,
+      timeline,
+      successMetrics,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import docs service
+    const { docsService } = await import('../services/google/docs.js');
+
+    // Filter to only selected candidates and enabled activities/rewards
+    const selectedCandidates = (candidates || []).filter((c: any) => c.selected);
+    const enabledActivities = (activities || []).filter((a: any) => a.enabled);
+    const enabledRewards = (rewards || []).filter((r: any) => r.enabled);
+
+    // Build document content
+    const candidatesContent = selectedCandidates.map((c: any) =>
+      `### ${c.name}
+- **Role:** ${c.role}
+- **Email:** ${c.email}
+- **Engagement Score:** ${c.engagementScore}%
+- **NPS Score:** ${c.npsScore}
+- **Potential Level:** ${c.potentialLevel}
+- **Strengths:** ${c.strengths?.join(', ') || 'None listed'}
+- **Development Areas:** ${c.developmentAreas?.join(', ') || 'None listed'}`
+    ).join('\n\n');
+
+    const activitiesContent = enabledActivities.map((a: any) =>
+      `### ${a.name}
+- **Category:** ${a.category}
+- **Description:** ${a.description}
+- **Frequency:** ${a.frequency}
+- **Owner:** ${a.owner}`
+    ).join('\n\n');
+
+    const rewardsContent = enabledRewards.map((r: any) =>
+      `### ${r.name}
+- **Type:** ${r.type}
+- **Description:** ${r.description}
+- **Criteria:** ${r.criteria}`
+    ).join('\n\n');
+
+    const milestonesContent = (timeline?.milestones || []).map((m: any) =>
+      `| ${m.name} | ${m.date} | ${m.description} |`
+    ).join('\n');
+
+    const metricsContent = (successMetrics || []).map((m: any) =>
+      `| ${m.name} | ${m.current} ${m.unit} | ${m.target} ${m.unit} | ${Math.round((m.current / m.target) * 100)}% |`
+    ).join('\n');
+
+    const documentContent = `# ${title}
+
+## Program Goal
+
+${programGoal}
+
+## Program Timeline
+
+- **Start Date:** ${timeline?.startDate || 'TBD'}
+- **End Date:** ${timeline?.endDate || 'TBD'}
+
+### Milestones
+
+| Milestone | Date | Description |
+|-----------|------|-------------|
+${milestonesContent || '| No milestones defined | - | - |'}
+
+## Champion Candidates (${selectedCandidates.length})
+
+${candidatesContent || 'No candidates selected.'}
+
+## Development Activities (${enabledActivities.length})
+
+${activitiesContent || 'No activities defined.'}
+
+## Recognition & Rewards (${enabledRewards.length})
+
+${rewardsContent || 'No rewards defined.'}
+
+## Success Metrics
+
+| Metric | Current | Target | Progress |
+|--------|---------|--------|----------|
+${metricsContent || '| No metrics defined | - | - | - |'}
+
+## Notes
+
+${notes || 'No additional notes.'}
+
+---
+
+*Generated by CSCX.AI on ${new Date().toLocaleDateString()}*
+`;
+
+    // Create document in Google Docs
+    const docResult = await docsService.createDocument(userId, {
+      title,
+      content: documentContent,
+    });
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'champion_development_created',
+            description: `Champion development program created: ${title}`,
+            metadata: {
+              documentId: docResult.id,
+              documentUrl: docResult.webViewLink,
+              candidatesCount: selectedCandidates.length,
+              activitiesCount: enabledActivities.length,
+              rewardsCount: enabledRewards.length,
+              milestonesCount: (timeline?.milestones || []).length,
+              metricsCount: (successMetrics || []).length,
+              timeline,
+              createdVia: 'cadg_champion_development_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log champion development activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      documentId: docResult.id,
+      documentUrl: docResult.webViewLink,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Champion development save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save champion development program',
     });
   }
 });

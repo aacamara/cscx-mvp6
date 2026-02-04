@@ -15,6 +15,7 @@ import { CADGStakeholderMapPreview, StakeholderMapData, CustomerData as Stakehol
 import { CADGTrainingSchedulePreview, TrainingScheduleData, CustomerData as TrainingCustomerData } from './CADGTrainingSchedulePreview';
 import { CADGUsageAnalysisPreview, UsageAnalysisData, CustomerData as UsageAnalysisCustomerData } from './CADGUsageAnalysisPreview';
 import { CADGFeatureCampaignPreview, FeatureCampaignData, CustomerData as FeatureCampaignCustomerData } from './CADGFeatureCampaignPreview';
+import { CADGChampionDevelopmentPreview, ChampionDevelopmentData, CustomerData as ChampionDevelopmentCustomerData } from './CADGChampionDevelopmentPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -198,6 +199,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [featureCampaignPreviewData, setFeatureCampaignPreviewData] = useState<{
     featureCampaign: FeatureCampaignData;
     customer: FeatureCampaignCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Champion development preview state for HITL workflow
+  const [showChampionDevelopmentPreview, setShowChampionDevelopmentPreview] = useState(false);
+  const [championDevelopmentPreviewData, setChampionDevelopmentPreviewData] = useState<{
+    championDevelopment: ChampionDevelopmentData;
+    customer: ChampionDevelopmentCustomerData;
     planId: string;
   } | null>(null);
 
@@ -459,6 +468,33 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowFeatureCampaignPreview(true);
         setStatus('pending'); // Keep in pending until feature campaign is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a champion development preview (HITL workflow)
+      if (data.isChampionDevelopmentPreview && data.preview) {
+        setChampionDevelopmentPreviewData({
+          championDevelopment: {
+            title: data.preview.title || 'Champion Development Program',
+            programGoal: data.preview.programGoal || '',
+            candidates: data.preview.candidates || [],
+            activities: data.preview.activities || [],
+            rewards: data.preview.rewards || [],
+            timeline: data.preview.timeline || { startDate: '', endDate: '', milestones: [] },
+            successMetrics: data.preview.successMetrics || [],
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || '',
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowChampionDevelopmentPreview(true);
+        setStatus('pending'); // Keep in pending until champion development is saved
         setIsApproving(false);
         return;
       }
@@ -1043,6 +1079,64 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving champion development from preview
+  const handleChampionDevelopmentSave = async (championDevelopment: ChampionDevelopmentData) => {
+    if (!championDevelopmentPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/champion-development/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: championDevelopmentPreviewData.planId,
+        title: championDevelopment.title,
+        programGoal: championDevelopment.programGoal,
+        candidates: championDevelopment.candidates,
+        activities: championDevelopment.activities,
+        rewards: championDevelopment.rewards,
+        timeline: championDevelopment.timeline,
+        successMetrics: championDevelopment.successMetrics,
+        notes: championDevelopment.notes,
+        customerId: championDevelopmentPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save champion development program');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowChampionDevelopmentPreview(false);
+    setChampionDevelopmentPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.documentId,
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.documentUrl,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.documentId);
+  };
+
+  // Handle canceling champion development preview
+  const handleChampionDevelopmentCancel = () => {
+    setShowChampionDevelopmentPreview(false);
+    setChampionDevelopmentPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -1291,6 +1385,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={featureCampaignPreviewData.customer}
         onSave={handleFeatureCampaignSave}
         onCancel={handleFeatureCampaignCancel}
+      />
+    );
+  }
+
+  // Champion development preview for HITL workflow
+  if (showChampionDevelopmentPreview && championDevelopmentPreviewData) {
+    return (
+      <CADGChampionDevelopmentPreview
+        championDevelopment={championDevelopmentPreviewData.championDevelopment}
+        customer={championDevelopmentPreviewData.customer}
+        onSave={handleChampionDevelopmentSave}
+        onCancel={handleChampionDevelopmentCancel}
       />
     );
   }
