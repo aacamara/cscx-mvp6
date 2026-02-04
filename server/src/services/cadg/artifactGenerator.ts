@@ -5530,6 +5530,339 @@ Format your response as JSON:
 }
 
 // ============================================
+// Save Play Types
+// ============================================
+
+interface RootCause {
+  id: string;
+  cause: string;
+  description: string;
+  category: 'product' | 'service' | 'relationship' | 'value' | 'competitive' | 'budget' | 'timing' | 'other';
+  severity: 'critical' | 'high' | 'medium' | 'low';
+  evidence: string;
+  enabled: boolean;
+}
+
+interface SavePlayAction {
+  id: string;
+  action: string;
+  description: string;
+  owner: 'CSM' | 'Customer' | 'Support' | 'Product' | 'Leadership' | 'Implementation' | 'Sales';
+  dueDate: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'blocked';
+  priority: 'high' | 'medium' | 'low';
+  relatedCauseIds: string[];
+}
+
+interface SuccessMetric {
+  id: string;
+  metric: string;
+  currentValue: string;
+  targetValue: string;
+  dueDate: string;
+  enabled: boolean;
+}
+
+interface SavePlayPreviewResult {
+  title: string;
+  createdDate: string;
+  riskLevel: 'critical' | 'high' | 'medium' | 'low';
+  situation: string;
+  healthScore: number;
+  daysUntilRenewal: number;
+  arr: number;
+  rootCauses: RootCause[];
+  actionItems: SavePlayAction[];
+  successMetrics: SuccessMetric[];
+  timeline: string;
+  notes: string;
+}
+
+/**
+ * Generate a save play preview for at-risk customers
+ * Provides editable HITL preview before creating final document
+ */
+async function generateSavePlayPreview(params: {
+  plan: ExecutionPlan;
+  context: AggregatedContext;
+  userId: string;
+  customerId: string | null;
+  isTemplate: boolean;
+}): Promise<SavePlayPreviewResult> {
+  const { context, isTemplate } = params;
+
+  // Get customer info
+  const customer = context.platformData.customer360;
+  const customerName = customer?.name || 'Valued Customer';
+  const healthScore = customer?.healthScore || 45;
+  const arr = customer?.arr || 100000;
+  const tier = customer?.tier || 'Growth';
+  const renewalDate = customer?.renewalDate || new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // Get engagement metrics
+  const engagement = context.platformData.engagementMetrics;
+  const featureAdoption = engagement?.featureAdoption || 35;
+  const loginFrequency = engagement?.loginFrequency || 1.5;
+  const dauMau = engagement?.dauMau || 0.2;
+
+  // Get NPS data
+  const npsScore = customer?.npsScore || 15;
+
+  // Get risk signals from context
+  const riskSignals = context.platformData.riskSignals || [];
+  const hasHighRisk = riskSignals.some((r: any) => r.severity === 'high' || r.type === 'churn_risk');
+
+  // Calculate days until renewal
+  const daysUntilRenewal = Math.round((new Date(renewalDate).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+
+  // Determine risk level
+  let riskLevel: SavePlayPreviewResult['riskLevel'] = 'medium';
+  if (healthScore < 40 || hasHighRisk) riskLevel = 'critical';
+  else if (healthScore < 55 || daysUntilRenewal < 45) riskLevel = 'high';
+  else if (healthScore < 70) riskLevel = 'medium';
+
+  // Build prompt for save play generation
+  const prompt = `You are a customer success manager creating an urgent save play for a customer showing significant churn signals. Generate a comprehensive save play with root causes, action items, and success metrics.
+
+Customer: ${customerName}
+Current Tier: ${tier}
+Health Score: ${healthScore}/100 (AT RISK)
+Current ARR: $${arr.toLocaleString()}
+Days Until Renewal: ${daysUntilRenewal}
+Feature Adoption: ${featureAdoption}%
+Login Frequency: ${loginFrequency}x/week
+DAU/MAU Ratio: ${(dauMau * 100).toFixed(1)}%
+NPS Score: ${npsScore}
+Risk Level: ${riskLevel.toUpperCase()}
+Known Risk Signals: ${hasHighRisk ? 'High risk - immediate action required' : 'Elevated concerns'}
+${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+
+Generate a save play with:
+1. A situation summary (2-3 sentences describing the urgent situation)
+2. 5-7 root causes categorized by type (product, service, relationship, value, competitive, budget, timing) with severity levels
+3. 6-8 action items with owners, priorities, due dates, and linked root causes
+4. 4-6 success metrics to track the save effort
+
+Format your response as JSON:
+{
+  "situation": "2-3 sentence summary of the urgent situation requiring a save play",
+  "rootCauses": [
+    {
+      "cause": "Root cause name",
+      "description": "What is causing this issue",
+      "category": "product|service|relationship|value|competitive|budget|timing|other",
+      "severity": "critical|high|medium|low",
+      "evidence": "Specific data or observation supporting this root cause"
+    }
+  ],
+  "actionItems": [
+    {
+      "action": "Action title",
+      "description": "Detailed action steps",
+      "owner": "CSM|Customer|Support|Product|Leadership|Implementation|Sales",
+      "priority": "high|medium|low",
+      "relatedCauses": ["Root cause name 1", "Root cause name 2"]
+    }
+  ],
+  "successMetrics": [
+    {
+      "metric": "Metric name",
+      "currentValue": "Current state",
+      "targetValue": "Target to achieve"
+    }
+  ],
+  "timeline": "Expected timeline for the save effort (e.g., '30 days', '6 weeks')"
+}`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2500,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    // Extract text content
+    const textContent = response.content.find(c => c.type === 'text');
+    const responseText = textContent?.type === 'text' ? textContent.text : '';
+
+    // Extract JSON from response
+    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    // Get situation summary
+    const situation = parsed.situation ||
+      `${customerName} is at ${riskLevel} risk with a health score of ${healthScore}/100. ` +
+      `Key concerns include declining engagement (${featureAdoption}% adoption, ${loginFrequency}x weekly logins) and ` +
+      `upcoming renewal in ${daysUntilRenewal} days. Immediate intervention is required.`;
+
+    // Process root causes
+    const rootCauses: RootCause[] = (parsed.rootCauses || []).map((r: any, idx: number) => ({
+      id: `cause-${idx + 1}`,
+      cause: r.cause || `Root Cause ${idx + 1}`,
+      description: r.description || '',
+      category: (r.category as RootCause['category']) || 'other',
+      severity: (r.severity as RootCause['severity']) || 'medium',
+      evidence: r.evidence || '',
+      enabled: true,
+    }));
+
+    // Ensure minimum root causes
+    if (rootCauses.length < 5) {
+      const defaultCauses: RootCause[] = [
+        { id: 'cause-1', cause: 'Low Product Adoption', description: 'Customer is not utilizing key features that drive value', category: 'product', severity: featureAdoption < 40 ? 'critical' : 'high', evidence: `Feature adoption at ${featureAdoption}%, well below target of 70%`, enabled: true },
+        { id: 'cause-2', cause: 'Declining Engagement', description: 'User activity has dropped significantly', category: 'value', severity: loginFrequency < 2 ? 'high' : 'medium', evidence: `Login frequency down to ${loginFrequency}x/week`, enabled: true },
+        { id: 'cause-3', cause: 'Champion Disengagement', description: 'Key stakeholder is no longer responsive', category: 'relationship', severity: 'high', evidence: 'Primary contact has not responded to last 3 outreach attempts', enabled: true },
+        { id: 'cause-4', cause: 'Unresolved Issues', description: 'Outstanding support tickets creating frustration', category: 'service', severity: 'medium', evidence: 'Multiple escalated tickets in the past 60 days', enabled: true },
+        { id: 'cause-5', cause: 'Perceived Value Gap', description: 'Customer is questioning ROI and value delivered', category: 'value', severity: npsScore < 0 ? 'critical' : 'high', evidence: `NPS score of ${npsScore} indicates dissatisfaction`, enabled: true },
+        { id: 'cause-6', cause: 'Budget Pressure', description: 'Customer facing internal budget constraints', category: 'budget', severity: 'medium', evidence: 'Mentioned budget review in recent communications', enabled: true },
+        { id: 'cause-7', cause: 'Competitive Evaluation', description: 'Customer may be evaluating alternatives', category: 'competitive', severity: hasHighRisk ? 'high' : 'medium', evidence: 'Industry reports show increased competitive activity', enabled: true },
+      ];
+
+      // Add missing causes
+      defaultCauses.forEach((defaultCause, idx) => {
+        if (!rootCauses.find(c => c.category === defaultCause.category)) {
+          rootCauses.push({ ...defaultCause, id: `cause-${rootCauses.length + 1}` });
+        }
+      });
+    }
+
+    // Process action items with cause ID mapping
+    const actionItems: SavePlayAction[] = (parsed.actionItems || []).map((a: any, idx: number) => {
+      // Map related cause names to IDs
+      const relatedCauseIds = (a.relatedCauses || []).map((causeName: string) => {
+        const matchedCause = rootCauses.find(c =>
+          c.cause.toLowerCase().includes(causeName.toLowerCase()) ||
+          causeName.toLowerCase().includes(c.cause.toLowerCase())
+        );
+        return matchedCause?.id || '';
+      }).filter(Boolean);
+
+      return {
+        id: `action-${idx + 1}`,
+        action: a.action || `Action ${idx + 1}`,
+        description: a.description || '',
+        owner: (a.owner as SavePlayAction['owner']) || 'CSM',
+        dueDate: new Date(Date.now() + (7 + idx * 5) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        status: 'pending' as const,
+        priority: (a.priority as SavePlayAction['priority']) || 'high',
+        relatedCauseIds,
+      };
+    });
+
+    // Ensure minimum action items
+    if (actionItems.length < 6) {
+      const defaultActions: SavePlayAction[] = [
+        { id: 'action-1', action: 'Emergency Executive Call', description: 'Schedule urgent call with executive sponsor to understand concerns and demonstrate commitment', owner: 'CSM', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-3', 'cause-5'] },
+        { id: 'action-2', action: 'Value Demonstration Workshop', description: 'Prepare and deliver ROI analysis and success metrics presentation', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-5'] },
+        { id: 'action-3', action: 'Accelerated Adoption Program', description: 'Launch intensive training and enablement program for underutilized features', owner: 'CSM', dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-1', 'cause-2'] },
+        { id: 'action-4', action: 'Support Escalation Resolution', description: 'Work with Support team to fast-track resolution of all open tickets', owner: 'Support', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-4'] },
+        { id: 'action-5', action: 'Competitive Differentiation', description: 'Prepare comparison materials highlighting our unique advantages', owner: 'Sales', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedCauseIds: ['cause-7'] },
+        { id: 'action-6', action: 'Product Roadmap Review', description: 'Share relevant upcoming features and gather feedback on priorities', owner: 'Product', dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedCauseIds: ['cause-1'] },
+        { id: 'action-7', action: 'Executive Sponsorship Alignment', description: 'Engage our executive sponsor for peer-to-peer conversation', owner: 'Leadership', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-3', 'cause-6'] },
+        { id: 'action-8', action: 'Renewal Terms Discussion', description: 'Explore flexible terms or incentives to secure renewal', owner: 'Sales', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'medium', relatedCauseIds: ['cause-6'] },
+      ];
+
+      // Add missing actions
+      defaultActions.forEach((defaultAction, idx) => {
+        if (actionItems.length < 6 + idx) {
+          actionItems.push({ ...defaultAction, id: `action-${actionItems.length + 1}` });
+        }
+      });
+    }
+
+    // Process success metrics
+    const successMetrics: SuccessMetric[] = (parsed.successMetrics || []).map((m: any, idx: number) => ({
+      id: `metric-${idx + 1}`,
+      metric: m.metric || `Metric ${idx + 1}`,
+      currentValue: m.currentValue || '',
+      targetValue: m.targetValue || '',
+      dueDate: new Date(Date.now() + (30 + idx * 14) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      enabled: true,
+    }));
+
+    // Ensure minimum success metrics
+    if (successMetrics.length < 4) {
+      const defaultMetrics: SuccessMetric[] = [
+        { id: 'metric-1', metric: 'Health Score', currentValue: `${healthScore}/100`, targetValue: '70/100', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'metric-2', metric: 'Feature Adoption', currentValue: `${featureAdoption}%`, targetValue: '60%', dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'metric-3', metric: 'Login Frequency', currentValue: `${loginFrequency}x/week`, targetValue: '4x/week', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'metric-4', metric: 'Executive Engagement', currentValue: 'No contact', targetValue: 'Monthly cadence', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'metric-5', metric: 'NPS Score', currentValue: `${npsScore}`, targetValue: '40+', dueDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+        { id: 'metric-6', metric: 'Support Tickets', currentValue: 'Multiple open', targetValue: 'All resolved', dueDate: new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      ];
+
+      // Add missing metrics
+      defaultMetrics.forEach((defaultMetric, idx) => {
+        if (successMetrics.length < 4 + idx) {
+          successMetrics.push({ ...defaultMetric, id: `metric-${successMetrics.length + 1}` });
+        }
+      });
+    }
+
+    // Get timeline
+    const timeline = parsed.timeline || (daysUntilRenewal < 30 ? '14 days' : daysUntilRenewal < 60 ? '30 days' : '45 days');
+
+    return {
+      title: `Save Play: ${customerName}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      riskLevel,
+      situation,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      rootCauses,
+      actionItems,
+      successMetrics,
+      timeline,
+      notes: '',
+    };
+  } catch (error) {
+    console.error('[ArtifactGenerator] Save play preview generation error:', error);
+
+    // Return fallback save play
+    const fallbackSituation = `${customerName} is at ${riskLevel} risk with a health score of ${healthScore}/100. Key concerns include declining engagement and upcoming renewal in ${daysUntilRenewal} days. Immediate intervention required.`;
+
+    const fallbackRootCauses: RootCause[] = [
+      { id: 'cause-1', cause: 'Low Product Adoption', description: 'Key features underutilized', category: 'product', severity: 'high', evidence: `${featureAdoption}% adoption`, enabled: true },
+      { id: 'cause-2', cause: 'Declining Engagement', description: 'User activity has dropped', category: 'value', severity: 'high', evidence: `${loginFrequency}x/week logins`, enabled: true },
+      { id: 'cause-3', cause: 'Champion Disengagement', description: 'Key contact not responsive', category: 'relationship', severity: 'high', evidence: 'No response to outreach', enabled: true },
+      { id: 'cause-4', cause: 'Unresolved Issues', description: 'Support tickets pending', category: 'service', severity: 'medium', evidence: 'Multiple open tickets', enabled: true },
+      { id: 'cause-5', cause: 'Value Gap', description: 'ROI not demonstrated', category: 'value', severity: 'high', evidence: `NPS: ${npsScore}`, enabled: true },
+    ];
+
+    const fallbackActionItems: SavePlayAction[] = [
+      { id: 'action-1', action: 'Emergency Executive Call', description: 'Urgent call with sponsor', owner: 'CSM', dueDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-3', 'cause-5'] },
+      { id: 'action-2', action: 'Value Workshop', description: 'ROI demonstration', owner: 'CSM', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-5'] },
+      { id: 'action-3', action: 'Adoption Program', description: 'Intensive training', owner: 'CSM', dueDate: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-1', 'cause-2'] },
+      { id: 'action-4', action: 'Support Resolution', description: 'Resolve all tickets', owner: 'Support', dueDate: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-4'] },
+      { id: 'action-5', action: 'Executive Alignment', description: 'Peer-to-peer engagement', owner: 'Leadership', dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), status: 'pending', priority: 'high', relatedCauseIds: ['cause-3'] },
+    ];
+
+    const fallbackSuccessMetrics: SuccessMetric[] = [
+      { id: 'metric-1', metric: 'Health Score', currentValue: `${healthScore}/100`, targetValue: '70/100', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'metric-2', metric: 'Feature Adoption', currentValue: `${featureAdoption}%`, targetValue: '60%', dueDate: new Date(Date.now() + 45 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'metric-3', metric: 'Login Frequency', currentValue: `${loginFrequency}x/week`, targetValue: '4x/week', dueDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+      { id: 'metric-4', metric: 'Executive Engagement', currentValue: 'No contact', targetValue: 'Monthly', dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10), enabled: true },
+    ];
+
+    return {
+      title: `Save Play: ${customerName}`,
+      createdDate: new Date().toISOString().slice(0, 10),
+      riskLevel,
+      situation: fallbackSituation,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      rootCauses: fallbackRootCauses,
+      actionItems: fallbackActionItems,
+      successMetrics: fallbackSuccessMetrics,
+      timeline: daysUntilRenewal < 30 ? '14 days' : '30 days',
+      notes: '',
+    };
+  }
+}
+
+// ============================================
 // Risk Assessment Types
 // ============================================
 
@@ -5844,4 +6177,5 @@ export const artifactGenerator = {
   generateExpansionProposalPreview,
   generateNegotiationBriefPreview,
   generateRiskAssessmentPreview,
+  generateSavePlayPreview,
 };

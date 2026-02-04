@@ -932,6 +932,63 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       });
     }
 
+    // Check if this is a save play artifact - return preview for HITL
+    const isSavePlayArtifact = finalPlan.taskType === 'save_play' ||
+                               planRow.user_query?.toLowerCase().includes('save play') ||
+                               planRow.user_query?.toLowerCase().includes('save this customer') ||
+                               planRow.user_query?.toLowerCase().includes('save the customer') ||
+                               planRow.user_query?.toLowerCase().includes('save account') ||
+                               planRow.user_query?.toLowerCase().includes('churn save') ||
+                               planRow.user_query?.toLowerCase().includes('retention play') ||
+                               planRow.user_query?.toLowerCase().includes('retention plan') ||
+                               planRow.user_query?.toLowerCase().includes('prevent churn') ||
+                               planRow.user_query?.toLowerCase().includes('rescue plan') ||
+                               planRow.user_query?.toLowerCase().includes('rescue this') ||
+                               planRow.user_query?.toLowerCase().includes('intervention plan') ||
+                               planRow.user_query?.toLowerCase().includes('turnaround plan') ||
+                               planRow.user_query?.toLowerCase().includes('win back');
+
+    if (isSavePlayArtifact) {
+      // Generate save play content but don't finalize - return preview for HITL
+      const savePlayPreview = await artifactGenerator.generateSavePlayPreview({
+        plan: finalPlan,
+        context,
+        userId,
+        customerId: planRow.customer_id,
+        isTemplate: isTemplateMode,
+      });
+
+      // Keep plan in 'approved' status until user confirms save
+      await planService.updatePlanStatus(planId, 'approved');
+
+      return res.json({
+        success: true,
+        isSavePlayPreview: true,
+        preview: {
+          title: savePlayPreview.title,
+          createdDate: savePlayPreview.createdDate,
+          riskLevel: savePlayPreview.riskLevel,
+          situation: savePlayPreview.situation,
+          healthScore: savePlayPreview.healthScore,
+          daysUntilRenewal: savePlayPreview.daysUntilRenewal,
+          arr: savePlayPreview.arr,
+          rootCauses: savePlayPreview.rootCauses,
+          actionItems: savePlayPreview.actionItems,
+          successMetrics: savePlayPreview.successMetrics,
+          timeline: savePlayPreview.timeline,
+          notes: savePlayPreview.notes,
+          customer: {
+            id: planRow.customer_id || null,
+            name: context.platformData.customer360?.name || 'Unknown Customer',
+            healthScore: context.platformData.customer360?.healthScore,
+            arr: context.platformData.customer360?.arr,
+            renewalDate: context.platformData.customer360?.renewalDate,
+          },
+        },
+        planId,
+      });
+    }
+
     // Generate the artifact (with template mode support)
     const artifact = await artifactGenerator.generate({
       plan: finalPlan,
@@ -4400,6 +4457,289 @@ ${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
     res.status(500).json({
       success: false,
       error: error instanceof Error ? error.message : 'Failed to save risk assessment',
+    });
+  }
+});
+
+/**
+ * POST /api/cadg/save-play/save
+ * Save finalized save play after user review
+ */
+router.post('/save-play/save', async (req: Request, res: Response) => {
+  try {
+    const {
+      planId,
+      title,
+      createdDate,
+      riskLevel,
+      situation,
+      healthScore,
+      daysUntilRenewal,
+      arr,
+      rootCauses,
+      actionItems,
+      successMetrics,
+      timeline,
+      notes,
+      customerId,
+    } = req.body;
+    const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'User ID is required',
+      });
+    }
+
+    if (!title) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title is required',
+      });
+    }
+
+    // Import services
+    const { docsService } = await import('../services/google/docs.js');
+    const { sheetsService } = await import('../services/google/sheets.js');
+
+    // Filter to only enabled root causes
+    const enabledRootCauses = (rootCauses || []).filter((c: any) => c.enabled);
+
+    // Filter to only enabled success metrics
+    const enabledMetrics = (successMetrics || []).filter((m: any) => m.enabled);
+
+    // Severity labels and icons
+    const severityLabels: Record<string, string> = {
+      critical: '🔴 Critical',
+      high: '🟠 High',
+      medium: '🟡 Medium',
+      low: '🟢 Low',
+    };
+
+    const categoryLabels: Record<string, string> = {
+      product: 'Product',
+      service: 'Service',
+      relationship: 'Relationship',
+      value: 'Value',
+      competitive: 'Competitive',
+      budget: 'Budget',
+      timing: 'Timing',
+      other: 'Other',
+    };
+
+    const priorityLabels: Record<string, string> = {
+      high: '🔴 High',
+      medium: '🟡 Medium',
+      low: '🟢 Low',
+    };
+
+    const statusLabels: Record<string, string> = {
+      pending: '⏳ Pending',
+      in_progress: '🔄 In Progress',
+      completed: '✅ Completed',
+      blocked: '🚫 Blocked',
+    };
+
+    // Build root causes content
+    const rootCausesContent = enabledRootCauses.map((c: any) =>
+      `### ${c.cause}\n**Severity:** ${severityLabels[c.severity] || c.severity} | **Category:** ${categoryLabels[c.category] || c.category}\n${c.description}\n**Evidence:** ${c.evidence}`
+    ).join('\n\n');
+
+    // Build action items content
+    const actionsContent = (actionItems || []).map((a: any) =>
+      `### ${a.action}\n**Priority:** ${priorityLabels[a.priority] || a.priority} | **Owner:** ${a.owner} | **Due:** ${a.dueDate} | **Status:** ${statusLabels[a.status] || a.status}\n${a.description}`
+    ).join('\n\n');
+
+    // Build success metrics content
+    const metricsContent = enabledMetrics.map((m: any) =>
+      `- **${m.metric}**: ${m.currentValue} → ${m.targetValue} (by ${m.dueDate})`
+    ).join('\n');
+
+    // Build full document content
+    const documentContent = `# ${title}
+
+**Created Date:** ${createdDate || new Date().toISOString().slice(0, 10)}
+**Risk Level:** ${severityLabels[riskLevel] || riskLevel}
+**Health Score:** ${healthScore}/100
+**Days Until Renewal:** ${daysUntilRenewal}
+**ARR:** $${(arr || 0).toLocaleString()}
+**Timeline:** ${timeline}
+
+---
+
+## Situation Summary
+
+${situation || 'No situation summary provided.'}
+
+---
+
+## Root Causes (${enabledRootCauses.length} identified)
+
+${rootCausesContent || 'No root causes identified.'}
+
+---
+
+## Action Items (${(actionItems || []).length} planned)
+
+${actionsContent || 'No action items defined.'}
+
+---
+
+## Success Metrics (${enabledMetrics.length} tracked)
+
+${metricsContent || 'No success metrics defined.'}
+
+${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
+
+---
+
+*Generated by CSCX.AI - Save Play*`;
+
+    // Create Google Doc
+    let docsResult: { id?: string; webViewLink?: string } | null = null;
+    try {
+      docsResult = await docsService.createDocument(userId, {
+        title: title,
+        content: documentContent,
+      });
+    } catch (docsErr) {
+      console.warn('[CADG] Could not create save play document:', docsErr);
+    }
+
+    // Create Google Sheets tracker for action items
+    let sheetsResult: { spreadsheetId?: string; spreadsheetUrl?: string } | null = null;
+    try {
+      // Build action items sheet data
+      const actionHeaders = ['Action', 'Description', 'Priority', 'Owner', 'Due Date', 'Status', 'Related Causes'];
+      const actionRows = (actionItems || []).map((a: any) => [
+        a.action,
+        a.description,
+        a.priority,
+        a.owner,
+        a.dueDate,
+        a.status,
+        (a.relatedCauseIds || []).map((causeId: string) => {
+          const cause = enabledRootCauses.find((c: any) => c.id === causeId);
+          return cause?.cause || causeId;
+        }).join(', '),
+      ]);
+
+      // Build root causes sheet data
+      const causeHeaders = ['Root Cause', 'Category', 'Severity', 'Description', 'Evidence'];
+      const causeRows = enabledRootCauses.map((c: any) => [
+        c.cause,
+        categoryLabels[c.category] || c.category,
+        c.severity,
+        c.description,
+        c.evidence,
+      ]);
+
+      // Build success metrics sheet data
+      const metricHeaders = ['Metric', 'Current Value', 'Target Value', 'Target Date'];
+      const metricRows = enabledMetrics.map((m: any) => [
+        m.metric,
+        m.currentValue,
+        m.targetValue,
+        m.dueDate,
+      ]);
+
+      // Create spreadsheet with multiple sheets
+      const createdSheet = await sheetsService.createSpreadsheet(userId, {
+        title: `${title} - Tracker`,
+        sheets: ['Action Items', 'Root Causes', 'Success Metrics'],
+        headers: [actionHeaders, causeHeaders, metricHeaders],
+      });
+
+      // Add data to sheets if creation succeeded
+      if (createdSheet?.id) {
+        try {
+          // Add action rows to first sheet
+          if (actionRows.length > 0) {
+            await sheetsService.updateValues(userId, createdSheet.id, {
+              range: `'Action Items'!A2`,
+              values: actionRows,
+            });
+          }
+          // Add root cause rows to second sheet
+          if (causeRows.length > 0) {
+            await sheetsService.updateValues(userId, createdSheet.id, {
+              range: `'Root Causes'!A2`,
+              values: causeRows,
+            });
+          }
+          // Add metrics rows to third sheet
+          if (metricRows.length > 0) {
+            await sheetsService.updateValues(userId, createdSheet.id, {
+              range: `'Success Metrics'!A2`,
+              values: metricRows,
+            });
+          }
+        } catch (updateErr) {
+          console.warn('[CADG] Could not populate save play sheets:', updateErr);
+        }
+      }
+
+      sheetsResult = {
+        spreadsheetId: createdSheet?.id,
+        spreadsheetUrl: createdSheet?.webViewLink,
+      };
+    } catch (sheetsErr) {
+      console.warn('[CADG] Could not create save play tracker:', sheetsErr);
+    }
+
+    // Update plan status if planId provided
+    if (planId) {
+      await planService.updatePlanStatus(planId, 'completed');
+    }
+
+    // Log activity for customer timeline
+    if (customerId) {
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const { config } = await import('../config/index.js');
+        if (config.supabaseUrl && config.supabaseServiceKey) {
+          const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+          await supabase.from('agent_activities').insert({
+            user_id: userId,
+            customer_id: customerId,
+            activity_type: 'save_play_created',
+            description: `Save play created: ${title} - Risk Level: ${riskLevel}, Timeline: ${timeline}`,
+            metadata: {
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              sheetsId: sheetsResult?.spreadsheetId,
+              sheetsUrl: sheetsResult?.spreadsheetUrl,
+              riskLevel,
+              healthScore,
+              daysUntilRenewal,
+              arr,
+              timeline,
+              rootCausesCount: enabledRootCauses.length,
+              actionsCount: (actionItems || []).length,
+              metricsCount: enabledMetrics.length,
+              createdVia: 'cadg_save_play_preview',
+            },
+          });
+        }
+      } catch (err) {
+        console.warn('[CADG] Could not log save play activity:', err);
+      }
+    }
+
+    res.json({
+      success: true,
+      docId: docsResult?.id,
+      docUrl: docsResult?.webViewLink,
+      sheetsId: sheetsResult?.spreadsheetId,
+      sheetsUrl: sheetsResult?.spreadsheetUrl,
+      savedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[CADG] Save play save error:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to save save play',
     });
   }
 });

@@ -22,6 +22,7 @@ import { CADGValueSummaryPreview, ValueSummaryData, CustomerData as ValueSummary
 import { CADGExpansionProposalPreview, ExpansionProposalData, CustomerData as ExpansionProposalCustomerData } from './CADGExpansionProposalPreview';
 import { CADGNegotiationBriefPreview, NegotiationBriefData, CustomerData as NegotiationBriefCustomerData } from './CADGNegotiationBriefPreview';
 import { CADGRiskAssessmentPreview, RiskAssessmentData, CustomerData as RiskAssessmentCustomerData } from './CADGRiskAssessmentPreview';
+import { CADGSavePlayPreview, SavePlayData, CustomerData as SavePlayCustomerData } from './CADGSavePlayPreview';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
@@ -261,6 +262,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const [riskAssessmentPreviewData, setRiskAssessmentPreviewData] = useState<{
     riskAssessment: RiskAssessmentData;
     customer: RiskAssessmentCustomerData;
+    planId: string;
+  } | null>(null);
+
+  // Save play preview state for HITL workflow
+  const [showSavePlayPreview, setShowSavePlayPreview] = useState(false);
+  const [savePlayPreviewData, setSavePlayPreviewData] = useState<{
+    savePlay: SavePlayData;
+    customer: SavePlayCustomerData;
     planId: string;
   } | null>(null);
 
@@ -713,6 +722,38 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         });
         setShowRiskAssessmentPreview(true);
         setStatus('pending'); // Keep in pending until risk assessment is saved
+        setIsApproving(false);
+        return;
+      }
+
+      // Check if this is a save play preview (HITL workflow)
+      if (data.isSavePlayPreview && data.preview) {
+        setSavePlayPreviewData({
+          savePlay: {
+            title: data.preview.title || 'Save Play',
+            createdDate: data.preview.createdDate || new Date().toISOString().slice(0, 10),
+            riskLevel: data.preview.riskLevel || 'high',
+            situation: data.preview.situation || '',
+            healthScore: data.preview.healthScore || 0,
+            daysUntilRenewal: data.preview.daysUntilRenewal || 0,
+            arr: data.preview.arr || 0,
+            rootCauses: data.preview.rootCauses || [],
+            actionItems: data.preview.actionItems || [],
+            successMetrics: data.preview.successMetrics || [],
+            timeline: data.preview.timeline || '30 days',
+            notes: data.preview.notes || '',
+          },
+          customer: {
+            id: data.preview.customer?.id || customerId || null,
+            name: data.preview.customer?.name || 'Customer',
+            healthScore: data.preview.customer?.healthScore,
+            arr: data.preview.customer?.arr,
+            renewalDate: data.preview.customer?.renewalDate,
+          },
+          planId: data.planId,
+        });
+        setShowSavePlayPreview(true);
+        setStatus('pending'); // Keep in pending until save play is saved
         setIsApproving(false);
         return;
       }
@@ -1764,6 +1805,74 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     setStatus('pending');
   };
 
+  // Handle saving save play from preview
+  const handleSavePlaySave = async (savePlay: SavePlayData) => {
+    if (!savePlayPreviewData) return;
+
+    const response = await fetch(`${API_URL}/api/cadg/save-play/save`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getAuthHeaders(),
+      },
+      body: JSON.stringify({
+        planId: savePlayPreviewData.planId,
+        title: savePlay.title,
+        createdDate: savePlay.createdDate,
+        riskLevel: savePlay.riskLevel,
+        situation: savePlay.situation,
+        healthScore: savePlay.healthScore,
+        daysUntilRenewal: savePlay.daysUntilRenewal,
+        arr: savePlay.arr,
+        rootCauses: savePlay.rootCauses,
+        actionItems: savePlay.actionItems,
+        successMetrics: savePlay.successMetrics,
+        timeline: savePlay.timeline,
+        notes: savePlay.notes,
+        customerId: savePlayPreviewData.customer.id,
+      }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to save save play');
+    }
+
+    const result = await response.json();
+
+    // Success - close preview and update status
+    setShowSavePlayPreview(false);
+    setSavePlayPreviewData(null);
+    setStatus('complete');
+    setArtifact({
+      success: true,
+      artifactId: result.docId || 'save-play',
+      status: 'completed',
+      preview: '',
+      storage: {
+        driveUrl: result.docUrl,
+        additionalFiles: result.sheetsId ? [{
+          type: 'spreadsheet',
+          fileId: result.sheetsId,
+          url: result.sheetsUrl,
+          title: 'Save Play Tracker',
+        }] : undefined,
+      },
+      metadata: {
+        generationDurationMs: 0,
+        sourcesUsed: [],
+      },
+    });
+    onApproved?.(result.docId || 'save-play');
+  };
+
+  // Handle canceling save play preview
+  const handleSavePlayCancel = () => {
+    setShowSavePlayPreview(false);
+    setSavePlayPreviewData(null);
+    setStatus('pending');
+  };
+
   const handleDownload = async (format: string) => {
     if (!artifact) return;
 
@@ -2096,6 +2205,18 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         customer={riskAssessmentPreviewData.customer}
         onSave={handleRiskAssessmentSave}
         onCancel={handleRiskAssessmentCancel}
+      />
+    );
+  }
+
+  // Save play preview mode
+  if (showSavePlayPreview && savePlayPreviewData) {
+    return (
+      <CADGSavePlayPreview
+        savePlay={savePlayPreviewData.savePlay}
+        customer={savePlayPreviewData.customer}
+        onSave={handleSavePlaySave}
+        onCancel={handleSavePlayCancel}
       />
     );
   }
