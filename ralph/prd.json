@@ -62,7 +62,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Reference the existing parseSSEData implementation in components/AIPanel/index.tsx at line 226. The AgentControlCenter already has isProcessing state — isStreaming is a sub-state during processing. The streaming message ID is needed to update the correct message as tokens arrive."
     },
     {

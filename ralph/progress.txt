@@ -29,6 +29,8 @@
 - CADG plans are sent as single done events (not streamed) — plan creation is fast, no need to stream
 - Non-Claude fallbacks send their response as a single done event since they don't support streaming
 - Always guard res.write() with clientDisconnected check to avoid "write after end" errors
+- parseSSEData() in AgentControlCenter uses buffer ref for partial chunk handling — reset sseBufferRef before each new stream
+- AgentMessage.isStreaming flag marks messages still receiving tokens — used for cursor/typing indicator
 
 ---
 
@@ -82,4 +84,22 @@ Initialized: Ready to start US-001
   - `sendSSE()` is a local helper, not imported from agents.ts, to keep the files decoupled
   - Always check `clientDisconnected` before writing to res to avoid "write after end" errors
   - The streaming route at `/chat/stream` must be registered BEFORE `/chat` otherwise Express matches `/chat` first
+---
+
+## 2026-02-05 - US-003
+- What was implemented: Added parseSSEData helper with chunk buffering and streaming state to AgentControlCenter
+- Files changed: `components/AgentControlCenter/index.tsx`, `types/agents.ts`
+- **Details:**
+  - Added `isStreaming?: boolean` property to `AgentMessage` interface in `types/agents.ts`
+  - Imported `StreamEvent` type from `types/streaming.ts` into AgentControlCenter
+  - Created `parseSSEData(chunk, buffer)` utility function outside component — takes a mutable buffer object for incomplete line buffering across calls
+  - Buffer logic: prepends leftover partial line from previous chunk, saves incomplete trailing line if chunk doesn't end with `\n`
+  - Added streaming state inside component: `isStreaming` (useState), `abortControllerRef` (useRef<AbortController>), `streamingMessageIdRef` (useRef<string>), `sseBufferRef` (useRef<{ partial: string }>)
+  - TypeScript: `npx tsc --noEmit` passes with no NEW errors (all errors are pre-existing)
+- **Learnings for future iterations:**
+  - `parseSSEData` is a pure function placed outside the component — it takes a buffer ref param rather than closing over component state
+  - The AIPanel version of parseSSEData doesn't handle partial chunks — this version buffers incomplete lines across calls
+  - `sseBufferRef` must be reset to `{ partial: '' }` before starting a new stream to avoid leftover data from previous streams
+  - `streamingMessageIdRef` tracks which message in the messages array is being streamed into — needed for updating the correct message as tokens arrive
+  - `AgentMessage.isStreaming` flag distinguishes a message still being streamed vs. a completed message — used by UI to show cursor/typing indicator
 ---
