@@ -1155,17 +1155,153 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
       }
 
       console.error('Agent streaming error:', error);
-      setMessages(prev => prev.map(m =>
-        m.id === msgId
-          ? {
-              ...m,
-              message: accumulatedContent
-                ? `${accumulatedContent}\n\n---\n*Stream interrupted: ${error instanceof Error ? error.message : 'Unknown error'}*`
-                : `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Please try again.'}`,
-              isStreaming: false,
+
+      // If we have partial content from mid-stream failure, show it with error notice
+      if (accumulatedContent) {
+        setMessages(prev => prev.map(m =>
+          m.id === msgId
+            ? {
+                ...m,
+                message: `${accumulatedContent}\n\n---\n*Stream interrupted: ${error instanceof Error ? error.message : 'Unknown error'}*`,
+                isStreaming: false,
+              }
+            : m
+        ));
+      } else {
+        // No content yet — try non-streaming fallback
+        try {
+          console.log('Streaming unavailable, falling back to non-streaming endpoint...');
+          setMessages(prev => prev.map(m =>
+            m.id === msgId
+              ? { ...m, message: 'Streaming unavailable, loading response...', isStreaming: false }
+              : m
+          ));
+
+          const fallbackResponse = await fetch(`${API_URL}/api/ai/chat`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-user-id': DEMO_USER_ID
+            },
+            body: JSON.stringify({
+              message,
+              customerId: customer?.id,
+              customerContext: buildCustomerContext(),
+              forceAgent: selectedAgent !== 'auto' ? selectedAgent : undefined,
+              activeAgent,
+              sessionId,
+              useWorkflow: true,
+              model: selectedModel,
+              useKnowledgeBase
+            }),
+          });
+
+          if (!fallbackResponse.ok) {
+            throw new Error(`HTTP ${fallbackResponse.status}: Fallback request failed`);
+          }
+
+          const data = await fallbackResponse.json();
+
+          // Check if this is a CADG generative response with a plan
+          if (data.isGenerative && data.plan?.planId) {
+            console.log('[CADG Fallback] Received execution plan:', data.plan.planId);
+
+            const cadgMetadata: CADGPlanMetadata = {
+              isGenerative: data.isGenerative,
+              taskType: data.taskType,
+              confidence: data.confidence,
+              requiresApproval: data.requiresApproval,
+              plan: data.plan,
+              capability: data.capability,
+              methodology: data.methodology,
+              customerId: customer?.id || null,
+            };
+            setPendingCadgPlan(cadgMetadata);
+
+            setMessages(prev => prev.map(m =>
+              m.id === msgId
+                ? {
+                    ...m,
+                    agent: 'strategic' as CSAgentType,
+                    message: data.response || '',
+                    isStreaming: false,
+                    isCadgPlan: true,
+                    cadgPlan: data.plan,
+                  }
+                : m
+            ));
+          } else {
+            // Regular response from fallback
+            const routedAgent = data.routing?.agentType as CSAgentType || 'onboarding';
+            const finalResponse = data.response || '';
+            const toolResults = data.toolResults?.length > 0 ? data.toolResults : undefined;
+
+            setActiveAgent(routedAgent);
+            setLastRouting(data.routing);
+
+            setCsAgentStatuses(prev => {
+              const newStatuses = { ...prev };
+              Object.keys(newStatuses).forEach(key => {
+                newStatuses[key as CSAgentType] = key === routedAgent ? 'active' : 'idle';
+              });
+              return newStatuses;
+            });
+
+            if (toolResults?.length > 0) {
+              processToolResults(toolResults);
             }
-          : m
-      ));
+
+            saveChatMessage('assistant', finalResponse, routedAgent, toolResults);
+
+            setMessages(prev => prev.map(m =>
+              m.id === msgId
+                ? {
+                    ...m,
+                    agent: routedAgent,
+                    message: finalResponse,
+                    isStreaming: false,
+                    isApproval: data.requiresApproval,
+                    routing: data.routing,
+                    toolResults,
+                  }
+                : m
+            ));
+
+            // Handle approval request
+            if (data.requiresApproval && data.pendingActions?.length > 0) {
+              const pendingAction = data.pendingActions[0];
+              const approvalId = pendingAction?.approvalId;
+              if (approvalId) {
+                setPendingApproval(approvalId);
+
+                const toolName = pendingAction?.toolCall?.name;
+                if (toolName === 'draft_email' || toolName === 'send_email') {
+                  const input = pendingAction?.toolCall?.input || {};
+                  setPendingEmailData({
+                    approvalId,
+                    toolName,
+                    to: input.to || [],
+                    cc: input.cc || [],
+                    subject: input.subject || '',
+                    body: input.body || ''
+                  });
+                }
+              }
+            }
+          }
+        } catch (fallbackError) {
+          console.error('Non-streaming fallback also failed:', fallbackError);
+          setMessages(prev => prev.map(m =>
+            m.id === msgId
+              ? {
+                  ...m,
+                  message: `Sorry, I encountered an error: ${fallbackError instanceof Error ? fallbackError.message : 'Please try again.'}`,
+                  isStreaming: false,
+                }
+              : m
+          ));
+        }
+      }
     } finally {
       setIsStreaming(false);
       setIsProcessing(false);
