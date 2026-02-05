@@ -2775,6 +2775,409 @@ export class WorkflowAgent {
       };
     }
   }
+
+  /**
+   * Streaming variant of chat() — streams Claude responses token-by-token via callbacks.
+   * Uses anthropic.messages.stream() instead of messages.create().
+   * Tool handling (approval checks, read-only execution) mirrors chat() exactly.
+   */
+  async chatStream(
+    message: string,
+    userId: string,
+    customerContext?: Record<string, any>,
+    history: Array<{ role: string; content: string }> = [],
+    specialist?: string,
+    callbacks?: {
+      onToken: (text: string) => void;
+      onToolEvent?: (event: {
+        type: 'tool_start' | 'tool_end';
+        name: string;
+        params?: any;
+        result?: any;
+        duration?: number;
+      }) => void;
+    },
+    abortSignal?: AbortSignal
+  ): Promise<{
+    response: string;
+    requiresApproval: boolean;
+    pendingActions: PendingAction[];
+    toolsUsed: string[];
+    toolResults: Array<{ toolCallId?: string; toolName: string; result: any }>;
+    specialistUsed?: string;
+  }> {
+    // Build system prompt — same logic as callClaude()
+    const specialistPersona = specialist ? SPECIALIST_PERSONAS[specialist] : undefined;
+    const useKnowledgeBase = customerContext?.useKnowledgeBase !== false;
+
+    const cleanContext = { ...customerContext };
+    delete cleanContext._specialist;
+    delete cleanContext._specialistPersona;
+    delete cleanContext.useKnowledgeBase;
+    delete cleanContext.userId;
+
+    const csmExpertise = useKnowledgeBase ? `
+
+## CSM EXPERT KNOWLEDGE
+
+You have access to a knowledge base with CSM expertise including:
+
+**PROVE Health Framework** (for health assessments):
+- **P**roduct: Usage and adoption metrics (30% weight)
+- **R**isk: Churn/contraction indicators (20% weight)
+- **O**utcomes: Measurable business results (20% weight)
+- **V**oice: Customer sentiment, NPS, CSAT (15% weight)
+- **E**ngagement: Interaction quality and frequency (15% weight)
+
+**Health Score Colors:** Green (80-100), Yellow (50-79), Red (0-49)
+
+**Available Playbooks:** Onboarding, EBR, Triage, Recovery, Renewal, Churn Prevention
+
+Use the \`search_knowledge\` tool to find specific playbooks, templates, and best practices.
+` : '';
+
+    const specialistSection = specialistPersona
+      ? `\n\n## YOUR SPECIALIST ROLE\n${specialistPersona}`
+      : '';
+
+    const systemPrompt = `${CSCX_SYSTEM_PROMPT}${csmExpertise}${specialistSection}
+
+## CURRENT CONTEXT
+${Object.keys(cleanContext).length > 0 ? `Customer: ${cleanContext.name || 'Unknown'}\n${JSON.stringify(cleanContext, null, 2)}` : 'No specific customer selected'}
+
+## AVAILABLE TOOLS
+
+**Web Search:**
+- web_search - Search the internet for current events, weather, news
+
+**Google Calendar:**
+- get_todays_meetings - Today's calendar events
+- get_upcoming_meetings - Upcoming events for N days
+- get_availability - Find free time slots
+- list_calendars - List all calendars
+
+**Gmail:**
+- get_recent_emails - Recent email threads
+- search_emails - Search emails by query
+- get_email_thread - Get specific thread
+- get_unread_emails - Unread emails
+- get_email_labels - Gmail labels/folders
+
+**Google Drive:**
+- get_recent_files - Recently modified files
+- search_files - Search files by name
+- list_folders - List folders
+- get_file_content - Get file content
+- get_documents - List Google Docs
+- get_spreadsheets - List Sheets
+- get_presentations - List Slides
+
+**Google Docs:**
+- get_document - Read document content
+
+**Google Sheets:**
+- get_spreadsheet_data - Read spreadsheet data
+
+**Google Slides:**
+- get_presentation - Get presentation info
+
+${useKnowledgeBase ? '**Knowledge Base:**\n- search_knowledge - Search CSM playbooks, best practices' : ''}
+
+**Apps Script (generates deployable code):**
+- generate_appscript - Generate Apps Script for automation, charts, triggers
+
+**Actions (REQUIRE approval):**
+- schedule_meeting - Book calendar meeting
+- draft_email / send_email - Create/send emails
+- create_task - Create follow-up task
+- create_document - Create Google Doc
+- create_spreadsheet - Create Google Sheet
+- create_presentation - Create Google Slides
+- create_chart_slide - Create Slides with charts from spreadsheet
+- update_spreadsheet - Update sheet data
+- append_to_spreadsheet - Add row to sheet
+
+**Onboarding Agent Tools:**
+- onboarding_kickoff - Schedule kickoff meeting (REQUIRES approval)
+- onboarding_30_60_90_plan - Generate 30-60-90 day plan
+- onboarding_stakeholder_map - Map customer stakeholders
+- onboarding_welcome_sequence - Create welcome email sequence (REQUIRES approval)
+
+**Adoption Agent Tools:**
+- adoption_usage_analysis - Analyze product usage metrics
+- adoption_campaign - Create feature adoption campaign
+- adoption_feature_training - Plan feature training sessions
+- adoption_champion_program - Identify customer champions
+
+**Renewal Agent Tools:**
+- renewal_forecast - Generate renewal forecast
+- renewal_value_summary - Create value summary document (REQUIRES approval)
+- renewal_expansion_analysis - Identify expansion opportunities
+- renewal_playbook_start - Start 120-day renewal playbook
+
+**Risk Agent Tools:**
+- risk_assessment - Run comprehensive risk assessment
+- risk_save_play - Create save play for at-risk customer (REQUIRES approval)
+- risk_escalation - Escalate customer issue (REQUIRES approval)
+- risk_health_check - Perform deep PROVE health check
+
+**Strategic Agent Tools:**
+- strategic_qbr_prep - Prepare QBR materials (REQUIRES approval)
+- strategic_exec_briefing - Create executive briefing (REQUIRES approval)
+- strategic_account_plan - Generate account plan (REQUIRES approval)
+- strategic_success_plan - Create strategic success plan
+
+## GUIDELINES
+- USE TOOLS when appropriate - don't just describe what you could do
+- For action tools, explain what you're doing and that it requires approval
+- Be helpful, concise, and proactive
+${specialist ? `- **Focus Area:** ${specialist}` : ''}`;
+
+    const anthropicMessages: Anthropic.MessageParam[] = [
+      ...history,
+      { role: 'user' as const, content: message }
+    ].map(m => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content
+    }));
+
+    try {
+      const allTools = [...CLAUDE_TOOLS, ...ANTHROPIC_BUILTIN_TOOLS] as any;
+
+      // Use streaming API
+      const stream = anthropic.messages.stream({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+        system: systemPrompt,
+        tools: allTools,
+        tool_choice: { type: 'auto' },
+        messages: anthropicMessages
+      });
+
+      // Handle abort signal
+      if (abortSignal) {
+        const onAbort = () => {
+          stream.abort();
+        };
+        abortSignal.addEventListener('abort', onAbort, { once: true });
+        // Clean up listener when stream finishes
+        stream.on('end', () => abortSignal.removeEventListener('abort', onAbort));
+      }
+
+      // Stream text tokens
+      stream.on('text', (text) => {
+        callbacks?.onToken(text);
+      });
+
+      // Wait for the stream to complete and get the final message
+      const finalMessage = await stream.finalMessage();
+
+      // Process the response — same logic as callClaude()
+      const toolUseBlocks = finalMessage.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === 'tool_use'
+      );
+
+      const textBlocks = finalMessage.content.filter(
+        (block): block is Anthropic.TextBlock => block.type === 'text'
+      );
+
+      const textContent = cleanResponseText(textBlocks.map(b => b.text).join('\n'));
+
+      if (toolUseBlocks.length > 0) {
+        const pendingActions: PendingAction[] = [];
+        const toolResults: Array<{ toolCallId?: string; toolName: string; result: any }> = [];
+
+        for (const toolUse of toolUseBlocks) {
+          const toolCall: ToolCall = {
+            id: toolUse.id,
+            name: toolUse.name,
+            input: toolUse.input as Record<string, any>
+          };
+
+          if (APPROVAL_REQUIRED_TOOLS.includes(toolUse.name)) {
+            // Emit tool_start event for approval-required tools
+            callbacks?.onToolEvent?.({
+              type: 'tool_start',
+              name: toolUse.name,
+              params: toolUse.input
+            });
+
+            pendingActions.push({
+              toolCall,
+              status: 'pending_approval'
+            });
+
+            callbacks?.onToolEvent?.({
+              type: 'tool_end',
+              name: toolUse.name,
+              result: { status: 'pending_approval' },
+              duration: 0
+            });
+          } else {
+            // Execute read-only tools immediately
+            callbacks?.onToolEvent?.({
+              type: 'tool_start',
+              name: toolUse.name,
+              params: toolUse.input
+            });
+
+            const startTime = Date.now();
+            try {
+              const result = await executeReadOnlyTool(
+                toolUse.name,
+                toolUse.input as Record<string, any>,
+                userId,
+                { useKnowledgeBase: customerContext?.useKnowledgeBase !== false }
+              );
+              const duration = Date.now() - startTime;
+              toolResults.push({
+                toolCallId: toolUse.id,
+                toolName: toolUse.name,
+                result
+              });
+
+              callbacks?.onToolEvent?.({
+                type: 'tool_end',
+                name: toolUse.name,
+                result,
+                duration
+              });
+            } catch (error) {
+              const duration = Date.now() - startTime;
+              const errorResult = { success: false, error: (error as Error).message };
+              toolResults.push({
+                toolCallId: toolUse.id,
+                toolName: toolUse.name,
+                result: errorResult
+              });
+
+              callbacks?.onToolEvent?.({
+                type: 'tool_end',
+                name: toolUse.name,
+                result: errorResult,
+                duration
+              });
+            }
+          }
+        }
+
+        // If we have tool results, generate a follow-up summary
+        let finalResponse = textContent;
+        if (toolResults.length > 0) {
+          const resultsText = toolResults.map(tr =>
+            `Tool: ${tr.toolName}\nResult: ${JSON.stringify(tr.result, null, 2)}`
+          ).join('\n\n');
+
+          try {
+            const summaryResponse = await anthropic.messages.create({
+              model: 'claude-sonnet-4-20250514',
+              max_tokens: 1024,
+              system: 'You are a helpful assistant. Summarize the tool results in a natural, conversational way for the user. Format nicely with markdown.',
+              messages: [
+                { role: 'user', content: `Please summarize these tool results:\n\n${resultsText}` }
+              ]
+            });
+
+            const summaryText = cleanResponseText(
+              summaryResponse.content
+                .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+                .map(b => b.text)
+                .join('\n')
+            );
+            finalResponse = summaryText;
+          } catch {
+            finalResponse = `Here's what I found:\n\n${resultsText}`;
+          }
+        }
+
+        // Handle pending approvals — create approval requests same as createApprovalRequests()
+        if (pendingActions.length > 0) {
+          for (const action of pendingActions) {
+            try {
+              const actionTypeMap: Record<string, string> = {
+                'schedule_meeting': 'schedule_meeting',
+                'draft_email': 'send_email',
+                'send_email': 'send_email',
+                'create_task': 'create_task',
+                'create_document': 'other',
+                'create_spreadsheet': 'other'
+              };
+              const actionType = (actionTypeMap[action.toolCall.name] || 'other') as ActionType;
+
+              const approval = await approvalService.createApproval({
+                userId,
+                actionType,
+                actionData: {
+                  ...action.toolCall.input,
+                  _toolName: action.toolCall.name
+                },
+                originalContent: formatActionContent(action.toolCall)
+              });
+              action.approvalId = approval.id;
+            } catch (error) {
+              console.error('Failed to create approval in chatStream:', error);
+            }
+          }
+
+          // Append approval messages to the response
+          const approvalMessages = pendingActions.map(a => {
+            const input = a.toolCall.input;
+            switch (a.toolCall.name) {
+              case 'schedule_meeting':
+                return `📅 **Meeting:** "${input.title}" - Check Pending Approvals to confirm`;
+              case 'draft_email':
+                return `📧 **Email:** "${input.subject}" - Check Pending Approvals to send`;
+              case 'create_task':
+                return `✅ **Task:** "${input.title}" - Check Pending Approvals to create`;
+              default:
+                return `⚡ **Action:** ${a.toolCall.name} - Awaiting approval`;
+            }
+          });
+          finalResponse += '\n\n**Actions Pending Approval:**\n' + approvalMessages.join('\n');
+        }
+
+        return {
+          response: finalResponse,
+          requiresApproval: pendingActions.length > 0,
+          pendingActions,
+          toolsUsed: [...toolResults.map(tr => tr.toolName), ...pendingActions.map(a => a.toolCall.name)],
+          toolResults,
+          specialistUsed: specialist
+        };
+      }
+
+      // No tool calls — just return the text
+      return {
+        response: textContent,
+        requiresApproval: false,
+        pendingActions: [],
+        toolsUsed: [],
+        toolResults: [],
+        specialistUsed: specialist
+      };
+    } catch (error) {
+      // Handle abort errors gracefully
+      if (abortSignal?.aborted) {
+        return {
+          response: '',
+          requiresApproval: false,
+          pendingActions: [],
+          toolsUsed: [],
+          toolResults: [],
+          specialistUsed: specialist
+        };
+      }
+      console.error('Claude streaming API error:', error);
+      return {
+        response: `I encountered an error: ${(error as Error).message}`,
+        requiresApproval: false,
+        pendingActions: [],
+        toolsUsed: [],
+        toolResults: [],
+        specialistUsed: specialist
+      };
+    }
+  }
 }
 
 // Export singleton instance

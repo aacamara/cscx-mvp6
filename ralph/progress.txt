@@ -21,6 +21,9 @@
 - Codebase has ~80 pre-existing type errors - focus on not introducing NEW ones
 - Use `useAuth().getAuthHeaders()` for authenticated API calls
 - Brand colors: cscx-accent (#e63946 red), cscx-black (#000000), cscx-gray-900 (#0a0a0a), cscx-gray-800 (#222222)
+- chatStream() bypasses LangGraph graph and calls Anthropic directly — LangGraph doesn't support streaming callbacks
+- System prompt in chatStream() is duplicated from callClaude() — future refactor opportunity
+- WorkflowAgent.chatStream() added after chat() in WorkflowAgent class — same file, same class
 
 ---
 
@@ -28,4 +31,25 @@
 
 Initialized: Ready to start US-001
 
+---
+
+## 2026-02-05 - US-001
+- What was implemented: Added `chatStream()` method to WorkflowAgent class
+- Files changed: `server/src/langchain/agents/WorkflowAgent.ts`
+- **Details:**
+  - `chatStream()` mirrors `chat()` parameters plus: `onToken` callback, `onToolEvent` callback, `abortSignal`
+  - Uses `anthropic.messages.stream()` instead of `anthropic.messages.create()`
+  - Listens for `text` events on stream and calls `onToken(text)` for each delta
+  - After stream completes, uses `stream.finalMessage()` to get full response
+  - Processes tool_use blocks identically to `callClaude()` — checks APPROVAL_REQUIRED_TOOLS, executes read-only tools, creates pendingActions
+  - Calls `onToolEvent` with `tool_start`/`tool_end` around each tool execution with timing
+  - Creates approval requests via approvalService for pending actions
+  - Handles `abortSignal` by calling `stream.abort()` and returning empty response
+  - Returns same Promise shape as `chat()`
+- **Learnings for future iterations:**
+  - `chat()` uses LangGraph `this.graph.invoke()` — but the actual Anthropic call is in `callClaude()` (line 2230)
+  - `chatStream()` bypasses the graph and directly calls Anthropic API — necessary because LangGraph doesn't support streaming callbacks
+  - The system prompt is duplicated between `callClaude()` and `chatStream()` — consider extracting to a shared function
+  - `stream.abort()` can be called to cancel generation mid-stream
+  - AbortSignal listeners need cleanup — use `{ once: true }` and clean up on stream end
 ---

@@ -20,7 +20,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "The Anthropic SDK supports streaming via anthropic.messages.stream({...}) which returns a Stream object. Use stream.on('text', (text) => {}) for token events. Use stream.finalMessage() to get the complete response. The existing chat() method at line 2724 has the exact parameters and logic to mirror. The anthropic instance is already imported at line 985-987."
     },
     {
