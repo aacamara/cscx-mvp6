@@ -1,176 +1,168 @@
 {
   "project": "CSCX.AI",
-  "branchName": "ralph/cadg-fuzzy-and-buttons",
-  "description": "Two improvements: (1) Fuzzy/semantic CADG trigger matching so natural language variations work, (2) Map agent quick-action buttons to CADG cards so clicking buttons invokes CADG flow with editable previews.",
+  "branchName": "ralph/streaming-v2",
+  "description": "SSE streaming for the main AgentControlCenter chat — stream Claude WorkflowAgent responses token-by-token via Server-Sent Events. CADG plan responses remain non-streamed (instant). Reduces perceived latency from 3-8s to ~200ms first token.",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Add synonym expansion to task classifier",
-      "description": "As a user, I want the classifier to understand synonyms so 'put together a business review' matches 'qbr_generation'.",
+      "title": "Add chatStream() method to WorkflowAgent",
+      "description": "As a system, the WorkflowAgent should support streaming Claude responses token-by-token via callbacks.",
       "acceptanceCriteria": [
-        "Add SYNONYMS map to server/src/services/cadg/taskClassifier.ts",
-        "Include synonyms for: create/build/generate/make/prepare/draft/set up/put together/design/compose",
-        "Include synonyms for: plan/strategy/roadmap/blueprint/playbook/approach/framework",
-        "Include synonyms for: review/assessment/evaluation/analysis/audit/check/overview",
-        "Include synonyms for: meeting/call/session/sync/discussion/conversation",
-        "Include synonyms for: customer/client/account/company/organization",
-        "Include synonyms for: risk/danger/threat/concern/issue/problem/warning",
-        "Include synonyms for: renewal/contract/subscription/license/agreement",
-        "Apply synonym expansion to queries BEFORE keyword matching",
-        "Typecheck passes"
+        "Add chatStream() method to the WorkflowAgent class in server/src/langchain/agents/WorkflowAgent.ts",
+        "chatStream() has same parameters as chat() PLUS: onToken: (text: string) => void, onToolEvent?: (event: { type: 'tool_start' | 'tool_end'; name: string; params?: any; result?: any; duration?: number }) => void, abortSignal?: AbortSignal",
+        "chatStream() returns the same Promise shape as chat(): { response, requiresApproval, pendingActions, toolsUsed, toolResults, specialistUsed }",
+        "Use anthropic.messages.stream() instead of anthropic.messages.create() — pass same model, max_tokens, system, tools, tool_choice, messages",
+        "Listen for 'text' events on the stream and call onToken(text) for each delta",
+        "After stream completes, extract full text from stream.finalMessage()",
+        "Process tool_use blocks the same way as chat() — check APPROVAL_REQUIRED_TOOLS, execute read-only tools, create pendingActions",
+        "Call onToolEvent with type:'tool_start' before executing each tool and type:'tool_end' after with result and duration",
+        "If abortSignal is aborted, call stream.abort() to stop generation",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 1,
-      "passes": true,
-      "notes": "Added SYNONYMS map with 7 synonym families (actions, plans, reviews, meetings, customers, risks, renewals), expandWithSynonyms() function, updated classify/matchKeywords/matchPhrasePatterns to use synonym-expanded queries."
+      "passes": false,
+      "notes": "The Anthropic SDK supports streaming via anthropic.messages.stream({...}) which returns a Stream object. Use stream.on('text', (text) => {}) for token events. Use stream.finalMessage() to get the complete response. The existing chat() method at line 2724 has the exact parameters and logic to mirror. The anthropic instance is already imported at line 985-987."
     },
     {
       "id": "US-002",
-      "title": "Add word-level fuzzy matching with stemming",
-      "description": "As a user, I want the classifier to handle word variations like 'forecasting' matching 'forecast'.",
+      "title": "Add POST /api/ai/chat/stream SSE endpoint",
+      "description": "As a system, there should be a streaming variant of the /api/ai/chat endpoint that uses Server-Sent Events.",
       "acceptanceCriteria": [
-        "Modify matchKeywords() in taskClassifier.ts to use tokenized word matching",
-        "Add basic stemming: strip -ing, -ed, -s, -tion suffixes for matching",
-        "Add stop word removal: ignore 'a', 'the', 'for', 'to', 'me', 'my', 'our', 'this', 'that', 'can', 'you', 'please', 'help', 'need', 'want', 'would', 'like', 'I'",
-        "Score individual word matches not just exact phrase includes",
-        "Multi-word keyword matches still score higher than single words",
-        "Typecheck passes"
+        "Add POST /api/ai/chat/stream route in server/src/routes/langchain.ts, BEFORE the existing POST /chat route",
+        "Set SSE headers: Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive, X-Accel-Buffering: no",
+        "Call res.flushHeaders() immediately after setting headers",
+        "Track client disconnect via req.on('close') and req.on('aborted')",
+        "Create helper function sendSSE(res, event) that writes data: JSON.stringify(event)\\n\\n",
+        "Accept same request body as /chat: message, customerId, customerContext, forceAgent, activeAgent, sessionId, useWorkflow, model, useKnowledgeBase",
+        "Read x-user-id header same as /chat route",
+        "CADG handling: Run cadgService.classify() — if isGenerative && confidence >= 0.7, create plan, send single done event with full plan metadata (same JSON shape as /chat response) then res.end(). Do NOT stream CADG.",
+        "Session handling: getOrCreateSession(), addMessage() for user message, getConversationHistory() — same as /chat",
+        "WorkflowAgent streaming: Call workflowAgent.chatStream() with onToken callback that sends {type:'token', content} SSE events, and onToolEvent callback that sends {type:'tool_start'|'tool_end', name, params, result, duration} events",
+        "After chatStream() resolves, send done event: {type:'done', content: JSON.stringify({response, agentType, model, routing, toolsUsed, toolResults, requiresApproval, pendingActions, sessionId})}",
+        "Save assistant response to session via sessionService.addMessage() after stream completes",
+        "Wrap everything in try/catch — on error send {type:'error', error: message} then res.end()",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "Added STOP_WORDS set (30 words), basicStem() function (strips -tion, -ing, -ed, -s), tokenize() helper, and updated matchKeywords() with two-tier matching: exact substring first (1.5x multiplier for multi-word), then stemmed word-level fallback. Content words used for normalization (stop words excluded from denominator)."
+      "passes": false,
+      "notes": "Reference the existing SSE patterns in server/src/routes/agents.ts lines 219-468 for sendSSEEvent helper and headers. The /chat handler starts at line 446 of langchain.ts. Mirror its CADG detection (lines 479-543), session management (lines 546-562), and WorkflowAgent call (lines 567-614) but use streaming variants. For non-Claude fallbacks (action handler, Google query, orchestrator) — just run them normally and send response as a single token + done event since they don't support streaming."
     },
     {
       "id": "US-003",
-      "title": "Lower LLM fallback threshold and upgrade model",
-      "description": "As a user, I want ambiguous queries to be classified by the LLM even when partial keyword matches exist.",
+      "title": "Add parseSSEData helper and streaming state to AgentControlCenter",
+      "description": "As a frontend developer, the AgentControlCenter needs SSE parsing utilities and streaming state management.",
       "acceptanceCriteria": [
-        "Change LLM fallback threshold from 0.5 to 0.3 in classifyTask()",
-        "Add secondary LLM check when confidence is between 0.3 and 0.7",
-        "Update model from claude-3-haiku-20240307 to claude-haiku-4-5-20251001",
-        "Add timeout of 3 seconds for LLM classification",
-        "If LLM fails, use best keyword match as fallback",
-        "Typecheck passes"
+        "Add parseSSEData function to components/AgentControlCenter/index.tsx (or a utils file imported by it)",
+        "parseSSEData takes a string chunk and returns array of parsed event objects: { type: string; content?: string; name?: string; params?: any; result?: any; duration?: number; error?: string }",
+        "Handle SSE format: split on \\n, find lines starting with 'data: ', parse JSON",
+        "Handle partial/split chunks: buffer incomplete lines across calls",
+        "Add isStreaming state: const [isStreaming, setIsStreaming] = useState(false)",
+        "Add abortControllerRef: const abortControllerRef = useRef<AbortController | null>(null)",
+        "Add streamingMessageId ref to track which message is being streamed into",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Lowered LLM fallback threshold from 0.5 to 0.3, added secondary LLM check for medium-confidence zone (0.3-0.7), upgraded model to claude-haiku-4-5-20251001, added 3s AbortController timeout, LLM failures fall back to best keyword match."
+      "passes": false,
+      "notes": "Reference the existing parseSSEData implementation in components/AIPanel/index.tsx at line 226. The AgentControlCenter already has isProcessing state — isStreaming is a sub-state during processing. The streaming message ID is needed to update the correct message as tokens arrive."
     },
     {
       "id": "US-004",
-      "title": "Add contextual agent boosting",
-      "description": "As a user, I want queries to prefer the currently active agent's card types when ambiguous.",
+      "title": "Update sendToAgentRegular to use SSE streaming",
+      "description": "As a user, chat responses should stream token-by-token instead of appearing all at once after a long wait.",
       "acceptanceCriteria": [
-        "Accept optional activeAgent parameter in classifyTask()",
-        "If activeAgent is provided, boost confidence of that agent's task types by +0.15",
-        "Agent-to-task-type mapping: onboarding=[kickoff_plan,milestone_plan,stakeholder_map,training_schedule], adoption=[usage_analysis,feature_campaign,champion_development,training_program], renewal=[renewal_forecast,value_summary,expansion_proposal,negotiation_brief], risk=[risk_assessment,save_play,escalation_report,resolution_plan], strategic=[qbr_generation,executive_briefing,account_plan,transformation_roadmap]",
-        "Only apply boost when multiple task types have similar scores (within 0.1)",
-        "Update the classifyTask function signature and callers",
-        "Typecheck passes"
+        "Modify sendToAgentRegular() in components/AgentControlCenter/index.tsx to use the new /api/ai/chat/stream endpoint",
+        "Create AbortController and store in abortControllerRef",
+        "Use fetch() with POST to /api/ai/chat/stream with same body as before",
+        "Pass signal: abortController.signal to fetch",
+        "Get ReadableStream reader from response.body.getReader()",
+        "Create TextDecoder for decoding chunks",
+        "Set isStreaming = true before starting",
+        "Create initial empty streaming message in setMessages with isStreaming: true flag",
+        "Read chunks in a while loop: const { done, value } = await reader.read()",
+        "Parse each chunk through parseSSEData()",
+        "For 'token' events: accumulate content, update the streaming message via setMessages",
+        "For 'tool_start' events: optionally show tool indicator in UI",
+        "For 'tool_end' events: accumulate tool results",
+        "For 'done' event: parse the JSON content, extract routing/toolResults/requiresApproval/pendingActions, finalize the message (remove isStreaming flag), update activeAgent from routing, process tool results, save to database",
+        "For 'error' event: show error message",
+        "Set isStreaming = false and isProcessing = false in finally block",
+        "CADG handling: The done event may contain isGenerative+plan — handle it same as before (setPendingCadgPlan, show CADGPlanCard)",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "Added ActiveAgentType and AGENT_TASK_TYPES mapping to taskClassifier.ts. Refactored matchKeywords into matchKeywordsWithScores (returns all raw scores) + matchKeywords wrapper. Added applyAgentBoosting() function that boosts agent task types by +0.15 when within 0.1 of best score. Updated classify() signature to accept optional activeAgent. Updated cadgService.classify() in index.ts to pass activeAgent through. Updated langchain.ts to extract activeAgent from request body. Updated cadg.ts /plan route to accept activeAgent. Frontend sends activeAgent field alongside forceAgent."
+      "passes": false,
+      "notes": "The current sendToAgentRegular is at line 885. It currently does: fetch → await response.json() → process. The new version replaces the response.json() with ReadableStream reading. The CADG check (line 914) needs to happen when processing the 'done' event metadata, not inline. Keep the existing message structure: { agent, message, isApproval, routing, toolResults }. The streaming message should start with content: '' and update as tokens arrive. Reference AIPanel/index.tsx lines 355-390 for the reader pattern."
     },
     {
       "id": "US-005",
-      "title": "Update AGENT_ACTIONS IDs to match CADG TaskTypes",
-      "description": "As a developer, I need the agent button IDs to match CADG task type strings for direct routing.",
+      "title": "Add streaming cursor and typing indicator",
+      "description": "As a user, I want visual feedback that the AI is generating a response with a blinking cursor.",
       "acceptanceCriteria": [
-        "Update components/AgentControlCenter/AgentCard.tsx AGENT_ACTIONS",
-        "Onboarding: kickoff→kickoff_plan, plan_30_60_90→milestone_plan, keep stakeholder_map, add training_schedule, keep meeting_prep",
-        "Adoption: keep usage_analysis, adoption_campaign→feature_campaign, feature_training→training_program (reuse for training), champion_program→champion_development",
-        "Renewal: keep renewal_forecast, keep value_summary, expansion_analysis→expansion_proposal, renewal_playbook→negotiation_brief, keep draft_email",
-        "Risk: keep risk_assessment, keep save_play, escalation→escalation_report, health_check→resolution_plan, remove churn_prediction",
-        "Strategic: qbr_prep→qbr_generation, exec_briefing→executive_briefing, keep account_plan, success_plan→transformation_roadmap, keep draft_email",
-        "Add cadgTaskType field to actions that should trigger CADG cards",
-        "Update button labels to match card names",
-        "Typecheck passes"
+        "When isStreaming is true and a message has isStreaming: true flag, show a blinking cursor character (▊ or |) at the end of the message content",
+        "Add CSS animation for cursor blink: @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }",
+        "The cursor should be a span after the message text with the blink animation",
+        "When the stream completes (isStreaming set to false), remove the cursor",
+        "During streaming, the message area should auto-scroll to keep the latest content visible",
+        "Use a ref on the messages container and scrollIntoView or scrollTop manipulation",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Updated AGENT_ACTIONS with AgentAction interface (id, label, icon, cadgTaskType?). Renamed IDs: kickoff→kickoff_plan, plan_30_60_90→milestone_plan, welcome_sequence→training_schedule, adoption_campaign→feature_campaign, feature_training→training_program, champion_program→champion_development, expansion_analysis→expansion_proposal, renewal_playbook→negotiation_brief, escalation→escalation_report, health_check→resolution_plan, churn_prediction removed, qbr_prep→qbr_generation, exec_briefing→executive_briefing, success_plan→transformation_roadmap. Added cadgTaskType field to all CADG-routable actions. Non-CADG actions (meeting_prep, draft_email) kept without cadgTaskType. Updated actionMessages in handleAgentAction to use new IDs."
+      "passes": false,
+      "notes": "The messages are rendered in the AgentControlCenter's JSX. Look for where messages are mapped and rendered. The auto-scroll should use useEffect watching messages changes. Add the cursor inline with the message text, not as a separate element. The existing message rendering likely uses markdown — put the cursor span after the markdown output."
     },
     {
       "id": "US-006",
-      "title": "Add buildCadgTriggerMessage helper function",
-      "description": "As a developer, I need a function that generates the optimal CADG trigger message for each task type.",
+      "title": "Add stop generation button",
+      "description": "As a user, I want to stop a streaming response if I don't need the full answer.",
       "acceptanceCriteria": [
-        "Add buildCadgTriggerMessage(taskType, customerName) to AgentControlCenter/index.tsx",
-        "Returns a message string containing the exact CADG keyword for that task type",
-        "Includes customer name context when available",
-        "Covers all 24 CADG task types",
-        "General mode tasks don't include customer name",
-        "Typecheck passes"
+        "Show a 'Stop generating' button when isStreaming is true",
+        "Button appears below the streaming message or in the input area (replacing the send button)",
+        "Clicking the button calls abortControllerRef.current?.abort()",
+        "After abort: set isStreaming to false, finalize the current message content as-is (don't add error text)",
+        "The backend detects the client disconnect and stops Claude generation",
+        "Style: simple text button or icon button, subtle but visible, matches existing design system",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "Added buildCadgTriggerMessage(taskType, customerName?) function to AgentControlCenter/index.tsx. Covers all 24 CADG task types. General Mode tasks (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) return messages without customer context. Customer-specific tasks use exact CADG keywords (e.g., 'Create a kickoff plan for X') that match PHRASE_PATTERNS in taskClassifier.ts. Falls back to generic message for unknown task types."
+      "passes": false,
+      "notes": "The input area in AgentControlCenter already has conditional UI. Look for the send button and conditionally show stop button instead. The AbortController signal propagates to both the fetch request and the server's req.close event."
     },
     {
       "id": "US-007",
-      "title": "Update handleAgentAction to use CADG routing",
-      "description": "As a user, clicking a CADG button should invoke the CADG card flow instead of plain chat.",
+      "title": "Handle streaming errors and non-streaming fallback",
+      "description": "As a system, streaming errors should be handled gracefully with fallback to non-streaming.",
       "acceptanceCriteria": [
-        "Modify handleAgentAction() in components/AgentControlCenter/index.tsx",
-        "Check if action has cadgTaskType property",
-        "If cadgTaskType exists, use buildCadgTriggerMessage() to create the message",
-        "Send the message via sendToAgent() which routes through CADG classifier",
-        "Non-CADG actions (draft_email, meeting_prep, schedule_meeting) still use old behavior",
-        "Remove the old actionMessages fallback for CADG-mapped actions",
-        "Typecheck passes"
+        "If fetch to /api/ai/chat/stream fails (network error, 500, etc.), catch the error",
+        "On error, automatically retry with the non-streaming /api/ai/chat endpoint as fallback",
+        "Show a brief status message like 'Streaming unavailable, loading response...' during fallback",
+        "If the non-streaming fallback also fails, show the error message to the user",
+        "Handle AbortError separately — don't treat user-initiated abort as an error",
+        "If reader.read() throws mid-stream, show partial content accumulated so far + error notice",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 7,
-      "passes": true,
-      "notes": "Modified handleAgentAction() to check action.cadgTaskType from AGENT_ACTIONS. CADG-routable actions use buildCadgTriggerMessage() + sendToAgent() for CADG classifier routing. Non-CADG actions (meeting_prep, draft_email) use minimal fallbackMessages. Removed old per-agent actionMessages map and unused stakeholderNames/arrDisplay variables."
+      "passes": false,
+      "notes": "The fallback should call the existing /api/ai/chat endpoint (the original non-streaming one) which remains intact. Catch fetch errors and AbortError separately. AbortError = user clicked stop = not an error. Other errors = try fallback."
     },
     {
       "id": "US-008",
-      "title": "Add General Mode quick-action buttons",
-      "description": "As a user in General Mode (no customer selected), I want portfolio-level CADG buttons.",
+      "title": "Integration verification — end-to-end streaming flow",
+      "description": "As a developer, verify the complete streaming flow works end-to-end.",
       "acceptanceCriteria": [
-        "When customer is null or General Mode is active, show general_mode actions",
-        "Add 4 general mode actions: portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview",
-        "These buttons appear in the same quick-actions area or as suggested actions",
-        "Clicking them triggers CADG flow without customer context",
-        "Hide customer-specific CADG buttons when no customer is selected",
-        "Typecheck passes"
+        "The backend /api/ai/chat/stream endpoint responds with SSE Content-Type header",
+        "Token events are sent as the Claude API streams them (not buffered)",
+        "The done event contains all required metadata: response, agentType, routing, toolResults, requiresApproval, pendingActions, sessionId",
+        "CADG requests through the stream endpoint correctly detect generative requests and return plan in done event",
+        "The frontend accumulates tokens and displays them progressively",
+        "Tool execution events (tool_start, tool_end) are forwarded from backend to frontend",
+        "Message is saved to database after stream completes",
+        "Stop button aborts the stream and shows partial content",
+        "Fallback to non-streaming works when stream endpoint fails",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 8,
-      "passes": true,
-      "notes": "Added GENERAL_MODE_ACTIONS array with 4 portfolio-level actions (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) in AgentCard.tsx. Updated QuickActions component with hasCustomer prop - when false, shows general mode actions instead of agent-specific ones. Updated handleQuickAction in AgentControlCenter to detect general mode actions and route them through buildCadgTriggerMessage → sendToAgent for CADG flow. Both QuickActions usages (empty state and below messages) pass hasCustomer={!!customer}. Customer-specific CADG buttons are hidden when no customer is selected."
-    },
-    {
-      "id": "US-009",
-      "title": "Add inline suggested action chips in chat welcome",
-      "description": "As a user, I want to see clickable CADG action chips when I enter the Agent Center.",
-      "acceptanceCriteria": [
-        "Update the welcome message area to show agent-specific CADG chips",
-        "Chips appear below the 'Onboarding Specialist Ready' (or equivalent) message",
-        "Each chip triggers its CADG card when clicked",
-        "Chips match the current active agent's card types",
-        "Style: rounded pills with icon + label, consistent with existing chip design",
-        "Typecheck passes"
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": "Added inline CADG action chips in the empty state welcome area of AgentControlCenter/index.tsx. Chips appear between the agent description paragraph and the existing QuickActions row. When a customer is selected, shows the active agent's CADG-enabled actions (filtered by cadgTaskType). When no customer is selected, shows GENERAL_MODE_ACTIONS. Each chip is styled as a rounded pill (borderRadius: 20px) with icon + label, tinted with the active agent's color (background, border, text). Hover effect intensifies the tint. Clicking a chip calls handleQuickAction which routes through buildCadgTriggerMessage → sendToAgent for CADG flow. Disabled state with opacity change during processing."
-    },
-    {
-      "id": "US-010",
-      "title": "Integration test: verify button-to-CADG-card flow end-to-end",
-      "description": "As a developer, I need to verify the full flow from button click to CADG card display.",
-      "acceptanceCriteria": [
-        "Verify that clicking each CADG button sends the correct trigger message",
-        "Verify the trigger message is correctly classified by the task classifier",
-        "Verify the response includes the CADG plan card (CADGPlanCard component)",
-        "Test at least one button per agent type (5 total)",
-        "Verify General Mode buttons work without customer context",
-        "Document any issues found in notes",
-        "Typecheck passes"
-      ],
-      "priority": 10,
-      "passes": true,
-      "notes": "Created 37 integration tests in server/src/services/cadg/__tests__/button-to-cadg.integration.test.ts. Tests cover: (1) One button per agent type — kickoff_plan, usage_analysis, renewal_forecast, risk_assessment, qbr_generation all classify correctly with ≥0.7 confidence. (2) All 4 General Mode buttons (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) classify correctly without customer context. (3) All 20 CADG-enabled buttons across all 5 agents classify to their expected task type. (4) Non-CADG actions (meeting_prep, draft_email) confirmed to have no cadgTaskType. (5) Trigger messages verified to contain exact CADG keywords. (6) All button messages achieve 0.95 phrase-match confidence and are classified as generative. Issues found and fixed: (a) matchPhrasePatterns was checking synonym-expanded variants in the same pass as original query, causing 'overview' → 'assessment' synonym expansion to trigger risk_assessment before at_risk_overview. Fixed by splitting into two passes: original query first, then expanded variants. (b) risk_assessment phrase pattern /at.?risk\\s+(customer|account)?/i was too greedy (optional group matched anything). Made more specific: /at.?risk\\s+(customer|account|assessment|evaluation|analysis)/i. (c) at_risk_overview trigger message updated from 'Show me the at-risk customer overview dashboard' to 'Show me the at-risk overview dashboard' to avoid ambiguity."
+      "passes": false,
+      "notes": "This is a verification story. Check that all pieces connect: frontend sends to /stream endpoint, backend streams from Claude, frontend renders tokens progressively. Verify CADG cards still work. Fix any integration issues found. If tests exist, run them."
     }
   ]
 }
