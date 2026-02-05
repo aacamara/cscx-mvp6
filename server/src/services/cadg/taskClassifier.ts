@@ -22,6 +22,53 @@ const anthropic = new Anthropic({
   apiKey: config.anthropicApiKey,
 });
 
+// Synonym groups for query expansion before keyword matching
+const SYNONYMS: Record<string, string[]> = {
+  // Action verbs → canonical forms used in keywords
+  create: ['create', 'build', 'generate', 'make', 'prepare', 'draft', 'set up', 'put together', 'design', 'compose'],
+  plan: ['plan', 'strategy', 'roadmap', 'blueprint', 'playbook', 'approach', 'framework'],
+  review: ['review', 'assessment', 'evaluation', 'analysis', 'audit', 'check', 'overview'],
+  meeting: ['meeting', 'call', 'session', 'sync', 'discussion', 'conversation'],
+  customer: ['customer', 'client', 'account', 'company', 'organization'],
+  risk: ['risk', 'danger', 'threat', 'concern', 'issue', 'problem', 'warning'],
+  renewal: ['renewal', 'contract', 'subscription', 'license', 'agreement'],
+};
+
+// Build reverse lookup: synonym → canonical word
+const SYNONYM_REVERSE: Map<string, string> = new Map();
+for (const [canonical, synonyms] of Object.entries(SYNONYMS)) {
+  for (const synonym of synonyms) {
+    // Map each synonym to its canonical form (first word in the group)
+    if (synonym !== canonical) {
+      SYNONYM_REVERSE.set(synonym, canonical);
+    }
+  }
+}
+
+/**
+ * Expand a query by replacing synonyms with their canonical forms
+ * This allows queries like "put together a business review" to match keywords that use "create" and "review"
+ */
+function expandSynonyms(query: string): string {
+  let expanded = query;
+
+  // Sort by length descending to match longer phrases first (e.g., "put together" before "put")
+  const sortedSynonyms = Array.from(SYNONYM_REVERSE.entries()).sort(
+    (a, b) => b[0].length - a[0].length
+  );
+
+  for (const [synonym, canonical] of sortedSynonyms) {
+    // Use word boundary matching to avoid partial replacements
+    const regex = new RegExp(`\\b${synonym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
+    if (regex.test(expanded)) {
+      // Add canonical form alongside original (don't replace, augment)
+      expanded = expanded + ' ' + canonical;
+    }
+  }
+
+  return expanded;
+}
+
 // Keyword patterns for each task type (20+ patterns per CADG card)
 const KEYWORD_PATTERNS: Record<TaskType, string[]> = {
   // ============================================================================
@@ -593,8 +640,12 @@ export async function classify(
 ): Promise<TaskClassificationResult> {
   const normalizedQuery = userQuery.toLowerCase().trim();
 
+  // Step 0: Expand query with synonyms for better matching
+  const expandedQueries = expandWithSynonyms(normalizedQuery);
+
   // Step 1: Try phrase pattern matching (highest confidence)
-  const phraseMatch = matchPhrasePatterns(normalizedQuery);
+  // Check original query first, then expanded variants
+  const phraseMatch = matchPhrasePatterns(normalizedQuery, expandedQueries);
   if (phraseMatch.taskType !== 'custom') {
     return {
       taskType: phraseMatch.taskType,
@@ -604,8 +655,8 @@ export async function classify(
     };
   }
 
-  // Step 2: Try keyword matching (medium confidence)
-  const keywordMatch = matchKeywords(normalizedQuery);
+  // Step 2: Try keyword matching with synonym-expanded queries (medium confidence)
+  const keywordMatch = matchKeywords(normalizedQuery, expandedQueries);
   if (keywordMatch.taskType !== 'custom' && keywordMatch.confidence >= 0.7) {
     return {
       taskType: keywordMatch.taskType,
@@ -647,12 +698,17 @@ export function isGenerativeRequest(userQuery: string): boolean {
 }
 
 /**
- * Match against phrase patterns
+ * Match against phrase patterns.
+ * Checks original query first, then synonym-expanded variants.
  */
-function matchPhrasePatterns(query: string): { taskType: TaskType; confidence: number } {
+function matchPhrasePatterns(query: string, expandedQueries?: string[]): { taskType: TaskType; confidence: number } {
+  const queries = expandedQueries || [query];
+
   for (const [taskType, patterns] of Object.entries(PHRASE_PATTERNS)) {
     for (const pattern of patterns) {
-      if (pattern.test(query)) {
+      // Check if ANY query variant matches the phrase pattern
+      const matched = queries.some(q => pattern.test(q));
+      if (matched) {
         return {
           taskType: taskType as TaskType,
           confidence: 0.95, // High confidence for phrase matches
@@ -664,9 +720,11 @@ function matchPhrasePatterns(query: string): { taskType: TaskType; confidence: n
 }
 
 /**
- * Match against keywords
+ * Match against keywords with synonym expansion.
+ * Checks the original query AND all synonym-expanded variants.
  */
-function matchKeywords(query: string): { taskType: TaskType; confidence: number } {
+function matchKeywords(query: string, expandedQueries?: string[]): { taskType: TaskType; confidence: number } {
+  const queries = expandedQueries || [query];
   const words = query.split(/\s+/);
   let bestMatch: { taskType: TaskType; score: number } = { taskType: 'custom', score: 0 };
 
@@ -675,7 +733,10 @@ function matchKeywords(query: string): { taskType: TaskType; confidence: number 
 
     let matchCount = 0;
     for (const keyword of keywords) {
-      if (query.includes(keyword.toLowerCase())) {
+      const lowerKeyword = keyword.toLowerCase();
+      // Check if ANY expanded query variant matches this keyword
+      const matched = queries.some(q => q.includes(lowerKeyword));
+      if (matched) {
         matchCount += keyword.split(' ').length; // Multi-word keywords count more
       }
     }

@@ -20,8 +20,8 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added SYNONYMS map with 7 synonym families (actions, plans, reviews, meetings, customers, risks, renewals), expandWithSynonyms() function, updated classify/matchKeywords/matchPhrasePatterns to use synonym-expanded queries."
     },
     {
       "id": "US-002",

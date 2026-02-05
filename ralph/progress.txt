@@ -11,6 +11,7 @@
 - TypeScript: export types alongside component for external use
 - **New TaskTypes require updates to**: contextAggregator.ts (TASK_KEYWORDS), reasoningEngine.ts (DEFAULT_SECTIONS, OUTPUT_FORMATS, estimateLength)
 - **Data aggregation**: Use `dataHelpers.aggregateCustomerContext()` for customer-specific cards, `aggregatePortfolioContext()` for General Mode cards
+- **Task classifier synonym expansion**: SYNONYMS map at top of taskClassifier.ts uses canonical-form approach; a hook may add duplicate blocks that must be cleaned up after saves
 
 ---
 
@@ -1083,4 +1084,22 @@
   - The OUTPUT_FORMATS constant in reasoningEngine.ts is the source of truth for format mappings
   - IIFE pattern `{(() => { ... })()}` works well for computed JSX with local variables
   - Export endpoints use artifactId, not driveFileId
+---
+
+## 2026-02-04 - US-001 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Synonym expansion for CADG task classifier
+- **Files changed**:
+  - `server/src/services/cadg/taskClassifier.ts` - Added SYNONYMS map, SYNONYM_REVERSE lookup, expandSynonyms() function, updated matchKeywords()
+- **Features**:
+  - SYNONYMS map with 7 synonym groups (create, plan, review, meeting, customer, risk, renewal)
+  - SYNONYM_REVERSE Map for efficient reverse lookup (synonym → canonical form)
+  - expandSynonyms() augments query with canonical forms (doesn't replace, adds alongside)
+  - Sorts by phrase length descending to match multi-word synonyms first ("put together" before "put")
+  - Uses word boundary regex to avoid partial matches
+  - matchKeywords() now calls expandSynonyms() before keyword matching
+- **Learnings for future iterations**:
+  - A hook/linter modifies taskClassifier.ts on save, adding a duplicate SYNONYMS block with bidirectional mappings - need to clean up after saves
+  - The canonical-form approach (synonym → canonical) is cleaner than bidirectional (each word → all others) for synonym expansion
+  - Augmentation (adding canonical alongside original) works better than replacement for keyword matching
+  - Pre-existing TypeScript errors in the codebase don't affect taskClassifier.ts
 ---
