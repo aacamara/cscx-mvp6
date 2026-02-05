@@ -87,8 +87,8 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Updated AGENT_ACTIONS with AgentAction interface (id, label, icon, cadgTaskType?). Renamed IDs: kickoff→kickoff_plan, plan_30_60_90→milestone_plan, welcome_sequence→training_schedule, adoption_campaign→feature_campaign, feature_training→training_program, champion_program→champion_development, expansion_analysis→expansion_proposal, renewal_playbook→negotiation_brief, escalation→escalation_report, health_check→resolution_plan, churn_prediction removed, qbr_prep→qbr_generation, exec_briefing→executive_briefing, success_plan→transformation_roadmap. Added cadgTaskType field to all CADG-routable actions. Non-CADG actions (meeting_prep, draft_email) kept without cadgTaskType. Updated actionMessages in handleAgentAction to use new IDs."
     },
     {
       "id": "US-006",

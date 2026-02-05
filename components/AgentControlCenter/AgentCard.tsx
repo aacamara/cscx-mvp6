@@ -1,41 +1,47 @@
 import React, { useState } from 'react';
 import { Agent, AgentStatus, CSAgentType } from '../../types/agents';
 
+// Agent action type with optional CADG task type for direct routing
+export interface AgentAction {
+  id: string;
+  label: string;
+  icon: string;
+  cadgTaskType?: string;
+}
+
 // Agent-specific quick actions
-export const AGENT_ACTIONS: Record<CSAgentType, { id: string; label: string; icon: string }[]> = {
+export const AGENT_ACTIONS: Record<CSAgentType, AgentAction[]> = {
   onboarding: [
-    { id: 'kickoff', label: 'Schedule Kickoff', icon: '📅' },
-    { id: 'plan_30_60_90', label: 'Generate 30-60-90 Plan', icon: '📋' },
-    { id: 'stakeholder_map', label: 'Map Stakeholders', icon: '👥' },
-    { id: 'welcome_sequence', label: 'Send Welcome Sequence', icon: '✉️' },
+    { id: 'kickoff_plan', label: 'Kickoff Plan', icon: '📅', cadgTaskType: 'kickoff_plan' },
+    { id: 'milestone_plan', label: '30-60-90 Day Plan', icon: '📋', cadgTaskType: 'milestone_plan' },
+    { id: 'stakeholder_map', label: 'Stakeholder Map', icon: '👥', cadgTaskType: 'stakeholder_map' },
+    { id: 'training_schedule', label: 'Training Schedule', icon: '📚', cadgTaskType: 'training_schedule' },
     { id: 'meeting_prep', label: 'AI Meeting Prep', icon: '🤖' },
   ],
   adoption: [
-    { id: 'usage_analysis', label: 'Analyze Usage', icon: '📊' },
-    { id: 'adoption_campaign', label: 'Create Adoption Campaign', icon: '🎯' },
-    { id: 'feature_training', label: 'Deploy Feature Training', icon: '📚' },
-    { id: 'champion_program', label: 'Identify Champions', icon: '🏆' },
+    { id: 'usage_analysis', label: 'Usage Analysis', icon: '📊', cadgTaskType: 'usage_analysis' },
+    { id: 'feature_campaign', label: 'Feature Campaign', icon: '🎯', cadgTaskType: 'feature_campaign' },
+    { id: 'training_program', label: 'Training Program', icon: '📚', cadgTaskType: 'training_program' },
+    { id: 'champion_development', label: 'Champion Development', icon: '🏆', cadgTaskType: 'champion_development' },
   ],
   renewal: [
-    { id: 'renewal_forecast', label: 'Generate Forecast', icon: '🔮' },
-    { id: 'value_summary', label: 'Create Value Summary', icon: '💎' },
-    { id: 'expansion_analysis', label: 'Find Expansion Opps', icon: '📈' },
-    { id: 'renewal_playbook', label: 'Start Renewal Playbook', icon: '📖' },
+    { id: 'renewal_forecast', label: 'Renewal Forecast', icon: '🔮', cadgTaskType: 'renewal_forecast' },
+    { id: 'value_summary', label: 'Value Summary', icon: '💎', cadgTaskType: 'value_summary' },
+    { id: 'expansion_proposal', label: 'Expansion Proposal', icon: '📈', cadgTaskType: 'expansion_proposal' },
+    { id: 'negotiation_brief', label: 'Negotiation Brief', icon: '📖', cadgTaskType: 'negotiation_brief' },
     { id: 'draft_email', label: 'AI Draft Email', icon: '✨' },
   ],
   risk: [
-    { id: 'risk_assessment', label: 'Run Risk Assessment', icon: '⚠️' },
-    { id: 'save_play', label: 'Create Save Play', icon: '🛡️' },
-    { id: 'escalation', label: 'Escalate Issue', icon: '🚨' },
-    { id: 'health_check', label: 'Deep Health Check', icon: '🩺' },
-    { id: 'churn_prediction', label: 'AI Churn Prediction', icon: '🔮' },
+    { id: 'risk_assessment', label: 'Risk Assessment', icon: '⚠️', cadgTaskType: 'risk_assessment' },
+    { id: 'save_play', label: 'Save Play', icon: '🛡️', cadgTaskType: 'save_play' },
+    { id: 'escalation_report', label: 'Escalation Report', icon: '🚨', cadgTaskType: 'escalation_report' },
+    { id: 'resolution_plan', label: 'Resolution Plan', icon: '🩺', cadgTaskType: 'resolution_plan' },
   ],
   strategic: [
-    { id: 'qbr_prep', label: 'Prepare QBR', icon: '📊' },
-    { id: 'exec_briefing', label: 'Executive Briefing', icon: '👔' },
-    { id: 'account_plan', label: 'Account Planning', icon: '🗺️' },
-    { id: 'success_plan', label: 'Strategic Success Plan', icon: '🎯' },
-    { id: 'meeting_prep', label: 'AI Meeting Prep', icon: '🤖' },
+    { id: 'qbr_generation', label: 'QBR Generation', icon: '📊', cadgTaskType: 'qbr_generation' },
+    { id: 'executive_briefing', label: 'Executive Briefing', icon: '👔', cadgTaskType: 'executive_briefing' },
+    { id: 'account_plan', label: 'Account Plan', icon: '🗺️', cadgTaskType: 'account_plan' },
+    { id: 'transformation_roadmap', label: 'Transformation Roadmap', icon: '🎯', cadgTaskType: 'transformation_roadmap' },
     { id: 'draft_email', label: 'AI Draft Email', icon: '✨' },
   ],
 };

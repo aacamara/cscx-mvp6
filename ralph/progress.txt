@@ -15,6 +15,7 @@
 - **Task classifier fuzzy matching**: matchKeywords() uses two-tier scoring (exact 1.5x, stem 1.0x) with stop word removal and basicStem() for suffix stripping
 - **Task classifier LLM fallback**: classify() flow is phrase (0.95) → keyword (≥0.7) → LLM (<0.3) → secondary LLM (0.3-0.7). Anthropic SDK uses `{ signal }` 2nd arg for abort
 - **Task classifier agent boosting**: classify() accepts optional `activeAgent` parameter; AGENT_TASK_TYPES maps each agent to its 4 task types; applyAgentBoosting() boosts by +0.15 when within 0.1 of best score. Frontend sends `activeAgent` field in chat request body.
+- **AGENT_ACTIONS structure**: AgentAction interface has `{ id, label, icon, cadgTaskType? }`. Actions with `cadgTaskType` should route through CADG flow. Non-CADG actions (meeting_prep, draft_email) have no cadgTaskType. Action IDs match CADG TaskType strings exactly.
 
 ---
 
@@ -1176,4 +1177,27 @@
   - Raw scores must be exposed from matchKeywords for boosting to compare candidates
   - The boost only applies when candidates are close (within 0.1) - clear winners are never overridden
   - ActiveAgentType is defined locally in taskClassifier.ts to avoid cross-boundary imports
+---
+
+## 2026-02-04 - US-005 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Updated AGENT_ACTIONS IDs to match CADG TaskTypes for direct routing
+- **Files changed**:
+  - `components/AgentControlCenter/AgentCard.tsx` - Added AgentAction interface with optional cadgTaskType, renamed all action IDs and labels to match CADG TaskTypes
+  - `components/AgentControlCenter/index.tsx` - Updated actionMessages keys to match new action IDs
+- **Features**:
+  - New `AgentAction` interface with `{ id, label, icon, cadgTaskType? }` exported from AgentCard.tsx
+  - **Onboarding**: kickoff→kickoff_plan, plan_30_60_90→milestone_plan, welcome_sequence replaced with training_schedule, meeting_prep kept (no cadgTaskType)
+  - **Adoption**: adoption_campaign→feature_campaign, feature_training→training_program, champion_program→champion_development
+  - **Renewal**: expansion_analysis→expansion_proposal, renewal_playbook→negotiation_brief, draft_email kept (no cadgTaskType)
+  - **Risk**: escalation→escalation_report, health_check→resolution_plan, churn_prediction removed entirely
+  - **Strategic**: qbr_prep→qbr_generation, exec_briefing→executive_briefing, success_plan→transformation_roadmap, meeting_prep removed, draft_email kept (no cadgTaskType)
+  - All CADG-routable actions have `cadgTaskType` field matching the CADG TaskType string
+  - Non-CADG actions (meeting_prep, draft_email) have no cadgTaskType field
+  - Updated fallback actionMessages in handleAgentAction to match new IDs with improved message text
+- **Learnings for future iterations**:
+  - AGENT_ACTIONS is consumed by AgentCard.tsx (renders buttons), QuickActions.tsx (renders quick action bar), and index.tsx (handleAgentAction fallback messages)
+  - The `cadgTaskType` field enables US-007 to route button clicks through CADG flow instead of plain chat
+  - Non-CADG actions (draft_email, meeting_prep) should NOT have cadgTaskType - they use different interaction patterns
+  - Action IDs should match CADG TaskType strings exactly for clean mapping in later stories
+  - Pre-existing TypeScript errors in AgentControlCenter/index.tsx (folderName on WorkflowOutput) are unrelated
 ---

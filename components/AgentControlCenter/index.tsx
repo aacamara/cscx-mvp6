@@ -1586,38 +1586,39 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     const actionMessages: Record<string, Record<string, string>> = {
       // Onboarding Specialist actions
       onboarding: {
-        kickoff: `Schedule a kickoff meeting with ${stakeholderNames} for ${customerName}. Include agenda items for introductions, goal alignment, and timeline review.`,
-        plan_30_60_90: `Generate a comprehensive 30-60-90 day onboarding plan for ${customerName}. Consider their ${arrDisplay} ARR and technical requirements.`,
+        kickoff_plan: `Create a kickoff plan for ${customerName}. Include agenda items for introductions, goal alignment, and timeline review.`,
+        milestone_plan: `Generate a comprehensive 30-60-90 day milestone plan for ${customerName}. Consider their ${arrDisplay} ARR and technical requirements.`,
         stakeholder_map: `Create a stakeholder map for ${customerName}. Identify decision makers, champions, and end users from their team.`,
-        welcome_sequence: `Draft a welcome email sequence for ${customerName}. Include introductions, resource links, and next steps.`,
+        training_schedule: `Create a training schedule for ${customerName}. Plan sessions for key user groups and feature areas.`,
+        meeting_prep: `Prepare meeting notes and agenda for ${customerName}.`,
       },
       // Adoption Specialist actions
       adoption: {
         usage_analysis: `Analyze product usage patterns for ${customerName}. Identify underutilized features and engagement trends.`,
-        adoption_campaign: `Create an adoption campaign for ${customerName} to increase feature utilization and drive value realization.`,
-        feature_training: `Deploy targeted feature training for ${customerName}. Focus on their most relevant use cases and capabilities.`,
-        champion_program: `Identify and develop product champions within ${customerName}. Find power users who can advocate internally.`,
+        feature_campaign: `Create a feature adoption campaign for ${customerName} to increase feature utilization and drive value realization.`,
+        training_program: `Create a training program for ${customerName}. Focus on their most relevant use cases and capabilities.`,
+        champion_development: `Identify and develop product champions within ${customerName}. Find power users who can advocate internally.`,
       },
       // Renewal Specialist actions
       renewal: {
         renewal_forecast: `Generate a renewal forecast for ${customerName}. Assess likelihood, risks, and recommended timeline.`,
         value_summary: `Create a value summary document for ${customerName} showing ROI, achievements, and business impact.`,
-        expansion_analysis: `Analyze expansion opportunities for ${customerName}. Identify upsell potential and additional use cases.`,
-        renewal_playbook: `Start the renewal playbook for ${customerName}. Initialize the ${plan?.timeline_days ? 90 : 60}-day renewal motion.`,
+        expansion_proposal: `Create an expansion proposal for ${customerName}. Identify upsell potential and additional use cases.`,
+        negotiation_brief: `Prepare a negotiation brief for ${customerName}. Document leverage points, counter-strategies, and walk-away points.`,
       },
       // Risk Specialist actions
       risk: {
         risk_assessment: `Run a comprehensive risk assessment for ${customerName}. Evaluate health signals and identify warning signs.`,
         save_play: `Create a save play strategy for ${customerName}. Define intervention actions and success metrics.`,
-        escalation: `Prepare an escalation report for ${customerName}. Document issues, impact, and required executive attention.`,
-        health_check: `Perform a deep health check for ${customerName}. Analyze usage, engagement, support, and sentiment signals.`,
+        escalation_report: `Prepare an escalation report for ${customerName}. Document issues, impact, and required executive attention.`,
+        resolution_plan: `Create a resolution plan for ${customerName}. Address open issues with actionable steps and ownership.`,
       },
       // Strategic CSM actions
       strategic: {
-        qbr_prep: `Prepare the QBR package for ${customerName}. Include performance metrics, achievements, roadmap, and strategic recommendations.`,
-        exec_briefing: `Create an executive briefing document for ${customerName}. Summarize account status and strategic opportunities.`,
+        qbr_generation: `Prepare the QBR package for ${customerName}. Include performance metrics, achievements, roadmap, and strategic recommendations.`,
+        executive_briefing: `Create an executive briefing document for ${customerName}. Summarize account status and strategic opportunities.`,
         account_plan: `Develop a strategic account plan for ${customerName}. Define goals, growth strategy, and key initiatives.`,
-        success_plan: `Build a strategic success plan for ${customerName}. Align on business objectives and define success criteria.`,
+        transformation_roadmap: `Build a transformation roadmap for ${customerName}. Align on business objectives and define success criteria.`,
       },
     };
 
