@@ -1572,7 +1572,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
       portfolio_dashboard: 'Show me my portfolio dashboard with all customers',
       team_metrics: 'Show me team metrics and CSM performance dashboard',
       renewal_pipeline: 'Show me the renewal pipeline with upcoming renewals',
-      at_risk_overview: 'Show me the at-risk customer overview dashboard',
+      at_risk_overview: 'Show me the at-risk overview dashboard',
     };
 
     if (generalModeMessages[taskType]) {

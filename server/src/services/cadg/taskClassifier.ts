@@ -548,7 +548,7 @@ const PHRASE_PATTERNS: Record<TaskType, RegExp[]> = {
     /risk\s+(assessment|analysis|evaluation)/i,
     /assess\s+(the\s+)?risk/i,
     /churn\s+risk/i,
-    /at.?risk\s+(customer|account)?/i,
+    /at.?risk\s+(customer|account|assessment|evaluation|analysis)/i,
     /(warning|danger)\s+signs/i,
     /red\s+flags/i,
     /risk\s+(factors|indicators|signals)/i,
@@ -836,23 +836,38 @@ export function isGenerativeRequest(userQuery: string): boolean {
 
 /**
  * Match against phrase patterns.
- * Checks original query first, then synonym-expanded variants.
+ * First pass: check original query against ALL task types (prevents synonym false positives).
+ * Second pass: check synonym-expanded variants if no original match found.
  */
 function matchPhrasePatterns(query: string, expandedQueries?: string[]): { taskType: TaskType; confidence: number } {
-  const queries = expandedQueries || [query];
-
+  // First pass: check the ORIGINAL query against all task types
   for (const [taskType, patterns] of Object.entries(PHRASE_PATTERNS)) {
     for (const pattern of patterns) {
-      // Check if ANY query variant matches the phrase pattern
-      const matched = queries.some(q => pattern.test(q));
-      if (matched) {
+      if (pattern.test(query)) {
         return {
           taskType: taskType as TaskType,
-          confidence: 0.95, // High confidence for phrase matches
+          confidence: 0.95,
         };
       }
     }
   }
+
+  // Second pass: check synonym-expanded variants (skip original, already checked)
+  if (expandedQueries && expandedQueries.length > 1) {
+    const expandedOnly = expandedQueries.slice(1); // Skip index 0 (original query)
+    for (const [taskType, patterns] of Object.entries(PHRASE_PATTERNS)) {
+      for (const pattern of patterns) {
+        const matched = expandedOnly.some(q => pattern.test(q));
+        if (matched) {
+          return {
+            taskType: taskType as TaskType,
+            confidence: 0.95,
+          };
+        }
+      }
+    }
+  }
+
   return { taskType: 'custom', confidence: 0 };
 }
 
