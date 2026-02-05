@@ -2329,6 +2329,55 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               <div className="empty-icon">{CS_AGENTS[activeAgent]?.icon || '🤖'}</div>
               <h2>{CS_AGENTS[activeAgent]?.name || 'AI Agent'} Ready</h2>
               <p>LangChain-powered with RAG knowledge base. Auto-routing intelligently selects the best specialist for each conversation.</p>
+              {/* Inline CADG action chips - agent-specific or general mode */}
+              <div style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                gap: '8px',
+                justifyContent: 'center',
+                marginBottom: '16px',
+                maxWidth: '480px',
+              }}>
+                {(customer
+                  ? (AGENT_ACTIONS[activeAgent] || []).filter(a => a.cadgTaskType)
+                  : GENERAL_MODE_ACTIONS
+                ).map((action) => (
+                  <button
+                    key={action.id}
+                    onClick={() => handleQuickAction(action.id)}
+                    disabled={isProcessing}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '8px 16px',
+                      background: `${CS_AGENTS[activeAgent]?.color || '#e63946'}12`,
+                      border: `1px solid ${CS_AGENTS[activeAgent]?.color || '#e63946'}30`,
+                      borderRadius: '20px',
+                      color: CS_AGENTS[activeAgent]?.color || '#e63946',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      cursor: isProcessing ? 'not-allowed' : 'pointer',
+                      opacity: isProcessing ? 0.5 : 1,
+                      transition: 'all 0.2s',
+                      whiteSpace: 'nowrap',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isProcessing) {
+                        e.currentTarget.style.background = `${CS_AGENTS[activeAgent]?.color || '#e63946'}25`;
+                        e.currentTarget.style.borderColor = `${CS_AGENTS[activeAgent]?.color || '#e63946'}60`;
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = `${CS_AGENTS[activeAgent]?.color || '#e63946'}12`;
+                      e.currentTarget.style.borderColor = `${CS_AGENTS[activeAgent]?.color || '#e63946'}30`;
+                    }}
+                  >
+                    <span style={{ fontSize: '14px' }}>{action.icon}</span>
+                    <span>{action.label}</span>
+                  </button>
+                ))}
+              </div>
               <QuickActions onAction={handleQuickAction} disabled={isProcessing} activeAgent={activeAgent} hasCustomer={!!customer} />
             </div>
           ) : !isLoadingHistory && !showOnboardingFlow && !activeInteractiveAction && (

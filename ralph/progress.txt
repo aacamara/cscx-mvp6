@@ -1263,3 +1263,25 @@
   - The hasCustomer prop pattern (default true) is backward-compatible - existing usages without the prop work unchanged
   - Pre-existing TypeScript errors (folderName on WorkflowOutput) at lines 1307/1391 are unrelated
 ---
+
+## 2026-02-04 - US-009 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Inline suggested CADG action chips in the chat welcome empty state
+- **Files changed**:
+  - `components/AgentControlCenter/index.tsx` - Added CADG action chips in the empty state between description paragraph and QuickActions
+- **Features**:
+  - Inline CADG action chips appear below "{Agent Name} Ready" message in the empty state
+  - When customer is selected, shows active agent's CADG-enabled actions (filtered by `cadgTaskType`)
+  - When no customer selected, shows GENERAL_MODE_ACTIONS (portfolio-level)
+  - Styled as rounded pills (borderRadius: 20px) with icon + label
+  - Agent-colored tinting: background, border, and text color use CS_AGENTS[activeAgent].color
+  - Hover effect intensifies the color tint for visual feedback
+  - Each chip click calls handleQuickAction → buildCadgTriggerMessage → sendToAgent → CADG classifier
+  - Disabled state with opacity change during isProcessing
+  - Existing QuickActions row preserved below chips for non-CADG actions (meeting_prep, draft_email)
+- **Learnings for future iterations**:
+  - Agent colors from CS_AGENTS are: onboarding=#e63946, adoption=#22c55e, renewal=#3b82f6, risk=#f59e0b, strategic=#a855f7
+  - Hex color with appended alpha (e.g., `#e6394612`) works for subtle tinting in inline styles
+  - Filter by `cadgTaskType` to separate CADG-routable actions from non-CADG ones (meeting_prep, draft_email)
+  - The empty state area is centered (flex column, align center) so chips need justifyContent: 'center' and maxWidth for wrapping
+  - Pre-existing TypeScript errors (folderName on WorkflowOutput) at lines 1307/1391 are unrelated
+---

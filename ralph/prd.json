@@ -152,8 +152,8 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added inline CADG action chips in the empty state welcome area of AgentControlCenter/index.tsx. Chips appear between the agent description paragraph and the existing QuickActions row. When a customer is selected, shows the active agent's CADG-enabled actions (filtered by cadgTaskType). When no customer is selected, shows GENERAL_MODE_ACTIONS. Each chip is styled as a rounded pill (borderRadius: 20px) with icon + label, tinted with the active agent's color (background, border, text). Hover effect intensifies the tint. Clicking a chip calls handleQuickAction which routes through buildCadgTriggerMessage → sendToAgent for CADG flow. Disabled state with opacity change during processing."
     },
     {
       "id": "US-010",
