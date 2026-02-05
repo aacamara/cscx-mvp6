@@ -18,6 +18,8 @@ CSCX.AI v3 is a **production-grade multi-agent Customer Success platform** built
 - **Orchestrator pattern**: Central agent delegates to specialists
 - **HITL approval policies**: Granular control over agent actions
 - **Per-customer workspace**: Gmail/Calendar/Drive scoped to each customer
+- **SSE Streaming**: Token-by-token response streaming (~200ms first token)
+- **CADG System**: Context-Aware Document Generation with 24 card types
 
 ## Tech Stack
 - **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS
@@ -74,10 +76,13 @@ upload → parsing → review → enriching → planning → plan_review → exe
 - `App.tsx` - Simplified 5-view navigation
 - `components/UnifiedOnboarding.tsx` - Two-column layout with embedded AI
 - `components/AIPanel/index.tsx` - Context-aware AI assistant
+- `components/AgentControlCenter/index.tsx` - Main chat UI with SSE streaming
 - `components/WorkspacePanel.tsx` - Customer-specific Google Workspace
 - `types/workflow.ts` - Phase state machine and reducer
 - `server/src/agents/types.ts` - Agent architecture types
 - `server/src/agents/specialists/orchestrator.ts` - Main coordinator agent
+- `server/src/langchain/agents/WorkflowAgent.ts` - Claude workflow agent with streaming
+- `server/src/services/cadg/` - CADG task classifier, reasoning engine, plan service
 
 ## Agent Architecture
 
@@ -181,12 +186,62 @@ Only 3 navigation items:
 2. **+ New Onboarding** - Unified flow with AI panel
 3. **Mission Control** - Agent observability (modal)
 
+## SSE Streaming Architecture
+
+The chat UI uses Server-Sent Events for real-time token streaming:
+
+```
+Frontend (AgentControlCenter)          Backend (langchain.ts)
+         │                                      │
+         │  POST /api/ai/chat/stream            │
+         │ ────────────────────────────────────>│
+         │                                      │
+         │  SSE: {type:'token', content:'Hi'}   │
+         │ <────────────────────────────────────│
+         │  SSE: {type:'token', content:' there'}│
+         │ <────────────────────────────────────│
+         │  SSE: {type:'done', content:{...}}   │
+         │ <────────────────────────────────────│
+```
+
+**Key Components:**
+- `WorkflowAgent.chatStream()` - Streams Claude responses via `anthropic.messages.stream()`
+- `POST /api/ai/chat/stream` - SSE endpoint in `langchain.ts`
+- `sendToAgentRegular()` - Frontend SSE consumer with ReadableStream
+- `parseSSEData()` - SSE chunk parser with partial line buffering
+
+**Event Types:** `token`, `tool_start`, `tool_end`, `done`, `error`
+
+**CADG Handling:** CADG plan responses are NOT streamed — they return instantly as a single `done` event with plan metadata for the CADGPlanCard.
+
+## CADG (Context-Aware Document Generation)
+
+24 document types across 5 agents + 4 General Mode cards:
+
+| Agent | Card Types |
+|-------|------------|
+| Onboarding | kickoff_plan, milestone_plan, stakeholder_map, training_schedule |
+| Adoption | usage_analysis, feature_campaign, champion_development, training_program |
+| Renewal | renewal_forecast, value_summary, expansion_proposal, negotiation_brief |
+| Risk | risk_assessment, save_play, escalation_report, resolution_plan |
+| Strategic | qbr_generation, executive_briefing, account_plan, transformation_roadmap |
+| General Mode | portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview |
+
+**Task Classifier Features:**
+- Phrase pattern matching (0.95 confidence)
+- Keyword matching with synonym expansion
+- Word-level fuzzy matching with stemming
+- LLM fallback for ambiguous queries (Haiku 4.5)
+- Contextual agent boosting (+0.15 for active agent's cards)
+
 ## When Working on This Project
 1. **DO NOT** recreate standalone AI Assistant or Integrations views
 2. Use the embedded AIPanel for AI interactions
 3. WorkspacePanel should be per-customer, not global
 4. Follow the phase state machine in `types/workflow.ts`
 5. New agents go in `server/src/agents/specialists/`
+6. New CADG card types require updates to: `taskClassifier.ts`, `contextAggregator.ts`, `reasoningEngine.ts`
+7. Chat streaming goes through `/api/ai/chat/stream` — non-streaming fallback at `/api/ai/chat`
 
 ## Brand Colors
 ```
