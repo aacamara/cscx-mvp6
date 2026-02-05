@@ -41,6 +41,8 @@
 - During streaming, use setInterval(100ms) to pin scroll to bottom — messages.length doesn't change during streaming, only content does
 - Respect isUserScrolledUp during streaming auto-scroll — don't force-scroll if user scrolled up
 - CSS animations in styles.css — use @keyframes with step-end for cursor blink effect
+- Stop generation button replaces send button when isStreaming — uses abortControllerRef.current?.abort()
+- Stop button class `.stop-generation-btn` in styles.css — transparent bg, subtle border, matches input-row button sizing
 
 ---
 
@@ -161,4 +163,23 @@ Initialized: Ready to start US-001
   - 100ms setInterval is a good balance: smooth enough for streaming, not CPU-heavy like rAF loop
   - `step-end` timing function gives clean cursor blink (instant on/off) vs `ease` which fades
   - The cursor span goes inside `.markdown-content` div, after `parseMarkdown()` output — keeps cursor inline with text
+---
+
+## 2026-02-05 - US-006
+- What was implemented: Added stop generation button that replaces the send button during streaming
+- Files changed: `components/AgentControlCenter/index.tsx`, `components/AgentControlCenter/styles.css`
+- **Details:**
+  - Added `handleStopGeneration` callback using `useCallback` — calls `abortControllerRef.current?.abort()`
+  - Conditionally renders stop button (with ■ icon) when `isStreaming` is true, send button otherwise
+  - Stop button styled with transparent background, subtle border (#444), 12px border-radius — matches design system
+  - Hover state: darker background (#222), lighter border (#666), white text
+  - No `disabled` prop needed on stop button — it's always clickable during streaming
+  - Abort signal propagates to fetch request → server detects `req.close` → stops Claude generation
+  - After abort, `sendToAgentRegular` catch block handles `AbortError` — finalizes message with partial content, no error shown
+  - TypeScript: `npx tsc --noEmit` passes with no NEW errors
+- **Learnings for future iterations:**
+  - The stop button replaces the send button in the `.input-row` — they're mutually exclusive via `isStreaming` conditional
+  - `useCallback` for the stop handler prevents unnecessary re-renders of the input area
+  - The abort flow is already fully handled in `sendToAgentRegular` (US-004) — this story just adds the UI trigger
+  - Stop button uses `■ Stop` text — the ■ character is a visual square stop icon that matches media player conventions
 ---

@@ -124,7 +124,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "The input area in AgentControlCenter already has conditional UI. Look for the send button and conditionally show stop button instead. The AbortController signal propagates to both the fetch request and the server's req.close event."
     },
     {
