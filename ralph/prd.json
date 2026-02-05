@@ -141,7 +141,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "The fallback should call the existing /api/ai/chat endpoint (the original non-streaming one) which remains intact. Catch fetch errors and AbortError separately. AbortError = user clicked stop = not an error. Other errors = try fallback."
     },
     {

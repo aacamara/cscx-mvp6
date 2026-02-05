@@ -43,6 +43,9 @@
 - CSS animations in styles.css — use @keyframes with step-end for cursor blink effect
 - Stop generation button replaces send button when isStreaming — uses abortControllerRef.current?.abort()
 - Stop button class `.stop-generation-btn` in styles.css — transparent bg, subtle border, matches input-row button sizing
+- Streaming fallback strategy: if streaming fails before any tokens arrive, retry with /api/ai/chat (non-streaming); if mid-stream, show partial content + error
+- Non-streaming /api/ai/chat returns same JSON shape as the SSE `done` event content — process identically (CADG, routing, tools, approval)
+- AbortError handling must come BEFORE fallback logic — user-initiated abort is not an error condition
 
 ---
 
@@ -182,4 +185,24 @@ Initialized: Ready to start US-001
   - `useCallback` for the stop handler prevents unnecessary re-renders of the input area
   - The abort flow is already fully handled in `sendToAgentRegular` (US-004) — this story just adds the UI trigger
   - Stop button uses `■ Stop` text — the ■ character is a visual square stop icon that matches media player conventions
+---
+
+## 2026-02-05 - US-007
+- What was implemented: Streaming error handling with automatic non-streaming fallback
+- Files changed: `components/AgentControlCenter/index.tsx`
+- **Details:**
+  - Refactored `sendToAgentRegular()` catch block to handle three distinct error scenarios
+  - **AbortError**: User-initiated stop — keeps partial content, no error shown (unchanged from US-004)
+  - **Mid-stream error** (accumulatedContent exists): Shows partial content with "Stream interrupted" notice appended (unchanged from US-004)
+  - **Pre-stream error** (no accumulatedContent): NEW — falls back to non-streaming `/api/ai/chat` endpoint
+  - Fallback shows "Streaming unavailable, loading response..." status message in the streaming message slot
+  - Fallback sends identical request body to `/api/ai/chat` (same params: message, customerId, customerContext, etc.)
+  - Fallback processes JSON response identically to the `done` event handler — CADG plan detection, routing/agent updates, tool results, approval handling, DB persistence
+  - If fallback also fails, shows error message to user
+  - TypeScript: `npx tsc --noEmit` passes with no NEW errors (only pre-existing folderName errors)
+- **Learnings for future iterations:**
+  - The fallback decision point is whether `accumulatedContent` has any data — if tokens were received, showing partial content is better than retrying from scratch
+  - Non-streaming `/api/ai/chat` response has the exact same JSON shape as the SSE `done` event content — allows reusing the same processing logic
+  - The fallback doesn't use AbortController signal — if the user already aborted once, we don't want to abort the fallback
+  - CADG plan handling in fallback is identical to streaming `done` event — uses `setPendingCadgPlan()` and updates message with `isCadgPlan: true`
 ---
