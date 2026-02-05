@@ -107,7 +107,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "The messages are rendered in the AgentControlCenter's JSX. Look for where messages are mapped and rendered. The auto-scroll should use useEffect watching messages changes. Add the cursor inline with the message text, not as a separate element. The existing message rendering likely uses markdown — put the cursor span after the markdown output."
     },
     {

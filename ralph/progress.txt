@@ -36,6 +36,11 @@
 - The `done` event content is a JSON string that must be parsed — it contains all metadata (routing, toolResults, pendingActions, CADG plan)
 - CADG plans via streaming: done event with isGenerative+plan — handled identically to non-streaming, sets pendingCadgPlan
 - Streaming messages use `id` field on AgentMessage to track which message to update in-place via setMessages map
+- Message component (Message.tsx) accepts isStreaming prop — renders blinking cursor span after markdown content
+- AgentControlCenter uses @tanstack/react-virtual (useVirtualizer) — auto-scroll needs rowVirtualizer.scrollToIndex(), not scrollIntoView
+- During streaming, use setInterval(100ms) to pin scroll to bottom — messages.length doesn't change during streaming, only content does
+- Respect isUserScrolledUp during streaming auto-scroll — don't force-scroll if user scrolled up
+- CSS animations in styles.css — use @keyframes with step-end for cursor blink effect
 
 ---
 
@@ -135,4 +140,25 @@ Initialized: Ready to start US-001
   - The `done` event content string must be JSON.parse'd — it's the same shape as the old `/api/ai/chat` response body
   - CADG plan detection in streaming is identical to non-streaming — check `data.isGenerative && data.plan?.planId` from parsed done event
   - The function returns early after CADG plan handling to avoid processing as regular response
+---
+
+## 2026-02-05 - US-005
+- What was implemented: Added streaming cursor (blinking ▊) and auto-scroll during streaming
+- Files changed: `components/AgentControlCenter/Message.tsx`, `components/AgentControlCenter/index.tsx`, `components/AgentControlCenter/styles.css`
+- **Details:**
+  - Added `isStreaming` prop to Message component's `MessageProps` interface
+  - When `isStreaming` is true, renders `<span className="streaming-cursor">▊</span>` after markdown content
+  - CSS animation: `@keyframes cursorBlink` with `step-end` timing for clean on/off blink at 0.8s interval
+  - Cursor styled in brand accent color (#e63946), inline display, user-select: none
+  - Auto-scroll: useEffect with 100ms setInterval calls `rowVirtualizer.scrollToIndex()` during streaming
+  - Respects `isUserScrolledUp` — stops auto-scrolling if user scrolled up manually
+  - Interval cleaned up on effect teardown (streaming ends or user scrolls up)
+  - Passed `isStreaming={msg.isStreaming}` from parent to Message component in virtualizer render
+  - TypeScript: `npx tsc --noEmit` passes with no NEW errors
+- **Learnings for future iterations:**
+  - @tanstack/react-virtual requires `scrollToIndex()` for scroll control — `scrollIntoView` on DOM refs doesn't work with virtualized lists
+  - During streaming, message count stays constant (only content of last message changes) — can't rely on `messages.length` for scroll trigger
+  - 100ms setInterval is a good balance: smooth enough for streaming, not CPU-heavy like rAF loop
+  - `step-end` timing function gives clean cursor blink (instant on/off) vs `ease` which fades
+  - The cursor span goes inside `.markdown-content` div, after `parseMarkdown()` output — keeps cursor inline with text
 ---
