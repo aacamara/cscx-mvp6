@@ -206,3 +206,21 @@ Initialized: Ready to start US-001
   - The fallback doesn't use AbortController signal — if the user already aborted once, we don't want to abort the fallback
   - CADG plan handling in fallback is identical to streaming `done` event — uses `setPendingCadgPlan()` and updates message with `isCadgPlan: true`
 ---
+
+## 2026-02-05 - US-008
+- What was implemented: End-to-end integration verification of the complete SSE streaming flow
+- Files changed: `ralph/prd.json` (marked US-008 as passing)
+- **Verification results:**
+  - **Backend SSE endpoint** (`server/src/routes/langchain.ts`): SSE headers correct (Content-Type, Cache-Control, Connection, X-Accel-Buffering), flushHeaders() called, sendSSE() writes proper `data: JSON.stringify(event)\n\n` format, client disconnect tracking via req.on('close'/'aborted'), CADG detection sends plan as single done event
+  - **WorkflowAgent.chatStream()** (`server/src/langchain/agents/WorkflowAgent.ts`): Uses anthropic.messages.stream(), listens for 'text' events, calls onToken callback, processes tool_use blocks with onToolEvent start/end, handles abortSignal, returns same shape as chat()
+  - **Frontend SSE consumer** (`components/AgentControlCenter/index.tsx`): parseSSEData with partial chunk buffering, sendToAgentRegular uses /api/ai/chat/stream with ReadableStream reader, token accumulation + progressive display, done event metadata parsing (routing, tools, approval, CADG), AbortError handled separately from real errors, non-streaming fallback to /api/ai/chat
+  - **UI integration**: Streaming cursor (▊ with cursorBlink animation), stop generation button (replaces send button), auto-scroll with 100ms interval respecting isUserScrolledUp, isStreaming prop on Message component
+  - **TypeScript**: `npx tsc --noEmit` — no NEW errors (only pre-existing folderName, isolatedModules, mcp/registry errors)
+  - **Tests**: 241 passed, 3 skipped, 0 failed (1 suite with "no test suite found" is pre-existing)
+  - **No integration issues found** — all pieces connect correctly
+- **Learnings for future iterations:**
+  - The done event metadata JSON shape is consistent across all backend paths (CADG, WorkflowAgent, action handler, Google query, orchestrator)
+  - Frontend processes done event identically whether it comes via streaming SSE or non-streaming fallback fetch
+  - All ~80 pre-existing frontend type errors and ~30 server type errors are unrelated to streaming work
+  - data-access-tools.test.ts "no test suite found" is a pre-existing test infrastructure issue
+---

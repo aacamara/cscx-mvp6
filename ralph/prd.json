@@ -161,7 +161,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "This is a verification story. Check that all pieces connect: frontend sends to /stream endpoint, backend streams from Claude, frontend renders tokens progressively. Verify CADG cards still work. Fix any integration issues found. If tests exist, run them."
     }
   ]
