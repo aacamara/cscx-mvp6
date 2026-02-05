@@ -1554,6 +1554,55 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   };
 
+  // Build the optimal CADG trigger message for a given task type
+  // Returns a message string that will reliably trigger the correct CADG card
+  const buildCadgTriggerMessage = (taskType: string, customerName?: string): string => {
+    const name = customerName || customer?.name;
+
+    // General Mode tasks (no customer context)
+    const generalModeMessages: Record<string, string> = {
+      portfolio_dashboard: 'Show me my portfolio dashboard with all customers',
+      team_metrics: 'Show me team metrics and CSM performance dashboard',
+      renewal_pipeline: 'Show me the renewal pipeline with upcoming renewals',
+      at_risk_overview: 'Show me the at-risk customer overview dashboard',
+    };
+
+    if (generalModeMessages[taskType]) {
+      return generalModeMessages[taskType];
+    }
+
+    // Customer-specific CADG trigger messages
+    const customerMessages: Record<string, string> = {
+      // Onboarding
+      kickoff_plan: `Create a kickoff plan for ${name}`,
+      milestone_plan: `Create a 30-60-90 day milestone plan for ${name}`,
+      stakeholder_map: `Create a stakeholder map for ${name}`,
+      training_schedule: `Create a training schedule for ${name}`,
+      // Adoption
+      usage_analysis: `Run a usage analysis for ${name}`,
+      feature_campaign: `Create a feature adoption campaign for ${name}`,
+      champion_development: `Create a champion development program for ${name}`,
+      training_program: `Create a training program for ${name}`,
+      // Renewal
+      renewal_forecast: `Generate a renewal forecast for ${name}`,
+      value_summary: `Create a value summary for ${name}`,
+      expansion_proposal: `Create an expansion proposal for ${name}`,
+      negotiation_brief: `Prepare a negotiation brief for ${name}`,
+      // Risk
+      risk_assessment: `Run a risk assessment for ${name}`,
+      save_play: `Create a save play for ${name}`,
+      escalation_report: `Create an escalation report for ${name}`,
+      resolution_plan: `Create a resolution plan for ${name}`,
+      // Strategic
+      qbr_generation: `Create a QBR for ${name}`,
+      executive_briefing: `Create an executive briefing for ${name}`,
+      account_plan: `Create an account plan for ${name}`,
+      transformation_roadmap: `Create a transformation roadmap for ${name}`,
+    };
+
+    return customerMessages[taskType] || `Generate ${taskType.replace(/_/g, ' ')} for ${name || 'the customer'}`;
+  };
+
   // Handle selecting a specific action from an agent
   const handleAgentAction = async (agentType: CSAgentType, actionId: string) => {
     const customerName = customer?.name || 'the customer';
