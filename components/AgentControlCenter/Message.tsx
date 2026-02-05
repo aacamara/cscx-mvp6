@@ -304,6 +304,7 @@ interface MessageProps {
   agent?: AgentId;
   isUser?: boolean;
   isThinking?: boolean;
+  isStreaming?: boolean;
   isApproval?: boolean;
   onApprove?: (approved: boolean) => void;
   toolResults?: Array<{ toolCallId?: string; toolName: string; result: any }>;
@@ -608,6 +609,7 @@ export const Message: React.FC<MessageProps> = ({
   agent,
   isUser,
   isThinking,
+  isStreaming,
   isApproval,
   onApprove,
   toolResults,
@@ -720,6 +722,7 @@ export const Message: React.FC<MessageProps> = ({
             <>
               <div className="markdown-content">
                 {parseMarkdown(cleanAIResponse(message))}
+                {isStreaming && <span className="streaming-cursor">▊</span>}
               </div>
               {/* Render tool results as nice cards */}
               {toolResults && toolResults.length > 0 && (

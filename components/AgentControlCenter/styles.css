@@ -2593,6 +2593,21 @@
   opacity: 1 !important;
 }
 
+/* Streaming cursor blink animation */
+@keyframes cursorBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.streaming-cursor {
+  display: inline;
+  animation: cursorBlink 0.8s step-end infinite;
+  color: #e63946;
+  font-weight: 400;
+  margin-left: 1px;
+  user-select: none;
+}
+
 /* Slide up animation for new messages button */
 @keyframes slideUp {
   from {

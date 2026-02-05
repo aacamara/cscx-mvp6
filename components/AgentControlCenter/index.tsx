@@ -281,6 +281,15 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   }, [messages.length, isUserScrolledUp, rowVirtualizer]);
 
+  // Auto-scroll during streaming to keep latest content visible
+  useEffect(() => {
+    if (!isStreaming || isUserScrolledUp || messages.length === 0) return;
+    const intervalId = setInterval(() => {
+      rowVirtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+    }, 100);
+    return () => clearInterval(intervalId);
+  }, [isStreaming, isUserScrolledUp, messages.length, rowVirtualizer]);
+
   // Local fallback intent classifier (used when backend is unavailable)
   const localClassifyIntent = useCallback((text: string): { agent: CSAgentType; confidence: number; keywords: string[] } | null => {
     if (!text || text.length < 3) return null;
@@ -2563,6 +2572,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                         agent={msg.agent}
                         isUser={msg.isUser}
                         isThinking={msg.isThinking}
+                        isStreaming={msg.isStreaming}
                         isApproval={msg.isApproval && pendingApproval !== null}
                         onApprove={handleApproval}
                         toolResults={msg.toolResults}
