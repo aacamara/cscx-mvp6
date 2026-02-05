@@ -23,6 +23,41 @@ const anthropic = new Anthropic({
 });
 
 // ============================================================================
+// Stop Words & Stemming
+// Common words removed before matching to reduce noise.
+// ============================================================================
+const STOP_WORDS = new Set([
+  'a', 'the', 'for', 'to', 'me', 'my', 'our', 'this', 'that',
+  'can', 'you', 'please', 'help', 'need', 'want', 'would', 'like', 'i',
+  'an', 'is', 'it', 'of', 'in', 'on', 'and', 'or', 'with', 'be', 'do',
+]);
+
+/**
+ * Basic stemming: strip common English suffixes to normalize word forms.
+ * e.g., "forecasting" → "forecast", "analyzed" → "analyz", "metrics" → "metric"
+ */
+function basicStem(word: string): string {
+  if (word.length <= 3) return word;
+  // Order matters: check longer suffixes first
+  if (word.endsWith('tion') && word.length > 5) return word.slice(0, -4);
+  if (word.endsWith('ing') && word.length > 5) return word.slice(0, -3);
+  if (word.endsWith('ed') && word.length > 4) return word.slice(0, -2);
+  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 3) return word.slice(0, -1);
+  return word;
+}
+
+/**
+ * Tokenize and clean a query: lowercase, split, remove stop words, stem each word.
+ */
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 0 && !STOP_WORDS.has(w))
+    .map(basicStem);
+}
+
+// ============================================================================
 // Synonym Expansion Map
 // Maps common words to their synonyms so natural language variations work.
 // Applied to queries BEFORE keyword and phrase matching.
@@ -740,28 +775,49 @@ function matchPhrasePatterns(query: string, expandedQueries?: string[]): { taskT
 }
 
 /**
- * Match against keywords with synonym expansion.
- * Checks the original query AND all synonym-expanded variants.
+ * Match against keywords with synonym expansion and fuzzy word-level matching.
+ * Uses tokenization (stop word removal + stemming) for individual word matching.
+ * Multi-word keyword matches still score higher than single-word matches.
  */
 function matchKeywords(query: string, expandedQueries?: string[]): { taskType: TaskType; confidence: number } {
   const queries = expandedQueries || [query];
-  const words = query.split(/\s+/);
+  const contentWords = query.split(/\s+/).filter(w => !STOP_WORDS.has(w));
+
+  // Tokenize all query variants (stemmed, stop words removed)
+  const tokenizedQueries = queries.map(q => tokenize(q));
+
   let bestMatch: { taskType: TaskType; score: number } = { taskType: 'custom', score: 0 };
 
   for (const [taskType, keywords] of Object.entries(KEYWORD_PATTERNS)) {
     if (taskType === 'custom') continue;
 
-    let matchCount = 0;
+    let matchScore = 0;
     for (const keyword of keywords) {
       const lowerKeyword = keyword.toLowerCase();
-      // Check if ANY expanded query variant matches this keyword
-      const matched = queries.some(q => q.includes(lowerKeyword));
-      if (matched) {
-        matchCount += keyword.split(' ').length; // Multi-word keywords count more
+
+      // First: try exact substring match against expanded queries (highest value)
+      const exactMatch = queries.some(q => q.includes(lowerKeyword));
+      if (exactMatch) {
+        const wordCount = keyword.split(' ').length;
+        matchScore += wordCount * 1.5; // Multi-word exact matches score highest
+        continue;
+      }
+
+      // Second: try stemmed word-level match
+      const keywordTokens = tokenize(lowerKeyword);
+      if (keywordTokens.length === 0) continue;
+
+      // Check if all stemmed keyword tokens appear in any tokenized query variant
+      const stemMatch = tokenizedQueries.some(queryTokens =>
+        keywordTokens.every(kt => queryTokens.some(qt => qt === kt || qt.startsWith(kt) || kt.startsWith(qt)))
+      );
+
+      if (stemMatch) {
+        matchScore += keywordTokens.length; // Multi-word stem matches still score more
       }
     }
 
-    const score = matchCount / Math.max(words.length, 3); // Normalize by query length
+    const score = matchScore / Math.max(contentWords.length, 3); // Normalize by query content length
 
     if (score > bestMatch.score) {
       bestMatch = { taskType: taskType as TaskType, score };
