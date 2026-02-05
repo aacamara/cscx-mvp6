@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, Suspense, lazy } from 
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { CS_AGENTS, AgentId, AgentMessage, CustomerContext, CSAgentType, RoutingDecision, AgentStatus } from '../../types/agents';
 import { ContractExtraction, OnboardingPlan } from '../../types';
-import { AgentCard, AGENT_ACTIONS } from './AgentCard';
+import { AgentCard, AGENT_ACTIONS, GENERAL_MODE_ACTIONS } from './AgentCard';
 import { Message, MessageSkeleton } from './Message';
 import { QuickActions } from './QuickActions';
 import { WorkflowProgress, WorkflowExecution } from './WorkflowProgress';
@@ -1203,6 +1203,14 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
       setActiveInteractiveAction('document');
       return;
     }
+    // Check if it's a general mode action (portfolio-level, no customer context)
+    const generalAction = GENERAL_MODE_ACTIONS.find(a => a.id === actionId);
+    if (generalAction?.cadgTaskType) {
+      const message = buildCadgTriggerMessage(generalAction.cadgTaskType);
+      setMessages(prev => [...prev, { isUser: true, message }]);
+      sendToAgent(message);
+      return;
+    }
     // Use the same handler as agent actions - delegate to handleAgentAction
     handleAgentAction(activeAgent, actionId);
   };
@@ -2321,7 +2329,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               <div className="empty-icon">{CS_AGENTS[activeAgent]?.icon || '🤖'}</div>
               <h2>{CS_AGENTS[activeAgent]?.name || 'AI Agent'} Ready</h2>
               <p>LangChain-powered with RAG knowledge base. Auto-routing intelligently selects the best specialist for each conversation.</p>
-              <QuickActions onAction={handleQuickAction} disabled={isProcessing} activeAgent={activeAgent} />
+              <QuickActions onAction={handleQuickAction} disabled={isProcessing} activeAgent={activeAgent} hasCustomer={!!customer} />
             </div>
           ) : !isLoadingHistory && !showOnboardingFlow && !activeInteractiveAction && (
             <>
@@ -2484,7 +2492,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
 
           {messages.length > 0 && !showOnboardingFlow && !activeInteractiveAction && !activeWorkflow && (
             <div className="quick-actions-row">
-              <QuickActions onAction={handleQuickAction} disabled={isProcessing || pendingApproval !== null} activeAgent={activeAgent} />
+              <QuickActions onAction={handleQuickAction} disabled={isProcessing || pendingApproval !== null} activeAgent={activeAgent} hasCustomer={!!customer} />
             </div>
           )}
           {/* Selected File Chip */}

@@ -16,6 +16,8 @@
 - **Task classifier LLM fallback**: classify() flow is phrase (0.95) → keyword (≥0.7) → LLM (<0.3) → secondary LLM (0.3-0.7). Anthropic SDK uses `{ signal }` 2nd arg for abort
 - **Task classifier agent boosting**: classify() accepts optional `activeAgent` parameter; AGENT_TASK_TYPES maps each agent to its 4 task types; applyAgentBoosting() boosts by +0.15 when within 0.1 of best score. Frontend sends `activeAgent` field in chat request body.
 - **AGENT_ACTIONS structure**: AgentAction interface has `{ id, label, icon, cadgTaskType? }`. Actions with `cadgTaskType` should route through CADG flow. Non-CADG actions (meeting_prep, draft_email) have no cadgTaskType. Action IDs match CADG TaskType strings exactly.
+- **Button → CADG routing**: handleAgentAction checks `action.cadgTaskType`, calls `buildCadgTriggerMessage()` → `sendToAgent()`. Non-CADG actions use `fallbackMessages` map. Workflow execution runs first (unchanged).
+- **General Mode actions**: GENERAL_MODE_ACTIONS is a separate export in AgentCard.tsx (not in AGENT_ACTIONS Record since CSAgentType doesn't include 'general_mode'). QuickActions uses `hasCustomer` prop to switch between agent-specific and general mode actions. handleQuickAction routes general mode actions directly via buildCadgTriggerMessage → sendToAgent.
 
 ---
 
@@ -1218,4 +1220,46 @@
   - General Mode tasks don't include customer name — CADG classifier routes them without customer context
   - The function is designed to be used by US-007 (handleAgentAction CADG routing) and US-009 (inline suggested action chips)
   - Function defined inside component scope to access `customer?.name` from props as fallback
+---
+
+## 2026-02-04 - US-007 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Updated handleAgentAction to route CADG-mapped buttons through CADG flow
+- **Files changed**:
+  - `components/AgentControlCenter/index.tsx` - Modified handleAgentAction() to use CADG routing for actions with cadgTaskType
+- **Features**:
+  - Looks up action's `cadgTaskType` from AGENT_ACTIONS via `find()` on the agent's action list
+  - If `cadgTaskType` exists, calls `buildCadgTriggerMessage(action.cadgTaskType)` to get an optimized trigger message
+  - Sends trigger message via `sendToAgent()` which routes through the CADG classifier pipeline
+  - Non-CADG actions (`meeting_prep`, `draft_email`) use a minimal `fallbackMessages` map
+  - Removed old per-agent `actionMessages` map with all 20 CADG-mapped message strings
+  - Removed unused `stakeholderNames` and `arrDisplay` variables
+  - Workflow execution still runs first as before (unchanged)
+- **Learnings for future iterations**:
+  - CADG routing is now: button click → find cadgTaskType → buildCadgTriggerMessage → sendToAgent → CADG classifier → CADG card preview
+  - Non-CADG actions (meeting_prep, draft_email, schedule_meeting) bypass this flow — they either use interactive actions (schedule_meeting handled in handleQuickAction) or fallback messages
+  - The fallbackMessages map is intentionally minimal — only 3 entries for the 3 non-CADG action types
+  - Pre-existing TypeScript errors (folderName on WorkflowOutput) at lines 1299/1383 are unrelated
+---
+
+## 2026-02-04 - US-008 (cadg-fuzzy-and-buttons)
+- **What was implemented**: General Mode quick-action buttons for portfolio-level CADG actions
+- **Files changed**:
+  - `components/AgentControlCenter/AgentCard.tsx` - Added GENERAL_MODE_ACTIONS export with 4 portfolio-level actions
+  - `components/AgentControlCenter/QuickActions.tsx` - Added hasCustomer prop, shows general mode actions when no customer selected
+  - `components/AgentControlCenter/index.tsx` - Updated both QuickActions usages to pass hasCustomer={!!customer}, added general mode action routing in handleQuickAction, imported GENERAL_MODE_ACTIONS
+- **Features**:
+  - GENERAL_MODE_ACTIONS array with 4 portfolio-level actions:
+    - portfolio_dashboard (icon: 📊) - "Show me my portfolio dashboard with all customers"
+    - team_metrics (icon: 👥) - "Show me team metrics and CSM performance dashboard"
+    - renewal_pipeline (icon: 🔄) - "Show me the renewal pipeline with upcoming renewals"
+    - at_risk_overview (icon: ⚠️) - "Show me the at-risk customer overview dashboard"
+  - All 4 actions have cadgTaskType for CADG routing
+  - QuickActions component uses hasCustomer prop to conditionally show general vs agent-specific actions
+  - handleQuickAction detects general mode actions via GENERAL_MODE_ACTIONS.find(), routes through buildCadgTriggerMessage → sendToAgent
+  - Customer-specific CADG buttons hidden when no customer is selected (hasCustomer=false shows only general mode actions)
+- **Learnings for future iterations**:
+  - GENERAL_MODE_ACTIONS is a separate constant (not in AGENT_ACTIONS Record) because CSAgentType doesn't include 'general_mode'
+  - General mode actions route directly through buildCadgTriggerMessage in handleQuickAction, bypassing handleAgentAction which expects CSAgentType
+  - The hasCustomer prop pattern (default true) is backward-compatible - existing usages without the prop work unchanged
+  - Pre-existing TypeScript errors (folderName on WorkflowOutput) at lines 1307/1391 are unrelated
 ---

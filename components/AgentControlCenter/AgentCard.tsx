@@ -9,6 +9,14 @@ export interface AgentAction {
   cadgTaskType?: string;
 }
 
+// General Mode quick actions (no customer selected)
+export const GENERAL_MODE_ACTIONS: AgentAction[] = [
+  { id: 'portfolio_dashboard', label: 'Portfolio Dashboard', icon: '📊', cadgTaskType: 'portfolio_dashboard' },
+  { id: 'team_metrics', label: 'Team Metrics', icon: '👥', cadgTaskType: 'team_metrics' },
+  { id: 'renewal_pipeline', label: 'Renewal Pipeline', icon: '🔄', cadgTaskType: 'renewal_pipeline' },
+  { id: 'at_risk_overview', label: 'At-Risk Overview', icon: '⚠️', cadgTaskType: 'at_risk_overview' },
+];
+
 // Agent-specific quick actions
 export const AGENT_ACTIONS: Record<CSAgentType, AgentAction[]> = {
   onboarding: [

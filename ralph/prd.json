@@ -136,8 +136,8 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added GENERAL_MODE_ACTIONS array with 4 portfolio-level actions (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) in AgentCard.tsx. Updated QuickActions component with hasCustomer prop - when false, shows general mode actions instead of agent-specific ones. Updated handleQuickAction in AgentControlCenter to detect general mode actions and route them through buildCadgTriggerMessage → sendToAgent for CADG flow. Both QuickActions usages (empty state and below messages) pass hasCustomer={!!customer}. Customer-specific CADG buttons are hidden when no customer is selected."
     },
     {
       "id": "US-009",
