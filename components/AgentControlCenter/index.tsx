@@ -918,10 +918,36 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     await sendToAgentRegular(message);
   };
 
-  // Regular (non-agentic) chat flow
+  // Regular (non-agentic) chat flow — streams via SSE
   const sendToAgentRegular = async (message: string) => {
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
+    // Reset SSE buffer for new stream
+    sseBufferRef.current = { partial: '' };
+
+    // Generate a unique ID for the streaming message
+    const msgId = `stream_${Date.now()}`;
+    streamingMessageIdRef.current = msgId;
+
+    let accumulatedContent = '';
+    const accumulatedToolResults: Array<{ toolCallId?: string; toolName: string; result: any }> = [];
+
     try {
-      const response = await fetch(`${API_URL}/api/ai/chat`, {
+      setIsStreaming(true);
+
+      // Create initial empty streaming message (replaces thinking indicator)
+      setMessages(prev => {
+        const filtered = prev.filter(m => !m.isThinking);
+        return [...filtered, {
+          agent: activeAgent,
+          message: '',
+          id: msgId,
+          isStreaming: true,
+        }];
+      });
+
+      const response = await fetch(`${API_URL}/api/ai/chat/stream`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -932,120 +958,210 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           customerId: customer?.id,
           customerContext: buildCustomerContext(),
           forceAgent: selectedAgent !== 'auto' ? selectedAgent : undefined,
-          activeAgent, // Current active agent for CADG contextual boosting
+          activeAgent,
           sessionId,
           useWorkflow: true,
           model: selectedModel,
-          useKnowledgeBase // Pass knowledge base toggle to backend
-        })
+          useKnowledgeBase
+        }),
+        signal: abortController.signal,
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error?.message || 'Failed to get response');
+        throw new Error(`HTTP ${response.status}: Failed to get response`);
       }
 
-      const data = await response.json();
-
-      // Check if this is a CADG generative response with a plan
-      if (data.isGenerative && data.plan?.planId) {
-        console.log('[CADG] Received execution plan:', data.plan.planId);
-
-        // Store full CADG metadata for CADGPlanCard
-        const cadgMetadata: CADGPlanMetadata = {
-          isGenerative: data.isGenerative,
-          taskType: data.taskType,
-          confidence: data.confidence,
-          requiresApproval: data.requiresApproval,
-          plan: data.plan,
-          capability: data.capability,
-          methodology: data.methodology,
-          customerId: customer?.id || null,
-        };
-        setPendingCadgPlan(cadgMetadata);
-
-        // Show the plan message - the CADGPlanCard will render below
-        setMessages(prev => {
-          const filtered = prev.filter(m => !m.isThinking);
-          return [...filtered, {
-            agent: 'strategic' as CSAgentType,
-            message: data.response,
-            isCadgPlan: true,
-            cadgPlan: data.plan,
-          }];
-        });
-        setIsProcessing(false);
-        return; // Don't continue with regular processing
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
       }
 
-      // Update active agent based on routing decision
-      const routedAgent = data.routing?.agentType as CSAgentType || 'onboarding';
-      setActiveAgent(routedAgent);
-      setLastRouting(data.routing);
+      const decoder = new TextDecoder();
 
-      // Update agent statuses
-      setCsAgentStatuses(prev => {
-        const newStatuses = { ...prev };
-        Object.keys(newStatuses).forEach(key => {
-          newStatuses[key as CSAgentType] = key === routedAgent ? 'active' : 'idle';
-        });
-        return newStatuses;
-      });
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
 
-      // Process tool results and update workspace panel
-      if (data.toolResults?.length > 0) {
-        processToolResults(data.toolResults);
-      }
+        const chunk = decoder.decode(value, { stream: true });
+        const events = parseSSEData(chunk, sseBufferRef.current);
 
-      // Save assistant response to database
-      saveChatMessage('assistant', data.response, routedAgent, data.toolResults);
+        for (const event of events) {
+          switch (event.type) {
+            case 'token':
+              if (event.content) {
+                accumulatedContent += event.content;
+                setMessages(prev => prev.map(m =>
+                  m.id === msgId
+                    ? { ...m, message: accumulatedContent }
+                    : m
+                ));
+              }
+              break;
 
-      // Remove thinking message and add real response with tool results
-      setMessages(prev => {
-        const filtered = prev.filter(m => !m.isThinking);
-        return [...filtered, {
-          agent: routedAgent,
-          message: data.response,
-          isApproval: data.requiresApproval,
-          routing: data.routing,
-          toolResults: data.toolResults, // Include tool results for inline display
-        }];
-      });
+            case 'tool_start':
+              // Optionally show tool indicator — no UI change needed yet
+              break;
 
-      // Handle approval request - use the actual approval ID from pendingActions
-      if (data.requiresApproval && data.pendingActions?.length > 0) {
-        const pendingAction = data.pendingActions[0];
-        const approvalId = pendingAction?.approvalId;
-        if (approvalId) {
-          setPendingApproval(approvalId);
+            case 'tool_end':
+              // Accumulate tool results for final processing
+              if (event.name) {
+                accumulatedToolResults.push({
+                  toolName: event.name,
+                  result: event.result || {},
+                  ...(event.duration !== undefined && { duration: event.duration }),
+                });
+              }
+              break;
 
-          // Check if this is an email action - show email preview modal
-          const toolName = pendingAction?.toolCall?.name;
-          if (toolName === 'draft_email' || toolName === 'send_email') {
-            const input = pendingAction?.toolCall?.input || {};
-            setPendingEmailData({
-              approvalId,
-              toolName,
-              to: input.to || [],
-              cc: input.cc || [],
-              subject: input.subject || '',
-              body: input.body || ''
-            });
+            case 'done': {
+              // Stream completed — extract full metadata from done event
+              if (!event.content) break;
+
+              let data: any;
+              try {
+                data = JSON.parse(event.content);
+              } catch {
+                break;
+              }
+
+              // Check if this is a CADG generative response with a plan
+              if (data.isGenerative && data.plan?.planId) {
+                console.log('[CADG] Received execution plan:', data.plan.planId);
+
+                const cadgMetadata: CADGPlanMetadata = {
+                  isGenerative: data.isGenerative,
+                  taskType: data.taskType,
+                  confidence: data.confidence,
+                  requiresApproval: data.requiresApproval,
+                  plan: data.plan,
+                  capability: data.capability,
+                  methodology: data.methodology,
+                  customerId: customer?.id || null,
+                };
+                setPendingCadgPlan(cadgMetadata);
+
+                // Finalize message as CADG plan
+                setMessages(prev => prev.map(m =>
+                  m.id === msgId
+                    ? {
+                        ...m,
+                        agent: 'strategic' as CSAgentType,
+                        message: data.response || accumulatedContent,
+                        isStreaming: false,
+                        isCadgPlan: true,
+                        cadgPlan: data.plan,
+                      }
+                    : m
+                ));
+                return; // Don't continue with regular processing
+              }
+
+              // Regular response — extract routing, tools, approval info
+              const routedAgent = data.routing?.agentType as CSAgentType || 'onboarding';
+              const finalResponse = data.response || accumulatedContent;
+              const toolResults = data.toolResults?.length > 0 ? data.toolResults : (accumulatedToolResults.length > 0 ? accumulatedToolResults : undefined);
+
+              setActiveAgent(routedAgent);
+              setLastRouting(data.routing);
+
+              // Update agent statuses
+              setCsAgentStatuses(prev => {
+                const newStatuses = { ...prev };
+                Object.keys(newStatuses).forEach(key => {
+                  newStatuses[key as CSAgentType] = key === routedAgent ? 'active' : 'idle';
+                });
+                return newStatuses;
+              });
+
+              // Process tool results and update workspace panel
+              if (toolResults?.length > 0) {
+                processToolResults(toolResults);
+              }
+
+              // Save assistant response to database
+              saveChatMessage('assistant', finalResponse, routedAgent, toolResults);
+
+              // Finalize the streaming message with full metadata
+              setMessages(prev => prev.map(m =>
+                m.id === msgId
+                  ? {
+                      ...m,
+                      agent: routedAgent,
+                      message: finalResponse,
+                      isStreaming: false,
+                      isApproval: data.requiresApproval,
+                      routing: data.routing,
+                      toolResults,
+                    }
+                  : m
+              ));
+
+              // Handle approval request
+              if (data.requiresApproval && data.pendingActions?.length > 0) {
+                const pendingAction = data.pendingActions[0];
+                const approvalId = pendingAction?.approvalId;
+                if (approvalId) {
+                  setPendingApproval(approvalId);
+
+                  const toolName = pendingAction?.toolCall?.name;
+                  if (toolName === 'draft_email' || toolName === 'send_email') {
+                    const input = pendingAction?.toolCall?.input || {};
+                    setPendingEmailData({
+                      approvalId,
+                      toolName,
+                      to: input.to || [],
+                      cc: input.cc || [],
+                      subject: input.subject || '',
+                      body: input.body || ''
+                    });
+                  }
+                }
+              }
+              break;
+            }
+
+            case 'error':
+              throw new Error(event.error || 'Stream error');
           }
         }
       }
 
+      // If stream ended without a done event, finalize with accumulated content
+      setMessages(prev => prev.map(m =>
+        m.id === msgId && m.isStreaming
+          ? { ...m, message: accumulatedContent || 'No response received.', isStreaming: false }
+          : m
+      ));
+
     } catch (error) {
-      console.error('Agent error:', error);
-      setMessages(prev => {
-        const filtered = prev.filter(m => !m.isThinking);
-        return [...filtered, {
-          agent: activeAgent,
-          message: `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Please try again.'}`
-        }];
-      });
+      // Don't treat user-initiated abort as an error
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        // User clicked stop — finalize with partial content
+        setMessages(prev => prev.map(m =>
+          m.id === msgId
+            ? { ...m, message: accumulatedContent || 'Generation stopped.', isStreaming: false }
+            : m
+        ));
+        return;
+      }
+
+      console.error('Agent streaming error:', error);
+      setMessages(prev => prev.map(m =>
+        m.id === msgId
+          ? {
+              ...m,
+              message: accumulatedContent
+                ? `${accumulatedContent}\n\n---\n*Stream interrupted: ${error instanceof Error ? error.message : 'Unknown error'}*`
+                : `Sorry, I encountered an error: ${error instanceof Error ? error.message : 'Please try again.'}`,
+              isStreaming: false,
+            }
+          : m
+      ));
     } finally {
+      setIsStreaming(false);
       setIsProcessing(false);
+      abortControllerRef.current = null;
+      streamingMessageIdRef.current = null;
     }
   };
 
