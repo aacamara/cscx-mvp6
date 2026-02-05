@@ -120,8 +120,8 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Modified handleAgentAction() to check action.cadgTaskType from AGENT_ACTIONS. CADG-routable actions use buildCadgTriggerMessage() + sendToAgent() for CADG classifier routing. Non-CADG actions (meeting_prep, draft_email) use minimal fallbackMessages. Removed old per-agent actionMessages map and unused stakeholderNames/arrDisplay variables."
     },
     {
       "id": "US-008",

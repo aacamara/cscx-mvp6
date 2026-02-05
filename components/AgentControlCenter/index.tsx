@@ -1606,8 +1606,6 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
   // Handle selecting a specific action from an agent
   const handleAgentAction = async (agentType: CSAgentType, actionId: string) => {
     const customerName = customer?.name || 'the customer';
-    const stakeholderNames = contractData?.stakeholders?.slice(0, 2).map(s => s.name).join(' and ') || 'the team';
-    const arrDisplay = customer?.arr ? `$${typeof customer.arr === 'number' ? (customer.arr / 1000).toFixed(0) + 'K' : customer.arr}` : 'their';
 
     // Switch to the appropriate agent first
     handleAgentClick(agentType);
@@ -1630,48 +1628,33 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
     setIsProcessing(false);
 
-    // Fall back to chat-based handling if no workflow or workflow failed
-    // Build context-aware messages for each action
-    const actionMessages: Record<string, Record<string, string>> = {
-      // Onboarding Specialist actions
+    // Check if this action has a CADG task type for direct CADG routing
+    const agentActions = AGENT_ACTIONS[agentType];
+    const action = agentActions?.find(a => a.id === actionId);
+
+    if (action?.cadgTaskType) {
+      // Route through CADG flow - buildCadgTriggerMessage creates a message
+      // that the CADG classifier will reliably match to the correct card type
+      const message = buildCadgTriggerMessage(action.cadgTaskType);
+      setMessages(prev => [...prev, { isUser: true, message }]);
+      sendToAgent(message);
+      return;
+    }
+
+    // Non-CADG actions (draft_email, meeting_prep) use fallback chat messages
+    const fallbackMessages: Record<string, Record<string, string>> = {
       onboarding: {
-        kickoff_plan: `Create a kickoff plan for ${customerName}. Include agenda items for introductions, goal alignment, and timeline review.`,
-        milestone_plan: `Generate a comprehensive 30-60-90 day milestone plan for ${customerName}. Consider their ${arrDisplay} ARR and technical requirements.`,
-        stakeholder_map: `Create a stakeholder map for ${customerName}. Identify decision makers, champions, and end users from their team.`,
-        training_schedule: `Create a training schedule for ${customerName}. Plan sessions for key user groups and feature areas.`,
         meeting_prep: `Prepare meeting notes and agenda for ${customerName}.`,
       },
-      // Adoption Specialist actions
-      adoption: {
-        usage_analysis: `Analyze product usage patterns for ${customerName}. Identify underutilized features and engagement trends.`,
-        feature_campaign: `Create a feature adoption campaign for ${customerName} to increase feature utilization and drive value realization.`,
-        training_program: `Create a training program for ${customerName}. Focus on their most relevant use cases and capabilities.`,
-        champion_development: `Identify and develop product champions within ${customerName}. Find power users who can advocate internally.`,
-      },
-      // Renewal Specialist actions
       renewal: {
-        renewal_forecast: `Generate a renewal forecast for ${customerName}. Assess likelihood, risks, and recommended timeline.`,
-        value_summary: `Create a value summary document for ${customerName} showing ROI, achievements, and business impact.`,
-        expansion_proposal: `Create an expansion proposal for ${customerName}. Identify upsell potential and additional use cases.`,
-        negotiation_brief: `Prepare a negotiation brief for ${customerName}. Document leverage points, counter-strategies, and walk-away points.`,
+        draft_email: `Draft a professional email for ${customerName} regarding their renewal.`,
       },
-      // Risk Specialist actions
-      risk: {
-        risk_assessment: `Run a comprehensive risk assessment for ${customerName}. Evaluate health signals and identify warning signs.`,
-        save_play: `Create a save play strategy for ${customerName}. Define intervention actions and success metrics.`,
-        escalation_report: `Prepare an escalation report for ${customerName}. Document issues, impact, and required executive attention.`,
-        resolution_plan: `Create a resolution plan for ${customerName}. Address open issues with actionable steps and ownership.`,
-      },
-      // Strategic CSM actions
       strategic: {
-        qbr_generation: `Prepare the QBR package for ${customerName}. Include performance metrics, achievements, roadmap, and strategic recommendations.`,
-        executive_briefing: `Create an executive briefing document for ${customerName}. Summarize account status and strategic opportunities.`,
-        account_plan: `Develop a strategic account plan for ${customerName}. Define goals, growth strategy, and key initiatives.`,
-        transformation_roadmap: `Build a transformation roadmap for ${customerName}. Align on business objectives and define success criteria.`,
+        draft_email: `Draft a professional email for ${customerName} regarding strategic initiatives.`,
       },
     };
 
-    const message = actionMessages[agentType]?.[actionId];
+    const message = fallbackMessages[agentType]?.[actionId];
     if (message) {
       setMessages(prev => [...prev, { isUser: true, message }]);
       sendToAgent(message);
