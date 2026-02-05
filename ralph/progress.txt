@@ -1201,3 +1201,21 @@
   - Action IDs should match CADG TaskType strings exactly for clean mapping in later stories
   - Pre-existing TypeScript errors in AgentControlCenter/index.tsx (folderName on WorkflowOutput) are unrelated
 ---
+
+## 2026-02-04 - US-006 (cadg-fuzzy-and-buttons)
+- **What was implemented**: buildCadgTriggerMessage() helper function for generating optimal CADG trigger messages
+- **Files changed**:
+  - `components/AgentControlCenter/index.tsx` - Added buildCadgTriggerMessage() function (~49 lines) before handleAgentAction
+- **Features**:
+  - Covers all 24 CADG task types with optimized trigger messages
+  - General Mode tasks (4): portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview — return messages without customer context
+  - Customer-specific tasks (20): Use exact CADG keywords that match PHRASE_PATTERNS in taskClassifier.ts
+  - Accepts optional customerName parameter, falls back to component's customer?.name
+  - Generic fallback for unknown task types: `Generate {task type} for {name}`
+  - Each message contains the primary keyword from the classifier's PHRASE_PATTERNS (e.g., "kickoff plan", "30-60-90 day milestone plan", "stakeholder map")
+- **Learnings for future iterations**:
+  - Trigger messages should use the exact phrase that matches PHRASE_PATTERNS for highest confidence (0.95 phrase match)
+  - General Mode tasks don't include customer name — CADG classifier routes them without customer context
+  - The function is designed to be used by US-007 (handleAgentAction CADG routing) and US-009 (inline suggested action chips)
+  - Function defined inside component scope to access `customer?.name` from props as fallback
+---

@@ -103,8 +103,8 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added buildCadgTriggerMessage(taskType, customerName?) function to AgentControlCenter/index.tsx. Covers all 24 CADG task types. General Mode tasks (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) return messages without customer context. Customer-specific tasks use exact CADG keywords (e.g., 'Create a kickoff plan for X') that match PHRASE_PATTERNS in taskClassifier.ts. Falls back to generic message for unknown task types."
     },
     {
       "id": "US-007",
