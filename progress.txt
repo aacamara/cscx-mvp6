@@ -1,0 +1,29 @@
+## Codebase Patterns
+- Use `IF NOT EXISTS` for all CREATE TABLE, CREATE INDEX in migrations
+- Column naming: snake_case (e.g., `customer_id`, `created_at`, `last_fired_at`)
+- All tables have `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` and `created_at TIMESTAMPTZ`
+- Tables with mutable rows include `updated_at TIMESTAMPTZ` with a trigger function
+- JSONB for complex nested data (actions, conditions, steps, stage_statuses, variables)
+- RLS enabled on all tables with `GRANT ALL ON ... TO authenticated`
+- Foreign keys to `customers(id)` use `ON DELETE CASCADE` or `ON DELETE SET NULL` depending on whether the record is meaningless without the customer
+- Pre-existing TypeScript errors (171) in the codebase are unrelated to new work - SQL migrations are not type-checked
+- MCP tool wrappers live in `server/src/mcp/tools/` and are aggregated in `tools/index.ts`
+- Skills system is at `server/src/agents/skills/` (not `server/src/skills/` as PRD suggests)
+- Automations service is at `server/src/services/automations/index.ts`
+- Playbook types/executor at `server/src/playbooks/`
+- Trigger engine at `server/src/triggers/engine.ts`
+- DB table references: mcp_tool_executions, triggers, trigger_events, playbooks, playbook_executions, skills, skill_executions, automations, automation_runs, meeting_analyses, slack_connections
+---
+
+## 2026-02-04 - WA2-031
+- Implemented comprehensive database migration: `server/src/migrations/022_workspace_agent_v2.sql`
+- Files changed: `server/src/migrations/022_workspace_agent_v2.sql` (created), `prd.json` (updated with passes fields), `progress.txt` (created)
+- Tables created: mcp_tool_executions, triggers, trigger_events, playbooks, playbook_executions, skills, skill_executions, automations, automation_runs, meeting_analyses, slack_connections
+- All tables include proper indexes, RLS policies, updated_at triggers, and grants
+- Column names aligned with actual Supabase queries in: registry.ts, engine.ts, executor.ts, automations/index.ts, skills/index.ts, meeting-intelligence/index.ts, slack/index.ts
+- **Learnings for future iterations:**
+  - The PRD was missing `passes` fields - added them during this iteration based on file existence analysis
+  - The PRD acceptance criteria mentions `mcp_tools` table but the actual code uses `mcp_tool_executions` for audit logging (no separate tool registry table needed since tools are registered in-memory)
+  - Several services/skills live in different paths than what the PRD describes (e.g., skills at `agents/skills/` not `skills/`)
+  - Always grep for `.from('table_name')` patterns to discover exact column usage before writing migrations
+---

@@ -13,7 +13,8 @@
         "MCPRegistry class with registerTool, getTool, listTools, searchTools, checkPermissions methods",
         "Export all from server/src/mcp/index.ts"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-002",
@@ -27,7 +28,8 @@
         "All tools use existing gmailService internally",
         "Register tools in MCP registry"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-003",
@@ -41,7 +43,8 @@
         "All tools use existing calendarService internally",
         "Register tools in MCP registry"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-004",
@@ -55,7 +58,8 @@
         "All tools use existing driveService internally",
         "Register tools in MCP registry"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-005",
@@ -68,7 +72,8 @@
         "Scopes: channels:read, channels:write, chat:write, search:read, users:read",
         "Error handling with retries"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-006",
@@ -82,7 +87,8 @@
         "All tools use SlackService internally",
         "Register tools in MCP registry"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-007",
@@ -96,7 +102,8 @@
         "GET /api/slack/status - Check connection status",
         "Register routes in server/src/index.ts"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-008",
@@ -110,7 +117,8 @@
         "Tool execution respects approval requirements",
         "Results streamed via WebSocket when available"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     },
     {
       "id": "WA2-009",
@@ -124,7 +132,8 @@
         "Remove all MOCK_* constants and mock handlers",
         "Connection status from real API"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": false
     },
     {
       "id": "WA2-010",
@@ -137,7 +146,8 @@
         "TriggerEngine with evaluateTriggers, runScheduledTriggers, registerTrigger, pauseTrigger methods",
         "Store triggers in Supabase triggers table"
       ],
-      "phase": 3
+      "phase": 3,
+      "passes": true
     },
     {
       "id": "WA2-011",
@@ -152,7 +162,8 @@
         "usage-anomaly.ts - 20%+ spike or drop",
         "Each processor implements ConditionProcessor interface"
       ],
-      "phase": 3
+      "phase": 3,
+      "passes": true
     },
     {
       "id": "WA2-012",
@@ -165,7 +176,8 @@
         "PlaybookExecutor with startPlaybook, advanceStage, executeAction, pausePlaybook, getProgress methods",
         "Store executions in Supabase playbook_executions table"
       ],
-      "phase": 3
+      "phase": 3,
+      "passes": true
     },
     {
       "id": "WA2-013",
@@ -179,7 +191,8 @@
         "qbr-preparation.ts - Pre-QBR/QBR/Post-QBR stages",
         "Each template exports Playbook object"
       ],
-      "phase": 3
+      "phase": 3,
+      "passes": false
     },
     {
       "id": "WA2-014",
@@ -194,7 +207,8 @@
         "POST /api/playbooks/executions/:id/action/:actionId - Execute action",
         "Register routes in server/src/index.ts"
       ],
-      "phase": 3
+      "phase": 3,
+      "passes": true
     },
     {
       "id": "WA2-015",
@@ -208,7 +222,8 @@
         "Expandable stage details with action list",
         "Pause/resume playbook controls"
       ],
-      "phase": 3
+      "phase": 3,
+      "passes": false
     },
     {
       "id": "WA2-016",
@@ -221,7 +236,8 @@
         "Scopes: meeting:read, meeting:write, recording:read, user:read",
         "Error handling with rate limit awareness"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": true
     },
     {
       "id": "WA2-017",
@@ -235,7 +251,8 @@
         "Trigger MeetingIntelligence.processTranscript on transcript ready",
         "Verify webhook signatures"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": true
     },
     {
       "id": "WA2-018",
@@ -249,7 +266,8 @@
         "generateSummary creates executive summary",
         "generateFollowUpEmail drafts follow-up email"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": true
     },
     {
       "id": "WA2-019",
@@ -262,7 +280,8 @@
         "summary-generator.ts - Executive summary with key points",
         "topic-segmenter.ts - Break transcript into topics with timestamps"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": true
     },
     {
       "id": "WA2-020",
@@ -276,7 +295,8 @@
         "zoom.analyze_meeting triggers intelligence pipeline",
         "Register tools in MCP registry"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": true
     },
     {
       "id": "WA2-021",
@@ -291,7 +311,8 @@
         "GET /api/meetings/:id/signals - Get customer signals",
         "POST /api/meetings/:id/analyze - Trigger analysis"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": true
     },
     {
       "id": "WA2-022",
@@ -306,7 +327,8 @@
         "Customer signal alerts with icons",
         "One-click follow-up email generation"
       ],
-      "phase": 4
+      "phase": 4,
+      "passes": false
     },
     {
       "id": "WA2-023",
@@ -319,7 +341,8 @@
         "SkillParser.parseMarkdown converts markdown to Skill object",
         "SkillParser.validateSkill checks all referenced MCP tools exist"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-024",
@@ -333,7 +356,8 @@
         "Approval pauses handled properly",
         "Error handling per step with onError policy"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-025",
@@ -347,7 +371,8 @@
         "customer-onboard.md - New customer onboarding checklist",
         "Each skill file follows markdown skill format"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-026",
@@ -361,7 +386,8 @@
         "GET /api/skills/match?query= - Find skills matching query",
         "Register routes in server/src/index.ts"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-027",
@@ -374,7 +400,8 @@
         "Handles common patterns: 'Every X at Y', 'When X happens', 'After X do Y'",
         "Validates all referenced tools exist in MCP registry"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-028",
@@ -388,7 +415,8 @@
         "AutomationScheduler.scheduleOneTime sets up one-time runs",
         "Store automations in Supabase automations table"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-029",
@@ -403,7 +431,8 @@
         "POST /api/automations/:id/test - Test run automation",
         "POST /api/automations/:id/toggle - Enable/disable automation"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": true
     },
     {
       "id": "WA2-030",
@@ -418,7 +447,8 @@
         "Active automations list with enable/disable toggle",
         "Edit/delete controls per automation"
       ],
-      "phase": 5
+      "phase": 5,
+      "passes": false
     },
     {
       "id": "WA2-031",
@@ -435,7 +465,8 @@
         "slack_connections table for Slack OAuth",
         "All tables have proper indexes and RLS policies"
       ],
-      "phase": 1
+      "phase": 1,
+      "passes": true
     }
   ],
   "config": {
