@@ -41,6 +41,16 @@ export interface AgentMessage {
   };
   status?: MessageStatus;
   id?: string;
+  isStreaming?: boolean;
+  // CADG plan properties
+  isCadgPlan?: boolean;
+  cadgPlan?: {
+    planId: string;
+    taskType: string;
+    structure: any;
+    inputs: any;
+    destination: any;
+  };
 }
 
 // Re-export CustomerContext from workflow for consistency

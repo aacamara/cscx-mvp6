@@ -11,6 +11,7 @@ import { useWebSocket } from '../../context/WebSocketContext';
 import { useOnlineStatus } from '../../hooks/useOnlineStatus';
 import './styles.css';
 import { CADGPlanCard, CADGPlanMetadata } from '../AIPanel/CADGPlanCard';
+import { StreamEvent } from '../../types/streaming';
 
 // Lazy-loaded components for code splitting (reduces initial bundle by ~40KB)
 const InteractiveActions = lazy(() => import('./InteractiveActions').then(m => ({
@@ -63,6 +64,36 @@ const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
 
 const API_URL = import.meta.env.VITE_API_URL || '';
 
+// Parse SSE data from a chunk with buffering for partial lines.
+// Takes a mutable buffer object so incomplete lines are preserved across calls.
+function parseSSEData(chunk: string, buffer: { partial: string }): StreamEvent[] {
+  const events: StreamEvent[] = [];
+  // Prepend any leftover partial line from the previous chunk
+  const raw = buffer.partial + chunk;
+  const lines = raw.split('\n');
+
+  // If the chunk doesn't end with a newline, the last element is incomplete — save it
+  if (!chunk.endsWith('\n')) {
+    buffer.partial = lines.pop() || '';
+  } else {
+    buffer.partial = '';
+  }
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('data: ')) {
+      try {
+        const data = JSON.parse(trimmed.slice(6));
+        events.push(data as StreamEvent);
+      } catch {
+        // Ignore malformed JSON (shouldn't happen with well-formed SSE)
+      }
+    }
+  }
+
+  return events;
+}
+
 // ============================================
 // LANGCHAIN-POWERED AGENT CONTROL CENTER
 // Uses intelligent auto-routing with manual override
@@ -95,6 +126,12 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
 
   // CADG plan approval state
   const [pendingCadgPlan, setPendingCadgPlan] = useState<CADGPlanMetadata | null>(null);
+
+  // Streaming state for SSE token-by-token responses
+  const [isStreaming, setIsStreaming] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const streamingMessageIdRef = useRef<string | null>(null);
+  const sseBufferRef = useRef<{ partial: string }>({ partial: '' });
 
   // Agentic mode integration (shared context)
   const { isEnabled: agenticModeEnabled, executeGoal, resumeExecution } = useAgenticMode();
