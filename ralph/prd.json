@@ -68,8 +68,8 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added ActiveAgentType and AGENT_TASK_TYPES mapping to taskClassifier.ts. Refactored matchKeywords into matchKeywordsWithScores (returns all raw scores) + matchKeywords wrapper. Added applyAgentBoosting() function that boosts agent task types by +0.15 when within 0.1 of best score. Updated classify() signature to accept optional activeAgent. Updated cadgService.classify() in index.ts to pass activeAgent through. Updated langchain.ts to extract activeAgent from request body. Updated cadg.ts /plan route to accept activeAgent. Frontend sends activeAgent field alongside forceAgent."
     },
     {
       "id": "US-005",

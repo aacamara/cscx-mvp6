@@ -14,6 +14,7 @@
 - **Task classifier synonym expansion**: SYNONYMS map at top of taskClassifier.ts uses canonical-form approach; a hook may add duplicate blocks that must be cleaned up after saves
 - **Task classifier fuzzy matching**: matchKeywords() uses two-tier scoring (exact 1.5x, stem 1.0x) with stop word removal and basicStem() for suffix stripping
 - **Task classifier LLM fallback**: classify() flow is phrase (0.95) → keyword (≥0.7) → LLM (<0.3) → secondary LLM (0.3-0.7). Anthropic SDK uses `{ signal }` 2nd arg for abort
+- **Task classifier agent boosting**: classify() accepts optional `activeAgent` parameter; AGENT_TASK_TYPES maps each agent to its 4 task types; applyAgentBoosting() boosts by +0.15 when within 0.1 of best score. Frontend sends `activeAgent` field in chat request body.
 
 ---
 
@@ -1151,4 +1152,28 @@
   - The classify() flow is: phrase match (0.95) → keyword match (≥0.7) → LLM fallback (<0.3) → secondary LLM check (0.3-0.7)
   - When LLM fails in the secondary check zone, returning the keyword match is better than returning custom
   - Pre-existing TypeScript errors in the codebase don't affect taskClassifier.ts
+---
+
+## 2026-02-04 - US-004 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Contextual agent boosting for ambiguous CADG task classification
+- **Files changed**:
+  - `server/src/services/cadg/taskClassifier.ts` - Added ActiveAgentType, AGENT_TASK_TYPES mapping, applyAgentBoosting(), matchKeywordsWithScores(), updated classify() signature
+  - `server/src/services/cadg/index.ts` - Updated cadgService.classify() to accept and pass activeAgent
+  - `server/src/routes/langchain.ts` - Extracts activeAgent from request body, passes to CADG classify
+  - `server/src/routes/cadg.ts` - Accepts activeAgent in /plan request body, passes to classify()
+  - `components/AgentControlCenter/index.tsx` - Sends activeAgent field in chat request body
+- **Features**:
+  - AGENT_TASK_TYPES maps 5 agent types to their 4 CADG task types each (20 mappings total)
+  - applyAgentBoosting() applies +0.15 confidence boost to agent's task types when scores are within 0.1 of best match
+  - matchKeywordsWithScores() returns both best match and all raw scores (Map<TaskType, number>) for boosting
+  - matchKeywords() preserved as wrapper for backward compatibility
+  - classify() accepts optional third parameter `activeAgent?: ActiveAgentType`
+  - Frontend sends `activeAgent` (routing-determined current agent) separately from `forceAgent` (user-selected agent)
+  - Boosted confidence capped at 0.95 to stay below phrase match level (0.95)
+- **Learnings for future iterations**:
+  - `forceAgent` and `activeAgent` serve different purposes: forceAgent forces routing, activeAgent provides context for boosting
+  - Agent boosting is applied as post-processing on keyword scores, not inside the matching loop
+  - Raw scores must be exposed from matchKeywords for boosting to compare candidates
+  - The boost only applies when candidates are close (within 0.1) - clear winners are never overridden
+  - ActiveAgentType is defined locally in taskClassifier.ts to avoid cross-boundary imports
 ---
