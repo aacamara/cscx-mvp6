@@ -27,3 +27,24 @@
   - Several services/skills live in different paths than what the PRD describes (e.g., skills at `agents/skills/` not `skills/`)
   - Always grep for `.from('table_name')` patterns to discover exact column usage before writing migrations
 ---
+
+## 2026-02-04 - WA2-009
+- Connected WorkspaceAgent UI to MCP Backend - removed all mocks, added real API calls
+- Files changed:
+  - `components/WorkspaceAgent/index.tsx` (rewritten) - removed all MOCK_* constants, replaced with real API calls via `executeWorkspaceAction`
+  - `server/src/routes/workspace-agent.ts` (modified) - added `resolveActionId` with ACTION_ID_MAP, added `meeting_intelligence` category, added `get_customer_insights`/`get_customer_timeline` handlers, enhanced `draft_email` with purpose-aware defaults
+  - `prd.json` (updated WA2-009 passes to true)
+- Key changes:
+  - Per-action loading state (`loadingActionId`) replaces global `isProcessing`
+  - Error display with dismiss button in both compact and full modes
+  - WebSocket subscription with auth for real-time updates
+  - `processBackendResponse` maps backend data to typed UI state per category
+  - ACTION_ID_MAP resolves UI action IDs (e.g., `summarize_emails`) to backend handler IDs (e.g., `summarize_thread`)
+  - Added `meeting_intelligence` category routing to MCP tools (zoom_list_meetings, analyze_zoom_recording) with DB fallback
+- **Learnings for future iterations:**
+  - UI action IDs don't match backend handler IDs - need an explicit mapping layer (ACTION_ID_MAP)
+  - The `ActionResult.action` field is typed as `WorkspaceAction` (discriminated union), making it hard to construct from a simple string ID - use `as unknown as WorkspaceAction` cast
+  - Backend `document` category needs alias for `documents` - UI sends `document` but routes expect `documents`
+  - Pre-existing TS error count is ~161 (not 171 as previously noted) - removing mocks reduced the count
+  - When building `processBackendResponse`, cast API response fields to specific union types (e.g., `CustomerSignal['type']`) rather than leaving them as `string`
+---

@@ -133,7 +133,7 @@
         "Connection status from real API"
       ],
       "phase": 1,
-      "passes": false
+      "passes": true
     },
     {
       "id": "WA2-010",

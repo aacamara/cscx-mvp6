@@ -15,6 +15,8 @@ import { DriveService } from '../services/google/drive.js';
 import { DocsService } from '../services/google/docs.js';
 import { SheetsService } from '../services/google/sheets.js';
 import { activityLogger } from '../services/activityLogger.js';
+import { mcpRegistry } from '../mcp/registry.js';
+import type { MCPContext } from '../mcp/index.js';
 
 const router = Router();
 
@@ -118,27 +120,34 @@ router.post('/execute', async (req: Request, res: Response) => {
       // Execute the action based on category
       let result: QuickActionResult;
 
+      // Map UI action IDs to backend handler IDs
+      const resolvedActionId = resolveActionId(actionId, category);
+
       switch (category) {
         case 'email':
-          result = await executeEmailAction(userId, actionId, customerId, customerName, params);
+          result = await executeEmailAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'calendar':
-          result = await executeCalendarAction(userId, actionId, customerId, customerName, params);
+          result = await executeCalendarAction(userId, resolvedActionId, customerId, customerName, params);
           break;
+        case 'document':
         case 'documents':
-          result = await executeDocumentAction(userId, actionId, customerId, customerName, params);
+          result = await executeDocumentAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'health_score':
-          result = await executeHealthScoreAction(userId, actionId, customerId, customerName, params);
+          result = await executeHealthScoreAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'qbr':
-          result = await executeQBRAction(userId, actionId, customerId, customerName, params);
+          result = await executeQBRAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'renewal':
-          result = await executeRenewalAction(userId, actionId, customerId, customerName, params);
+          result = await executeRenewalAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'knowledge':
-          result = await executeKnowledgeAction(userId, actionId, customerId, customerName, params);
+          result = await executeKnowledgeAction(userId, resolvedActionId, customerId, customerName, params);
+          break;
+        case 'meeting_intelligence':
+          result = await executeMeetingIntelligenceAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         default:
           result = {
@@ -211,17 +220,47 @@ async function executeEmailAction(
     }
 
     case 'draft_email': {
-      // Create a draft email
+      // Create a draft email with purpose-aware defaults
+      const purpose = params?.purpose as string || 'follow_up';
+      const stakeholders = params?.stakeholderEmails as string[] || params?.to as string[] || [];
+
+      const purposeDefaults: Record<string, { subject: string; body: string }> = {
+        check_in: {
+          subject: `Quick check-in - ${customerName}`,
+          body: `Hi team,\n\nI wanted to reach out for a quick check-in. How are things going with the platform?\n\nBest regards`,
+        },
+        follow_up: {
+          subject: `Following up on our conversation - ${customerName}`,
+          body: `Hi team,\n\nThank you for the great conversation earlier. I wanted to follow up on the action items we discussed.\n\nBest regards`,
+        },
+        renewal: {
+          subject: `Renewal Discussion - ${customerName}`,
+          body: `Hi team,\n\nI wanted to reach out regarding your upcoming renewal.\n\nBest regards`,
+        },
+        escalation: {
+          subject: `Urgent: Following up on your issue - ${customerName}`,
+          body: `Hi team,\n\nI wanted to personally reach out regarding the issue you're experiencing.\n\nBest regards`,
+        },
+      };
+
+      const defaults = purposeDefaults[purpose] || purposeDefaults.follow_up;
+      const subject = params?.subject as string || defaults.subject;
+      const body = params?.body as string || defaults.body;
+
       const draftId = await gmailService.createDraft(userId, {
-        to: params?.to as string[] || [],
-        subject: params?.subject as string || `Follow-up: ${customerName}`,
-        body: params?.body as string || `Hi,\n\nI wanted to follow up regarding ${customerName}.\n\nBest regards`,
+        to: stakeholders,
+        subject,
+        body,
       });
       return {
         success: true,
         actionId,
         data: {
           draftId,
+          to: stakeholders,
+          subject,
+          body,
+          purpose,
         },
         requiresApproval: true,
       };
@@ -728,6 +767,56 @@ async function executeKnowledgeAction(
       };
     }
 
+    case 'get_customer_insights': {
+      // Aggregate customer insights from multiple sources
+      const { data: customer } = await supabase
+        .from('customers')
+        .select('*')
+        .eq('id', customerId)
+        .single();
+
+      const { data: activities } = await supabase
+        .from('agent_activities')
+        .select('action_type, result_data, created_at')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      return {
+        success: true,
+        actionId,
+        data: {
+          customerId,
+          customerName: customer?.name || customerName,
+          relationshipSummary: customer?.notes || 'No summary available',
+          keyStakeholders: customer?.stakeholders || [],
+          mainUseCases: customer?.use_cases || [],
+          recentActivity: activities || [],
+        },
+      };
+    }
+
+    case 'get_customer_timeline': {
+      // Get customer interaction timeline
+      const { data: activities } = await supabase
+        .from('agent_activities')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      return {
+        success: true,
+        actionId,
+        data: {
+          customerId,
+          customerName,
+          timeline: activities || [],
+          totalEvents: activities?.length || 0,
+        },
+      };
+    }
+
     default:
       return {
         success: false,
@@ -736,6 +825,197 @@ async function executeKnowledgeAction(
       };
   }
 }
+
+// ============================================
+// ACTION ID MAPPING
+// Maps UI action IDs to backend handler IDs
+// ============================================
+
+const ACTION_ID_MAP: Record<string, { actionId: string; category?: string }> = {
+  // Email aliases
+  summarize_emails: { actionId: 'summarize_thread' },
+  draft_checkin: { actionId: 'draft_email' },
+  draft_followup: { actionId: 'draft_email' },
+  draft_renewal: { actionId: 'draft_email' },
+  draft_escalation: { actionId: 'draft_email' },
+
+  // Calendar aliases
+  find_availability: { actionId: 'check_availability' },
+  schedule_qbr: { actionId: 'schedule_meeting' },
+  schedule_checkin: { actionId: 'schedule_meeting' },
+
+  // Document aliases
+  find_docs: { actionId: 'find_documents' },
+  create_meeting_notes: { actionId: 'create_document' },
+  create_success_plan: { actionId: 'create_document' },
+
+  // Health score aliases
+  calculate_health: { actionId: 'calculate_score' },
+  health_trend: { actionId: 'get_trends' },
+
+  // QBR aliases
+  generate_qbr_full: { actionId: 'generate_slides' },
+
+  // Renewal aliases
+  renewal_health_check: { actionId: 'check_renewal' },
+  create_renewal_playbook: { actionId: 'start_playbook' },
+
+  // Knowledge aliases
+  search_knowledge: { actionId: 'search' },
+  get_insights: { actionId: 'get_customer_insights' },
+  view_timeline: { actionId: 'get_customer_timeline' },
+
+  // Meeting intelligence aliases
+  get_transcript: { actionId: 'list_recent_meetings' },
+  summarize_meeting: { actionId: 'analyze_meeting' },
+  extract_actions: { actionId: 'extract_action_items' },
+};
+
+function resolveActionId(actionId: string, category: string): string {
+  const mapping = ACTION_ID_MAP[actionId];
+  return mapping?.actionId || actionId;
+}
+
+// ============================================
+// MEETING INTELLIGENCE ACTIONS
+// ============================================
+
+async function executeMeetingIntelligenceAction(
+  userId: string,
+  actionId: string,
+  customerId?: string,
+  customerName?: string,
+  params?: Record<string, unknown>
+): Promise<QuickActionResult> {
+  const mcpContext: MCPContext = {
+    userId,
+    customerId,
+    customerName,
+  };
+
+  switch (actionId) {
+    case 'list_recent_meetings': {
+      // Use MCP zoom_list_meetings tool
+      const result = await mcpRegistry.execute(
+        'zoom_list_meetings',
+        { type: 'previous_meetings', pageSize: 10 },
+        mcpContext
+      );
+
+      if (!result.success) {
+        // Fallback: query meeting_analyses table if Zoom isn't connected
+        if (supabase && customerId) {
+          const { data } = await supabase
+            .from('meeting_analyses')
+            .select('*')
+            .eq('customer_id', customerId)
+            .order('meeting_date', { ascending: false })
+            .limit(10);
+
+          return {
+            success: true,
+            actionId,
+            data: {
+              source: 'database',
+              meetings: data || [],
+              meetingCount: data?.length || 0,
+            },
+          };
+        }
+        return { success: false, actionId, error: result.error || 'Failed to list meetings' };
+      }
+
+      return {
+        success: true,
+        actionId,
+        data: {
+          source: 'zoom',
+          meetings: result.data,
+          meetingCount: result.metadata?.totalRecords || 0,
+        },
+      };
+    }
+
+    case 'analyze_meeting': {
+      // Use MCP analyze_meeting_transcript tool
+      const meetingId = params?.meetingId as string;
+
+      if (meetingId) {
+        // Analyze a specific Zoom recording
+        const result = await mcpRegistry.execute(
+          'analyze_zoom_recording',
+          { meetingId, customerId, customerName },
+          mcpContext
+        );
+
+        return {
+          success: result.success,
+          actionId,
+          data: result.data,
+          error: result.error,
+        };
+      }
+
+      // If no meeting ID, get latest meeting analysis from DB
+      if (supabase && customerId) {
+        const { data } = await supabase
+          .from('meeting_analyses')
+          .select('*')
+          .eq('customer_id', customerId)
+          .order('meeting_date', { ascending: false })
+          .limit(1)
+          .single();
+
+        return {
+          success: true,
+          actionId,
+          data: data || { message: 'No meeting analyses found' },
+        };
+      }
+
+      return { success: false, actionId, error: 'Meeting ID or customer ID required' };
+    }
+
+    case 'extract_action_items': {
+      // Get action items from latest meeting analysis
+      if (supabase && customerId) {
+        const { data } = await supabase
+          .from('meeting_analyses')
+          .select('meeting_id, meeting_title, action_items, meeting_date')
+          .eq('customer_id', customerId)
+          .order('meeting_date', { ascending: false })
+          .limit(1)
+          .single();
+
+        return {
+          success: true,
+          actionId,
+          data: {
+            meetingId: data?.meeting_id,
+            meetingTitle: data?.meeting_title,
+            actionItems: data?.action_items || [],
+            meetingDate: data?.meeting_date,
+          },
+        };
+      }
+
+      return { success: false, actionId, error: 'Database not configured or customer ID missing' };
+    }
+
+    default:
+      return {
+        success: false,
+        actionId,
+        error: `Unknown meeting intelligence action: ${actionId}`,
+      };
+  }
+}
+
+// ============================================
+// ENHANCED KNOWLEDGE ACTIONS (add new handlers)
+// ============================================
+
+// Extend executeKnowledgeAction to handle additional action IDs:
 
 // ============================================
 // HELPER FUNCTIONS

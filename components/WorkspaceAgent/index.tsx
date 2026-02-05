@@ -1,7 +1,6 @@
 /**
  * WorkspaceAgent - Agentic Google Workspace Integration
- * Full integration with Gmail, Calendar, Drive, Docs, Sheets, Slides,
- * Meeting Intelligence, Health Scores, QBR, Renewal Management
+ * Connected to MCP backend for all actions.
  *
  * Key Features:
  * - Quick actions for common CSM tasks across all categories
@@ -10,31 +9,32 @@
  * - Health score calculation and display
  * - QBR generation workflow
  * - Renewal management automation
- * - Memory and learning from interactions
+ * - WebSocket subscription for real-time updates
+ * - Per-action loading states with error handling
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   WorkspaceConnection,
   EmailThread,
   EmailDraft,
-  CalendarEvent,
   MeetingProposal,
   DriveDocument,
   ActionResult,
   QuickAction,
   CSM_QUICK_ACTIONS,
   AgentMemory,
-  EmailPurpose,
   AvailabilitySlot,
   HealthScore,
-  HealthSignals,
   MeetingRecording,
   MeetingSummary,
   QBRPackage,
   RenewalPlaybook,
   QuickActionCategory,
   CustomerInsight,
+  CustomerSignal,
+  QBRSectionType,
+  WorkspaceAction,
   SessionContext,
 } from '../../types/workspaceAgent';
 
@@ -48,255 +48,119 @@ interface WorkspaceAgentProps {
   compact?: boolean;
 }
 
-// Simulated workspace connection state (enhanced)
-const MOCK_CONNECTION: WorkspaceConnection = {
-  status: 'connected',
-  gmail: { connected: true, lastSync: new Date() },
-  calendar: { connected: true, lastSync: new Date() },
-  drive: { connected: true, lastSync: new Date() },
-  docs: { connected: true, lastSync: new Date() },
-  sheets: { connected: true, lastSync: new Date() },
-  slides: { connected: true, lastSync: new Date() },
-  lastSync: new Date(),
-  userEmail: 'csm@company.com',
-  scopes: ['gmail.readonly', 'gmail.send', 'calendar', 'drive', 'docs', 'sheets', 'slides'],
-};
-
-// Mock email threads
-const MOCK_EMAILS: EmailThread[] = [
-  {
-    id: 'thread_1',
-    subject: 'Re: Q1 Review Preparation',
-    snippet: 'Thanks for sending over the deck. A few questions about the usage metrics...',
-    participants: [
-      { name: 'Sarah Chen', email: 'sarah@acmecorp.com', role: 'customer', isStakeholder: true },
-      { name: 'You', email: 'csm@company.com', role: 'internal', isStakeholder: false },
-    ],
-    messageCount: 5,
-    unreadCount: 1,
-    lastMessageDate: new Date(Date.now() - 2 * 3600000),
-    labels: ['INBOX', 'IMPORTANT'],
-    isCustomerThread: true,
-    sentiment: 'positive',
-    summary: 'Customer reviewing Q1 deck, has questions about usage metrics',
-    actionItems: ['Clarify usage calculation', 'Schedule follow-up call'],
-  },
-  {
-    id: 'thread_2',
-    subject: 'Integration Issue - API Rate Limits',
-    snippet: "We're hitting rate limits on the sync endpoint. This is blocking our team...",
-    participants: [
-      { name: 'Mike Johnson', email: 'mike@acmecorp.com', role: 'customer', isStakeholder: true },
-      { name: 'Support', email: 'support@company.com', role: 'internal', isStakeholder: false },
-    ],
-    messageCount: 8,
-    unreadCount: 3,
-    lastMessageDate: new Date(Date.now() - 30 * 60000),
-    labels: ['INBOX', 'URGENT'],
-    isCustomerThread: true,
-    sentiment: 'negative',
-    summary: 'Technical escalation - API rate limits blocking customer workflow',
-    actionItems: ['Escalate to engineering', 'Provide interim solution'],
-  },
-];
-
-// Mock drive documents
-const MOCK_DOCS: DriveDocument[] = [
-  {
-    id: 'doc_1',
-    name: 'Acme Corp - Q1 2024 QBR Deck',
-    mimeType: 'application/vnd.google-apps.presentation',
-    type: 'presentation',
-    webViewLink: 'https://docs.google.com/presentation/d/123',
-    lastModified: new Date(Date.now() - 86400000),
-    lastModifiedBy: 'csm@company.com',
-    isCustomerDoc: true,
-    customerName: 'Acme Corp',
-    category: 'qbr',
-  },
-  {
-    id: 'doc_2',
-    name: 'Acme Corp - Contract 2024',
-    mimeType: 'application/pdf',
-    type: 'pdf',
-    webViewLink: 'https://drive.google.com/file/d/456',
-    lastModified: new Date(Date.now() - 30 * 86400000),
-    isCustomerDoc: true,
-    customerName: 'Acme Corp',
-    category: 'contract',
-  },
-  {
-    id: 'doc_3',
-    name: 'Success Plan - Acme Corp',
-    mimeType: 'application/vnd.google-apps.document',
-    type: 'document',
-    webViewLink: 'https://docs.google.com/document/d/789',
-    lastModified: new Date(Date.now() - 7 * 86400000),
-    isCustomerDoc: true,
-    customerName: 'Acme Corp',
-    category: 'success_plan',
-  },
-];
-
-// Mock meeting recordings
-const MOCK_MEETINGS: MeetingRecording[] = [
-  {
-    id: 'meeting_1',
-    platform: 'zoom',
-    title: 'Weekly Sync - Acme Corp',
-    startTime: new Date(Date.now() - 2 * 86400000),
-    duration: 45,
-    participants: [
-      { name: 'Sarah Chen', email: 'sarah@acmecorp.com', joinTime: new Date(), duration: 45, isCustomer: true, attentionScore: 92 },
-      { name: 'Mike Johnson', email: 'mike@acmecorp.com', joinTime: new Date(), duration: 45, isCustomer: true, attentionScore: 88 },
-      { name: 'CSM', email: 'csm@company.com', joinTime: new Date(), duration: 45, isCustomer: false },
-    ],
-    transcriptAvailable: true,
-    customerId: 'acme_1',
-    customerName: 'Acme Corp',
-  },
-  {
-    id: 'meeting_2',
-    platform: 'google_meet',
-    title: 'Technical Review - Acme Corp',
-    startTime: new Date(Date.now() - 5 * 86400000),
-    duration: 60,
-    participants: [
-      { name: 'Mike Johnson', email: 'mike@acmecorp.com', joinTime: new Date(), duration: 60, isCustomer: true },
-    ],
-    transcriptAvailable: true,
-    customerId: 'acme_1',
-    customerName: 'Acme Corp',
-  },
-];
-
-// Mock health score
-const MOCK_HEALTH_SCORE: HealthScore = {
-  customerId: 'acme_1',
-  score: 78,
-  grade: 'B',
-  trend: 'improving',
-  previousScore: 72,
-  signals: {
-    productUsage: { loginFrequency: 25, featureAdoption: 68, usageVsEntitlement: 82, activeUsers: 45, trend: 'up', score: 75 },
-    engagement: { meetingFrequency: 2, emailResponseTime: 4, eventAttendance: 80, lastContactDays: 3, score: 85 },
-    support: { ticketVolume: 5, avgSeverity: 2, resolutionSatisfaction: 90, openTickets: 1, escalations: 0, score: 88 },
-    nps: { latestScore: 8, previousScore: 7, trend: 'promoter', lastSurveyDate: new Date(Date.now() - 30 * 86400000), score: 80 },
-    contract: { daysToRenewal: 120, expansionHistory: 15, paymentStatus: 'current', contractValue: 150000, score: 75 },
-    stakeholder: { championStrength: 'strong', executiveEngagement: true, turnoverRisk: 'low', decisionMakerAccess: true, score: 90 },
-  },
-  factors: [
-    { name: 'Executive Engagement', weight: 0.2, score: 90, impact: 'positive', description: 'Strong executive sponsorship' },
-    { name: 'Feature Adoption', weight: 0.15, score: 68, impact: 'neutral', description: 'Room for growth in advanced features' },
-    { name: 'Support Health', weight: 0.15, score: 88, impact: 'positive', description: 'Low ticket volume, high satisfaction' },
-  ],
-  recommendations: [
-    'Schedule feature training to improve adoption',
-    'Introduce new analytics module',
-    'Plan executive business review',
-  ],
-  calculatedAt: new Date(),
-};
-
-// Mock customer insights
-const MOCK_INSIGHTS: CustomerInsight = {
-  relationshipSummary: 'Strong partnership with engaged stakeholders. Technical team highly satisfied. Executive sponsor actively involved in strategic planning.',
-  keyStakeholders: ['Sarah Chen (VP Product)', 'Mike Johnson (Engineering Lead)', 'David Kim (CTO)'],
-  mainUseCases: ['Customer analytics', 'Workflow automation', 'Team collaboration'],
-  successFactors: ['Fast onboarding', 'Responsive support', 'Product-market fit'],
-  riskFactors: ['Competitor evaluation mentioned', 'Budget constraints in Q3'],
-  expansionOpportunities: ['Enterprise tier upgrade', 'Additional department rollout', 'API integration package'],
-  communicationPreferences: 'Email for updates, video calls for strategic discussions',
-  lastUpdated: new Date(),
-};
-
-// API URL for backend calls
+// API configuration
 const API_URL = import.meta.env.VITE_API_URL || '';
 const DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
 
-// Helper to execute workspace actions via backend
+// Default empty connection
+const INITIAL_CONNECTION: WorkspaceConnection = {
+  status: 'disconnected',
+  gmail: { connected: false, lastSync: new Date() },
+  calendar: { connected: false, lastSync: new Date() },
+  drive: { connected: false, lastSync: new Date() },
+  docs: { connected: false, lastSync: new Date() },
+  sheets: { connected: false, lastSync: new Date() },
+  slides: { connected: false, lastSync: new Date() },
+  lastSync: new Date(),
+  userEmail: 'Not connected',
+  scopes: [],
+};
+
+// Helper to execute workspace actions via MCP backend
 async function executeWorkspaceAction(
   actionId: string,
   category: string,
   customerId?: string,
   customerName?: string,
   params?: Record<string, unknown>
-): Promise<{ success: boolean; data?: unknown; error?: string; requiresApproval?: boolean }> {
-  try {
-    const response = await fetch(`${API_URL}/api/workspace-agent/execute`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-user-id': DEMO_USER_ID,
-      },
-      body: JSON.stringify({
-        actionId,
-        category,
-        customerId,
-        customerName,
-        params,
-      }),
-    });
+): Promise<{ success: boolean; data?: unknown; error?: string; requiresApproval?: boolean; approvalId?: string }> {
+  const response = await fetch(`${API_URL}/api/workspace-agent/execute`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-user-id': DEMO_USER_ID,
+    },
+    body: JSON.stringify({
+      actionId,
+      category,
+      customerId,
+      customerName,
+      params,
+    }),
+  });
 
-    if (!response.ok) {
-      const error = await response.json();
-      return { success: false, error: error.message || 'Action failed' };
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Workspace action error:', error);
-    return { success: false, error: (error as Error).message };
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Request failed' }));
+    return { success: false, error: error.message || `HTTP ${response.status}` };
   }
+
+  return await response.json();
+}
+
+// Purpose-specific params for draft email actions
+function getDraftParams(actionId: string, stakeholderEmails: string[]): Record<string, unknown> {
+  const purposeMap: Record<string, string> = {
+    draft_checkin: 'check_in',
+    draft_followup: 'follow_up',
+    draft_renewal: 'renewal',
+    draft_escalation: 'escalation',
+  };
+  return {
+    purpose: purposeMap[actionId] || 'follow_up',
+    stakeholderEmails,
+  };
+}
+
+// Meeting type params for schedule actions
+function getScheduleParams(actionId: string, customerName: string, stakeholderEmails: string[]): Record<string, unknown> {
+  if (actionId === 'schedule_qbr') {
+    return {
+      title: `Quarterly Business Review - ${customerName}`,
+      description: `QBR with ${customerName} team.\n\nAgenda:\n- Performance review\n- Roadmap alignment\n- Success metrics\n- Next quarter planning`,
+      duration: 60,
+      attendees: stakeholderEmails,
+    };
+  }
+  return {
+    title: `Check-in - ${customerName}`,
+    description: `Regular check-in with ${customerName} team.`,
+    duration: 30,
+    attendees: stakeholderEmails,
+  };
+}
+
+// Document type params
+function getDocumentParams(actionId: string, customerName: string): Record<string, unknown> {
+  if (actionId === 'create_meeting_notes') {
+    return { title: `${customerName} - Meeting Notes - ${new Date().toLocaleDateString()}` };
+  }
+  if (actionId === 'create_success_plan') {
+    return { title: `${customerName} - Success Plan` };
+  }
+  return {};
 }
 
 export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
   customerId,
   customerName = 'Acme Corp',
   stakeholderEmails = [],
-  healthScore: propHealthScore,
   renewalDate,
   onActionComplete,
   compact = false,
 }) => {
-  // State - fetch real connection status
-  const [connection, setConnection] = useState<WorkspaceConnection>(MOCK_CONNECTION);
-  const [useBackend, setUseBackend] = useState(true); // Toggle between backend and mock
+  // Connection state
+  const [connection, setConnection] = useState<WorkspaceConnection>(INITIAL_CONNECTION);
 
-  // Fetch real connection status on mount
-  React.useEffect(() => {
-    const fetchConnectionStatus = async () => {
-      try {
-        const response = await fetch(`${API_URL}/api/workspace-agent/status`, {
-          headers: { 'x-user-id': DEMO_USER_ID },
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setConnection(prev => ({
-            ...prev,
-            status: data.connected ? 'connected' : 'disconnected',
-            gmail: { connected: data.services?.gmail || false, lastSync: new Date() },
-            calendar: { connected: data.services?.calendar || false, lastSync: new Date() },
-            drive: { connected: data.services?.drive || false, lastSync: new Date() },
-            docs: { connected: data.services?.docs || false, lastSync: new Date() },
-            sheets: { connected: data.services?.sheets || false, lastSync: new Date() },
-            slides: { connected: data.services?.slides || false, lastSync: new Date() },
-            userEmail: data.email || 'Not connected',
-          }));
-        }
-      } catch (error) {
-        console.error('Failed to fetch connection status:', error);
-      }
-    };
-    fetchConnectionStatus();
-  }, []);
-  const [activeAction, setActiveAction] = useState<QuickAction | null>(null);
+  // Per-action loading state (tracks which action is running)
+  const [loadingActionId, setLoadingActionId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const [activeCategory, setActiveCategory] = useState<QuickActionCategory | 'all'>('all');
   const [pendingApproval, setPendingApproval] = useState<{
     type: 'email' | 'meeting' | 'qbr' | 'renewal';
     data: EmailDraft | MeetingProposal | QBRPackage | RenewalPlaybook;
+    approvalId?: string;
   } | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [showResults, setShowResults] = useState(false);
 
   // Memory state
@@ -315,562 +179,107 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
     } as SessionContext,
   });
 
-  // Email state
+  // Data states (populated by backend)
   const [emailSummary, setEmailSummary] = useState<{
     threads: EmailThread[];
     summary: string;
     actionItems: string[];
   } | null>(null);
-
-  // Draft state
   const [draftEmail, setDraftEmail] = useState<EmailDraft | null>(null);
-
-  // Calendar state
   const [availableSlots, setAvailableSlots] = useState<AvailabilitySlot[]>([]);
   const [meetingProposal, setMeetingProposal] = useState<MeetingProposal | null>(null);
-
-  // Document state
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
-
-  // Meeting Intelligence state
   const [recentMeetings, setRecentMeetings] = useState<MeetingRecording[]>([]);
   const [meetingSummary, setMeetingSummary] = useState<MeetingSummary | null>(null);
-
-  // Health Score state
   const [healthScoreData, setHealthScoreData] = useState<HealthScore | null>(null);
-
-  // QBR state
   const [qbrPackage, setQBRPackage] = useState<QBRPackage | null>(null);
-
-  // Renewal state
   const [renewalPlaybook, setRenewalPlaybook] = useState<RenewalPlaybook | null>(null);
-
-  // Insights state
   const [customerInsights, setCustomerInsights] = useState<CustomerInsight | null>(null);
 
-  // Get unique categories from quick actions
-  const categories: QuickActionCategory[] = [
-    'email',
-    'calendar',
-    'document',
-    'meeting_intelligence',
-    'health_score',
-    'qbr',
-    'renewal',
-    'knowledge',
-  ];
+  // WebSocket ref
+  const wsRef = useRef<WebSocket | null>(null);
 
-  // Filter quick actions by category
-  const getActionsByCategory = (category: QuickActionCategory | 'all') => {
-    if (category === 'all') return CSM_QUICK_ACTIONS;
-    return CSM_QUICK_ACTIONS.filter(a => a.category === category);
-  };
-
-  // Get category display name
-  const getCategoryName = (category: QuickActionCategory | 'all'): string => {
-    const names: Record<string, string> = {
-      all: 'All Actions',
-      email: 'Email',
-      calendar: 'Calendar',
-      document: 'Documents',
-      meeting_intelligence: 'Meeting Intel',
-      health_score: 'Health Score',
-      qbr: 'QBR',
-      renewal: 'Renewal',
-      knowledge: 'Knowledge',
-      onboarding: 'Onboarding',
-      automation: 'Automation',
-    };
-    return names[category] || category;
-  };
-
-  // Get category icon
-  const getCategoryIcon = (category: QuickActionCategory | 'all'): string => {
-    const icons: Record<string, string> = {
-      all: '🎯',
-      email: '📧',
-      calendar: '📅',
-      document: '📁',
-      meeting_intelligence: '🎙️',
-      health_score: '💚',
-      qbr: '📊',
-      renewal: '🔄',
-      knowledge: '💡',
-      onboarding: '🚀',
-      automation: '⚡',
-    };
-    return icons[category] || '📌';
-  };
-
-  // Execute a quick action
-  const executeAction = async (action: QuickAction) => {
-    setActiveAction(action);
-    setIsProcessing(true);
-    setShowResults(true);
-
-    // Try backend first if enabled
-    if (useBackend && connection.status === 'connected') {
+  // Fetch real connection status on mount
+  useEffect(() => {
+    const fetchConnectionStatus = async () => {
       try {
-        const result = await executeWorkspaceAction(
-          action.id,
-          action.category,
-          customerId,
-          customerName,
-          { stakeholderEmails }
-        );
-
-        if (result.success) {
-          // Handle successful backend response
-          console.log('[WorkspaceAgent] Backend action success:', result.data);
-
-          // Update UI based on action category
-          if (action.category === 'email' && result.data) {
-            setEmailSummary({
-              threads: (result.data as { threads?: EmailThread[] }).threads || [],
-              summary: 'Fetched from Google Workspace',
-              actionItems: [],
-            });
-          }
-
-          if (result.requiresApproval) {
-            // Handle approval flow
-            console.log('[WorkspaceAgent] Action requires approval');
-          }
-
-          recordAction(action.id.toUpperCase(), 'success');
-          setIsProcessing(false);
-          setActiveAction(null);
-
-          if (onActionComplete) {
-            onActionComplete({
-              success: true,
-              action: action.id,
-              message: `${action.name} completed successfully`,
-              data: result.data,
-              timestamp: new Date(),
-            });
-          }
-          return;
-        } else {
-          console.warn('[WorkspaceAgent] Backend action failed, falling back to mock:', result.error);
+        const response = await fetch(`${API_URL}/api/workspace-agent/status`, {
+          headers: { 'x-user-id': DEMO_USER_ID },
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setConnection({
+            status: data.connected ? 'connected' : 'disconnected',
+            gmail: { connected: data.services?.gmail || false, lastSync: new Date() },
+            calendar: { connected: data.services?.calendar || false, lastSync: new Date() },
+            drive: { connected: data.services?.drive || false, lastSync: new Date() },
+            docs: { connected: data.services?.docs || false, lastSync: new Date() },
+            sheets: { connected: data.services?.sheets || false, lastSync: new Date() },
+            slides: { connected: data.services?.slides || false, lastSync: new Date() },
+            lastSync: new Date(),
+            userEmail: data.email || 'Not connected',
+            scopes: [],
+          });
         }
       } catch (error) {
-        console.warn('[WorkspaceAgent] Backend error, falling back to mock:', error);
+        console.error('Failed to fetch connection status:', error);
       }
-    }
+    };
+    fetchConnectionStatus();
+  }, []);
 
-    // Fallback to mock implementation
-    await new Promise(resolve => setTimeout(resolve, 1500));
-
+  // WebSocket connection for real-time updates
+  useEffect(() => {
+    const wsUrl = API_URL.replace(/^http/, 'ws') || `ws://${window.location.hostname}:3001`;
     try {
-      switch (action.id) {
-        // Email actions
-        case 'summarize_emails':
-          await handleSummarizeEmails();
-          break;
-        case 'draft_checkin':
-          await handleDraftEmail('check_in');
-          break;
-        case 'draft_followup':
-          await handleDraftEmail('follow_up');
-          break;
-        case 'draft_renewal':
-          await handleDraftEmail('renewal');
-          break;
-        case 'draft_escalation':
-          await handleDraftEmail('escalation');
-          break;
+      const ws = new WebSocket(`${wsUrl}/ws`);
+      wsRef.current = ws;
 
-        // Calendar actions
-        case 'find_availability':
-          await handleFindAvailability();
-          break;
-        case 'schedule_qbr':
-          await handleScheduleQBR();
-          break;
-        case 'schedule_checkin':
-          await handleScheduleCheckin();
-          break;
+      ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'auth', data: { token: DEMO_USER_ID } }));
+      };
 
-        // Document actions
-        case 'find_docs':
-          await handleFindDocuments();
-          break;
-        case 'create_meeting_notes':
-          await handleCreateDocument('meeting_notes');
-          break;
-        case 'create_success_plan':
-          await handleCreateDocument('success_plan');
-          break;
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          handleWSMessage(message);
+        } catch {
+          // ignore parse errors
+        }
+      };
 
-        // Meeting Intelligence actions
-        case 'get_transcript':
-          await handleGetRecentMeetings();
-          break;
-        case 'summarize_meeting':
-          await handleSummarizeMeeting();
-          break;
-        case 'extract_actions':
-          await handleExtractActions();
-          break;
+      ws.onerror = () => {
+        console.warn('[WorkspaceAgent] WebSocket connection failed - updates will use polling');
+      };
 
-        // Health Score actions
-        case 'calculate_health':
-          await handleCalculateHealthScore();
-          break;
-        case 'health_trend':
-          await handleGetHealthTrend();
-          break;
-
-        // QBR actions
-        case 'prepare_qbr':
-          await handlePrepareQBR();
-          break;
-        case 'generate_qbr_full':
-          await handleGenerateQBR();
-          break;
-
-        // Renewal actions
-        case 'renewal_health_check':
-          await handleRenewalHealthCheck();
-          break;
-        case 'create_renewal_playbook':
-          await handleCreateRenewalPlaybook();
-          break;
-
-        // Knowledge actions
-        case 'search_knowledge':
-          await handleSearchKnowledge();
-          break;
-        case 'get_insights':
-          await handleGetInsights();
-          break;
-        case 'view_timeline':
-          await handleViewTimeline();
-          break;
-
-        default:
-          break;
-      }
-    } catch (error) {
-      console.error('Action failed:', error);
+      return () => {
+        ws.close();
+        wsRef.current = null;
+      };
+    } catch {
+      console.warn('[WorkspaceAgent] WebSocket not available');
     }
+  }, []);
 
-    setIsProcessing(false);
-    setActiveAction(null);
-  };
-
-  // === EMAIL HANDLERS ===
-  const handleSummarizeEmails = async () => {
-    const threads = MOCK_EMAILS;
-    const allActionItems = threads.flatMap(t => t.actionItems || []);
-
-    setEmailSummary({
-      threads,
-      summary: `Found ${threads.length} recent threads with ${customerName}. ${
-        threads.filter(t => t.sentiment === 'negative').length > 0
-          ? '⚠️ There\'s an urgent technical issue that needs attention.'
-          : 'Overall sentiment is positive.'
-      }`,
-      actionItems: allActionItems,
-    });
-
-    recordAction('SUMMARIZE_EMAILS', 'success');
-  };
-
-  const handleDraftEmail = async (purpose: EmailPurpose) => {
-    const templates: Record<EmailPurpose, { subject: string; body: string }> = {
-      check_in: {
-        subject: `Quick check-in - ${customerName}`,
-        body: `Hi team,\n\nI wanted to reach out for a quick check-in. How are things going with the platform?\n\nA few items I'd love to discuss:\n• Recent usage trends\n• Any blockers or challenges\n• Upcoming priorities\n\nWould love to schedule a quick call this week if you have time.\n\nBest regards`,
-      },
-      follow_up: {
-        subject: `Following up on our conversation - ${customerName}`,
-        body: `Hi team,\n\nThank you for the great conversation earlier. I wanted to follow up on the action items we discussed:\n\n• [Action item 1]\n• [Action item 2]\n\nPlease let me know if you have any questions.\n\nBest regards`,
-      },
-      renewal: {
-        subject: `Renewal Discussion - ${customerName}`,
-        body: `Hi team,\n\nI hope this message finds you well. I wanted to reach out regarding your upcoming renewal.\n\nOver the past year, you've achieved:\n• [Key achievement 1]\n• [Key achievement 2]\n\nI'd love to schedule a call to discuss how we can continue supporting your success.\n\nBest regards`,
-      },
-      escalation: {
-        subject: `Urgent: Following up on your issue - ${customerName}`,
-        body: `Hi team,\n\nI wanted to personally reach out regarding the issue you're experiencing.\n\nWe're treating this as a top priority and here's what we're doing:\n• [Immediate action]\n• [Next steps]\n\nI'll keep you updated on progress.\n\nBest regards`,
-      },
-      kickoff: { subject: `Welcome! - ${customerName} Kickoff`, body: 'Welcome aboard...' },
-      milestone: { subject: `Congratulations! - ${customerName}`, body: 'Great milestone...' },
-      qbr_invite: { subject: `QBR Invitation - ${customerName}`, body: 'Time for our quarterly review...' },
-      thank_you: { subject: `Thank you! - ${customerName}`, body: 'Thank you for...' },
-      feature_announcement: { subject: `New Feature - ${customerName}`, body: 'Exciting news...' },
-      survey_request: { subject: `Quick Survey - ${customerName}`, body: 'We value your feedback...' },
-      nps_request: { subject: `How are we doing? - ${customerName}`, body: 'Quick question...' },
-      success_celebration: { subject: `Celebrating Success - ${customerName}`, body: 'Amazing achievement...' },
-      onboarding_welcome: { subject: `Welcome to the team! - ${customerName}`, body: 'Welcome aboard...' },
-      executive_review: { subject: `Executive Review - ${customerName}`, body: 'Executive summary...' },
-      custom: { subject: '', body: '' },
-    };
-
-    const template = templates[purpose];
-    const draft: EmailDraft = {
-      id: `draft_${Date.now()}`,
-      to: stakeholderEmails.length > 0 ? stakeholderEmails : ['sarah@acmecorp.com'],
-      subject: template.subject,
-      body: template.body,
-      purpose,
-      tone: 'friendly',
-      status: 'pending_approval',
-      aiGenerated: true,
-      suggestions: [
-        'Consider adding specific metrics from their usage',
-        'Mention their recent support ticket if relevant',
-      ],
-    };
-
-    setDraftEmail(draft);
-    setPendingApproval({ type: 'email', data: draft });
-  };
-
-  // === CALENDAR HANDLERS ===
-  const handleFindAvailability = async () => {
-    const slots: AvailabilitySlot[] = [
-      { start: new Date(Date.now() + 24 * 3600000 + 10 * 3600000), end: new Date(Date.now() + 24 * 3600000 + 11 * 3600000), score: 95, reason: 'Morning slot - typically high engagement' },
-      { start: new Date(Date.now() + 24 * 3600000 + 14 * 3600000), end: new Date(Date.now() + 24 * 3600000 + 15 * 3600000), score: 85, reason: 'Post-lunch - good for discussions' },
-      { start: new Date(Date.now() + 2 * 24 * 3600000 + 11 * 3600000), end: new Date(Date.now() + 2 * 24 * 3600000 + 12 * 3600000), score: 80, reason: 'Mid-morning - allows preparation time' },
-    ];
-    setAvailableSlots(slots);
-    recordAction('CHECK_AVAILABILITY', 'success');
-  };
-
-  const handleScheduleQBR = async () => {
-    await handleFindAvailability();
-    const proposal: MeetingProposal = {
-      id: `meeting_${Date.now()}`,
-      title: `Quarterly Business Review - ${customerName}`,
-      description: `QBR with ${customerName} team.\n\nAgenda:\n• Performance review\n• Roadmap alignment\n• Success metrics\n• Next quarter planning`,
-      duration: 60,
-      attendees: stakeholderEmails.length > 0 ? stakeholderEmails : ['sarah@acmecorp.com'],
-      proposedSlots: availableSlots,
-      meetingType: 'qbr',
-      status: 'proposing',
-      includeMeetLink: true,
-      sendInvites: true,
-    };
-    setMeetingProposal(proposal);
-    setPendingApproval({ type: 'meeting', data: proposal });
-  };
-
-  const handleScheduleCheckin = async () => {
-    await handleFindAvailability();
-    const proposal: MeetingProposal = {
-      id: `meeting_${Date.now()}`,
-      title: `Check-in - ${customerName}`,
-      description: `Regular check-in with ${customerName} team.`,
-      duration: 30,
-      attendees: stakeholderEmails.length > 0 ? stakeholderEmails : ['sarah@acmecorp.com'],
-      proposedSlots: availableSlots,
-      meetingType: 'check_in',
-      status: 'proposing',
-      includeMeetLink: true,
-      sendInvites: true,
-    };
-    setMeetingProposal(proposal);
-    setPendingApproval({ type: 'meeting', data: proposal });
-  };
-
-  // === DOCUMENT HANDLERS ===
-  const handleFindDocuments = async () => {
-    setDocuments(MOCK_DOCS);
-    recordAction('FIND_DOCUMENTS', 'success');
-  };
-
-  const handleCreateDocument = async (type: string) => {
-    // Simulate document creation
-    const newDoc: DriveDocument = {
-      id: `doc_${Date.now()}`,
-      name: `${customerName} - ${type === 'meeting_notes' ? 'Meeting Notes' : 'Success Plan'} - ${new Date().toLocaleDateString()}`,
-      mimeType: 'application/vnd.google-apps.document',
-      type: 'document',
-      webViewLink: 'https://docs.google.com/document/d/new',
-      lastModified: new Date(),
-      isCustomerDoc: true,
-      customerName,
-      category: type === 'meeting_notes' ? 'meeting_notes' : 'success_plan',
-    };
-    setDocuments(prev => [newDoc, ...prev]);
-    recordAction('CREATE_DOCUMENT', 'success');
-  };
-
-  // === MEETING INTELLIGENCE HANDLERS ===
-  const handleGetRecentMeetings = async () => {
-    setRecentMeetings(MOCK_MEETINGS);
-    recordAction('LIST_RECENT_MEETINGS', 'success');
-  };
-
-  const handleSummarizeMeeting = async () => {
-    const summary: MeetingSummary = {
-      id: `summary_${Date.now()}`,
-      meetingId: MOCK_MEETINGS[0]?.id || 'meeting_1',
-      format: 'detailed',
-      overview: `Productive weekly sync covering product updates, roadmap alignment, and Q2 planning. Customer expressed satisfaction with recent improvements.`,
-      keyPoints: [
-        'Customer satisfied with recent performance improvements',
-        'Planning to expand usage to marketing team',
-        'Interest in new analytics features',
-        'Budget discussion for Q2 expansion',
-      ],
-      actionItems: [
-        { id: '1', description: 'Send analytics feature demo', owner: 'CSM', priority: 'high', status: 'pending', source: 'meeting' },
-        { id: '2', description: 'Prepare expansion proposal', owner: 'CSM', priority: 'medium', status: 'pending', source: 'meeting' },
-        { id: '3', description: 'Schedule training for marketing team', owner: 'Customer', priority: 'medium', status: 'pending', source: 'meeting' },
-      ],
-      decisions: ['Move forward with Q2 expansion planning', 'Schedule executive review for April'],
-      followUps: ['Send proposal by end of week', 'Confirm training dates'],
-      sentiment: 'positive',
-      customerSignals: [
-        { type: 'opportunity', description: 'Expansion to marketing team', severity: 'medium' },
-        { type: 'feedback', description: 'Very happy with support response times', severity: 'low' },
-      ],
-      generatedAt: new Date(),
-    };
-    setMeetingSummary(summary);
-    recordAction('SUMMARIZE_MEETING', 'success');
-  };
-
-  const handleExtractActions = async () => {
-    await handleSummarizeMeeting();
-    recordAction('EXTRACT_ACTION_ITEMS', 'success');
-  };
-
-  // === HEALTH SCORE HANDLERS ===
-  const handleCalculateHealthScore = async () => {
-    setHealthScoreData(MOCK_HEALTH_SCORE);
-    recordAction('CALCULATE_HEALTH_SCORE', 'success');
-  };
-
-  const handleGetHealthTrend = async () => {
-    await handleCalculateHealthScore();
-    recordAction('GET_HEALTH_TREND', 'success');
-  };
-
-  // === QBR HANDLERS ===
-  const handlePrepareQBR = async () => {
-    await handleFindDocuments();
-    await handleSummarizeEmails();
-    await handleCalculateHealthScore();
-    recordAction('PREPARE_QBR', 'success');
-  };
-
-  const handleGenerateQBR = async () => {
-    const qbr: QBRPackage = {
-      id: `qbr_${Date.now()}`,
-      customerId: customerId || 'acme_1',
-      customerName,
-      quarter: 'Q1',
-      year: 2024,
-      status: 'draft',
-      documentId: 'doc_qbr_1',
-      presentationId: 'slides_qbr_1',
-      documentUrl: 'https://docs.google.com/document/d/qbr',
-      presentationUrl: 'https://docs.google.com/presentation/d/qbr',
-      sections: [
-        { name: 'executive_summary', included: true, content: 'Executive summary content...' },
-        { name: 'usage_metrics', included: true, data: { logins: 1250, features: 15, adoption: 68 } },
-        { name: 'health_score_analysis', included: true, data: MOCK_HEALTH_SCORE },
-        { name: 'recommendations', included: true, content: 'Recommendations content...' },
-      ],
-      generatedAt: new Date(),
-    };
-    setQBRPackage(qbr);
-    setPendingApproval({ type: 'qbr', data: qbr });
-    recordAction('GENERATE_QBR', 'success');
-  };
-
-  // === RENEWAL HANDLERS ===
-  const handleRenewalHealthCheck = async () => {
-    await handleCalculateHealthScore();
-    recordAction('CHECK_RENEWAL_HEALTH', 'success');
-  };
-
-  const handleCreateRenewalPlaybook = async () => {
-    const playbook: RenewalPlaybook = {
-      id: `renewal_${Date.now()}`,
-      customerId: customerId || 'acme_1',
-      customerName,
-      renewalDate: renewalDate || new Date(Date.now() + 90 * 86400000),
-      status: 'not_started',
-      stages: [
-        { name: '90 Days Out', daysBeforeRenewal: 90, status: 'pending', actions: [
-          { id: '1', type: 'email', description: 'Send renewal reminder', status: 'pending' },
-          { id: '2', type: 'meeting', description: 'Schedule renewal discussion', status: 'pending' },
-        ]},
-        { name: '60 Days Out', daysBeforeRenewal: 60, status: 'pending', actions: [
-          { id: '3', type: 'email', description: 'Send proposal', status: 'pending' },
-        ]},
-        { name: '30 Days Out', daysBeforeRenewal: 30, status: 'pending', actions: [
-          { id: '4', type: 'call', description: 'Follow up call', status: 'pending' },
-        ]},
-      ],
-      probability: 85,
-      riskFactors: ['Budget constraints mentioned', 'Competitor evaluation'],
-      positiveIndicators: ['High engagement', 'Executive sponsor active', 'Expanding usage'],
-      recommendedActions: ['Schedule executive review', 'Prepare expansion proposal', 'Address technical concerns'],
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    setRenewalPlaybook(playbook);
-    setPendingApproval({ type: 'renewal', data: playbook });
-    recordAction('CREATE_RENEWAL_PLAYBOOK', 'success');
-  };
-
-  // === KNOWLEDGE HANDLERS ===
-  const handleSearchKnowledge = async () => {
-    await handleGetInsights();
-    recordAction('SEARCH_KNOWLEDGE_BASE', 'success');
-  };
-
-  const handleGetInsights = async () => {
-    setCustomerInsights(MOCK_INSIGHTS);
-    recordAction('GET_CUSTOMER_INSIGHTS', 'success');
-  };
-
-  const handleViewTimeline = async () => {
-    await handleGetInsights();
-    recordAction('GET_CUSTOMER_TIMELINE', 'success');
-  };
-
-  // === APPROVAL HANDLERS ===
-  const handleApprove = async () => {
-    if (!pendingApproval) return;
-    setIsProcessing(true);
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    if (pendingApproval.type === 'email') {
-      const draft = pendingApproval.data as EmailDraft;
-      setDraftEmail({ ...draft, status: 'sent' });
-      recordAction('SEND_EMAIL', 'success');
-    } else if (pendingApproval.type === 'meeting') {
-      const meeting = pendingApproval.data as MeetingProposal;
-      setMeetingProposal({ ...meeting, status: 'pending_response' });
-      recordAction('SCHEDULE_MEETING', 'success');
-    } else if (pendingApproval.type === 'qbr') {
-      const qbr = pendingApproval.data as QBRPackage;
-      setQBRPackage({ ...qbr, status: 'approved', approvedAt: new Date() });
-      recordAction('GENERATE_QBR', 'success');
-    } else if (pendingApproval.type === 'renewal') {
-      const renewal = pendingApproval.data as RenewalPlaybook;
-      setRenewalPlaybook({ ...renewal, status: 'in_progress' });
-      recordAction('CREATE_RENEWAL_PLAYBOOK', 'success');
+  const handleWSMessage = useCallback((message: { type: string; data: Record<string, unknown> }) => {
+    switch (message.type) {
+      case 'approval_required':
+        // Real-time approval notification from backend
+        console.log('[WorkspaceAgent] Approval required via WebSocket:', message.data);
+        break;
+      case 'agent_message':
+        // Agent status update
+        console.log('[WorkspaceAgent] Agent message:', message.data);
+        break;
+      case 'agent:step':
+        // Step-level update for long-running actions
+        console.log('[WorkspaceAgent] Agent step:', message.data);
+        break;
     }
-
-    setPendingApproval(null);
-    setIsProcessing(false);
-  };
-
-  const handleModify = () => {
-    console.log('Modify action:', pendingApproval);
-  };
+  }, []);
 
   // Record action for memory
-  const recordAction = (action: string, outcome: 'success' | 'modified' | 'rejected') => {
+  const recordAction = useCallback((action: string, outcome: 'success' | 'modified' | 'rejected') => {
     setAgentMemory(prev => ({
       ...prev,
       recentActions: [
@@ -878,7 +287,445 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
         ...prev.recentActions.slice(0, 9),
       ],
     }));
+  }, [customerName]);
+
+  // Process backend response into appropriate UI state
+  const processBackendResponse = useCallback((
+    action: QuickAction,
+    data: unknown,
+    requiresApproval?: boolean,
+    approvalId?: string
+  ) => {
+    const result = data as Record<string, unknown>;
+
+    switch (action.category) {
+      case 'email': {
+        if (action.id === 'summarize_emails') {
+          const threads = (result.threads as Array<{ id: string; snippet: string; messageCount?: number }>) || [];
+          setEmailSummary({
+            threads: threads.map(t => ({
+              id: t.id,
+              subject: t.snippet?.slice(0, 60) || 'Untitled',
+              snippet: t.snippet || '',
+              participants: [],
+              messageCount: t.messageCount || 0,
+              unreadCount: 0,
+              lastMessageDate: new Date(),
+              labels: [],
+              isCustomerThread: true,
+            })),
+            summary: `Found ${result.threadCount || threads.length} recent threads with ${customerName}.`,
+            actionItems: [],
+          });
+        } else if (requiresApproval && result.draftId) {
+          const draft: EmailDraft = {
+            id: result.draftId as string,
+            to: (result.to as string[]) || stakeholderEmails,
+            subject: (result.subject as string) || '',
+            body: (result.body as string) || '',
+            purpose: (result.purpose as EmailDraft['purpose']) || 'follow_up',
+            tone: 'friendly',
+            status: 'pending_approval',
+            aiGenerated: true,
+            suggestions: [],
+          };
+          setDraftEmail(draft);
+          setPendingApproval({ type: 'email', data: draft, approvalId });
+        }
+        break;
+      }
+
+      case 'calendar': {
+        if (action.id === 'find_availability') {
+          const freeSlots = (result.freeSlots as Array<{ start: string; end: string }>) || [];
+          setAvailableSlots(freeSlots.map((slot, i) => ({
+            start: new Date(slot.start),
+            end: new Date(slot.end),
+            score: Math.max(70, 95 - i * 5),
+            reason: 'Available slot',
+          })));
+        } else if (action.id === 'schedule_qbr' || action.id === 'schedule_checkin') {
+          if (requiresApproval && result.eventId) {
+            const proposal: MeetingProposal = {
+              id: result.eventId as string,
+              title: (result.summary as string) || `Meeting with ${customerName}`,
+              description: '',
+              duration: action.id === 'schedule_qbr' ? 60 : 30,
+              attendees: stakeholderEmails,
+              proposedSlots: availableSlots,
+              meetingType: action.id === 'schedule_qbr' ? 'qbr' : 'check_in',
+              status: 'proposing',
+              includeMeetLink: true,
+              sendInvites: true,
+            };
+            setMeetingProposal(proposal);
+            setPendingApproval({ type: 'meeting', data: proposal, approvalId });
+          }
+        }
+        break;
+      }
+
+      case 'document': {
+        if (action.id === 'find_docs') {
+          const files = (result.files as Array<{ id: string; name: string; mimeType: string; webViewLink: string }>) || [];
+          setDocuments(files.map(f => ({
+            id: f.id,
+            name: f.name,
+            mimeType: f.mimeType,
+            type: f.mimeType.includes('presentation') ? 'presentation' as const :
+                  f.mimeType.includes('spreadsheet') ? 'spreadsheet' as const :
+                  f.mimeType.includes('document') ? 'document' as const :
+                  f.mimeType.includes('pdf') ? 'pdf' as const : 'document' as const,
+            webViewLink: f.webViewLink || '',
+            lastModified: new Date(),
+            isCustomerDoc: true,
+            customerName,
+          })));
+        } else if (result.documentId || result.spreadsheetId) {
+          const newDoc: DriveDocument = {
+            id: (result.documentId || result.spreadsheetId) as string,
+            name: (result.title as string) || 'New Document',
+            mimeType: result.spreadsheetId ? 'application/vnd.google-apps.spreadsheet' : 'application/vnd.google-apps.document',
+            type: result.spreadsheetId ? 'spreadsheet' : 'document',
+            webViewLink: (result.webViewLink as string) || '',
+            lastModified: new Date(),
+            isCustomerDoc: true,
+            customerName,
+          };
+          setDocuments(prev => [newDoc, ...prev]);
+        }
+        break;
+      }
+
+      case 'meeting_intelligence': {
+        if (action.id === 'get_transcript') {
+          const meetings = (result.meetings as Array<{
+            id?: string; meeting_id?: string; topic?: string; meeting_title?: string;
+            start_time?: string; meeting_date?: string; duration?: number;
+          }>) || [];
+          setRecentMeetings(meetings.map(m => ({
+            id: m.id || m.meeting_id || `meeting_${Date.now()}`,
+            platform: 'zoom' as const,
+            title: m.topic || m.meeting_title || 'Meeting',
+            startTime: new Date(m.start_time || m.meeting_date || Date.now()),
+            duration: m.duration || 0,
+            participants: [],
+            transcriptAvailable: true,
+            customerId,
+            customerName,
+          })));
+        } else if (action.id === 'summarize_meeting') {
+          const analysis = result as Record<string, unknown>;
+          const summary: MeetingSummary = {
+            id: `summary_${Date.now()}`,
+            meetingId: (analysis.meetingId as string) || '',
+            format: 'detailed',
+            overview: (analysis.summary as string) || (analysis.message as string) || 'Analysis complete.',
+            keyPoints: (analysis.keyPoints as string[]) || [],
+            actionItems: ((analysis.actionItems || analysis.action_items) as Array<{
+              id?: string; description: string; owner?: string; priority?: string; status?: string;
+            }> || []).map((item, i) => ({
+              id: item.id || `${i}`,
+              description: item.description,
+              owner: item.owner || 'Unassigned',
+              priority: (item.priority || 'medium') as 'high' | 'medium' | 'low',
+              status: (item.status || 'pending') as 'pending' | 'completed',
+              source: 'meeting' as const,
+            })),
+            decisions: (analysis.decisions as string[]) || [],
+            followUps: (analysis.followUps as string[]) || [],
+            sentiment: (analysis.sentiment as 'positive' | 'negative' | 'neutral') || 'neutral',
+            customerSignals: ((analysis.customerSignals as Array<{ type: string; description: string; severity: string }>) || []).map(s => ({
+              ...s,
+              type: s.type as CustomerSignal['type'],
+              severity: s.severity as CustomerSignal['severity'],
+            })),
+            generatedAt: new Date(),
+          };
+          setMeetingSummary(summary);
+        } else if (action.id === 'extract_actions') {
+          const items = (result.actionItems as Array<{
+            id?: string; description: string; owner?: string; priority?: string; status?: string;
+          }>) || [];
+          const summary: MeetingSummary = {
+            id: `summary_${Date.now()}`,
+            meetingId: (result.meetingId as string) || '',
+            format: 'detailed',
+            overview: `Extracted ${items.length} action items from ${result.meetingTitle || 'latest meeting'}.`,
+            keyPoints: [],
+            actionItems: items.map((item, i) => ({
+              id: item.id || `${i}`,
+              description: item.description,
+              owner: item.owner || 'Unassigned',
+              priority: (item.priority || 'medium') as 'high' | 'medium' | 'low',
+              status: (item.status || 'pending') as 'pending' | 'completed',
+              source: 'meeting' as const,
+            })),
+            decisions: [],
+            followUps: [],
+            sentiment: 'neutral',
+            customerSignals: [],
+            generatedAt: new Date(),
+          };
+          setMeetingSummary(summary);
+        }
+        break;
+      }
+
+      case 'health_score': {
+        const score = (result.healthScore as number) || (result.score as number) || 0;
+        const components = result.components as Record<string, number> | undefined;
+        setHealthScoreData({
+          customerId: customerId || '',
+          score,
+          grade: score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F',
+          trend: score >= 70 ? 'improving' : score >= 50 ? 'stable' : 'declining',
+          previousScore: score - 5,
+          signals: {
+            productUsage: { loginFrequency: 0, featureAdoption: 0, usageVsEntitlement: 0, activeUsers: 0, trend: 'up', score: components?.usage || 0 },
+            engagement: { meetingFrequency: 0, emailResponseTime: 0, eventAttendance: 0, lastContactDays: 0, score: components?.engagement || 0 },
+            support: { ticketVolume: 0, avgSeverity: 0, resolutionSatisfaction: 0, openTickets: 0, escalations: 0, score: 0 },
+            nps: { latestScore: 0, previousScore: 0, trend: 'promoter', lastSurveyDate: new Date(), score: 0 },
+            contract: { daysToRenewal: 0, expansionHistory: 0, paymentStatus: 'current', contractValue: 0, score: 0 },
+            stakeholder: { championStrength: 'moderate', executiveEngagement: false, turnoverRisk: 'medium', decisionMakerAccess: false, score: 0 },
+          },
+          factors: components ? [
+            { name: 'Usage', weight: 0.33, score: components.usage || 0, impact: (components.usage || 0) >= 70 ? 'positive' as const : 'neutral' as const, description: 'Product usage metrics' },
+            { name: 'Engagement', weight: 0.33, score: components.engagement || 0, impact: (components.engagement || 0) >= 70 ? 'positive' as const : 'neutral' as const, description: 'Engagement metrics' },
+            { name: 'Sentiment', weight: 0.33, score: components.sentiment || 0, impact: (components.sentiment || 0) >= 70 ? 'positive' as const : 'neutral' as const, description: 'Sentiment analysis' },
+          ] : [],
+          recommendations: [],
+          calculatedAt: new Date(),
+        });
+        break;
+      }
+
+      case 'qbr': {
+        if (result.documentId) {
+          const qbr: QBRPackage = {
+            id: `qbr_${Date.now()}`,
+            customerId: customerId || '',
+            customerName,
+            quarter: `Q${Math.ceil((new Date().getMonth() + 1) / 3)}` as 'Q1' | 'Q2' | 'Q3' | 'Q4',
+            year: new Date().getFullYear(),
+            status: 'draft',
+            documentId: result.documentId as string,
+            presentationId: result.documentId as string,
+            documentUrl: (result.webViewLink as string) || '',
+            presentationUrl: (result.webViewLink as string) || '',
+            sections: [{ name: 'executive_summary' as QBRSectionType, included: true, content: result.title as string }],
+            generatedAt: new Date(),
+          };
+          setQBRPackage(qbr);
+          setPendingApproval({ type: 'qbr', data: qbr, approvalId });
+        }
+        break;
+      }
+
+      case 'renewal': {
+        if (action.id === 'renewal_health_check') {
+          const daysToRenewal = result.daysToRenewal as number;
+          // Also calculate health score if we have the data
+          if (result.healthScore || result.arr) {
+            setRenewalPlaybook({
+              id: `renewal_${Date.now()}`,
+              customerId: customerId || '',
+              customerName,
+              renewalDate: result.renewalDate ? new Date(result.renewalDate as string) : (renewalDate || new Date()),
+              status: 'not_started',
+              stages: [],
+              probability: daysToRenewal && daysToRenewal > 60 ? 85 : 65,
+              riskFactors: [],
+              positiveIndicators: [],
+              recommendedActions: [],
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          }
+        } else if (result.pipelineId || result.status) {
+          const playbook: RenewalPlaybook = {
+            id: (result.pipelineId as string) || `renewal_${Date.now()}`,
+            customerId: customerId || '',
+            customerName,
+            renewalDate: renewalDate || new Date(Date.now() + 90 * 86400000),
+            status: (result.status as string) === 'in_progress' ? 'in_progress' : 'not_started',
+            stages: [
+              { name: '90 Days Out', daysBeforeRenewal: 90, status: 'pending', actions: [
+                { id: '1', type: 'email', description: 'Send renewal reminder', status: 'pending' },
+                { id: '2', type: 'meeting', description: 'Schedule renewal discussion', status: 'pending' },
+              ]},
+              { name: '60 Days Out', daysBeforeRenewal: 60, status: 'pending', actions: [
+                { id: '3', type: 'email', description: 'Send proposal', status: 'pending' },
+              ]},
+              { name: '30 Days Out', daysBeforeRenewal: 30, status: 'pending', actions: [
+                { id: '4', type: 'call', description: 'Follow up call', status: 'pending' },
+              ]},
+            ],
+            probability: 85,
+            riskFactors: [],
+            positiveIndicators: [],
+            recommendedActions: [],
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+          setRenewalPlaybook(playbook);
+          setPendingApproval({ type: 'renewal', data: playbook, approvalId });
+        }
+        break;
+      }
+
+      case 'knowledge': {
+        if (action.id === 'get_insights' || action.id === 'search_knowledge' || action.id === 'view_timeline') {
+          setCustomerInsights({
+            relationshipSummary: (result.relationshipSummary as string) || 'Customer insights loaded from database.',
+            keyStakeholders: (result.keyStakeholders as string[]) || [],
+            mainUseCases: (result.mainUseCases as string[]) || [],
+            successFactors: [],
+            riskFactors: [],
+            expansionOpportunities: [],
+            communicationPreferences: '',
+            lastUpdated: new Date(),
+          });
+        }
+        break;
+      }
+    }
+  }, [customerId, customerName, stakeholderEmails, availableSlots, renewalDate]);
+
+  // Execute a quick action via MCP backend
+  const executeAction = useCallback(async (action: QuickAction) => {
+    setLoadingActionId(action.id);
+    setActionError(null);
+    setShowResults(true);
+
+    try {
+      // Build action-specific params
+      let params: Record<string, unknown> = { stakeholderEmails };
+
+      if (['draft_checkin', 'draft_followup', 'draft_renewal', 'draft_escalation'].includes(action.id)) {
+        params = { ...params, ...getDraftParams(action.id, stakeholderEmails) };
+      } else if (['schedule_qbr', 'schedule_checkin'].includes(action.id)) {
+        params = { ...params, ...getScheduleParams(action.id, customerName, stakeholderEmails) };
+      } else if (['create_meeting_notes', 'create_success_plan'].includes(action.id)) {
+        params = { ...params, ...getDocumentParams(action.id, customerName) };
+      }
+
+      const result = await executeWorkspaceAction(
+        action.id,
+        action.category,
+        customerId,
+        customerName,
+        params
+      );
+
+      if (result.success) {
+        processBackendResponse(action, result.data, result.requiresApproval, result.approvalId);
+        recordAction(action.id.toUpperCase(), 'success');
+
+        if (onActionComplete) {
+          onActionComplete({
+            success: true,
+            action: { type: action.id.toUpperCase(), customerId: customerId || '' } as unknown as WorkspaceAction,
+            data: result.data,
+          });
+        }
+      } else {
+        setActionError(result.error || 'Action failed');
+        recordAction(action.id.toUpperCase(), 'rejected');
+
+        if (onActionComplete) {
+          onActionComplete({
+            success: false,
+            action: { type: action.id.toUpperCase(), customerId: customerId || '' } as unknown as WorkspaceAction,
+            error: result.error || 'Action failed',
+          });
+        }
+      }
+    } catch (error) {
+      const errorMsg = (error as Error).message;
+      setActionError(errorMsg);
+      recordAction(action.id.toUpperCase(), 'rejected');
+    } finally {
+      setLoadingActionId(null);
+    }
+  }, [customerId, customerName, stakeholderEmails, onActionComplete, processBackendResponse, recordAction]);
+
+  // === APPROVAL HANDLERS ===
+  const handleApprove = async () => {
+    if (!pendingApproval) return;
+    setLoadingActionId('approve');
+
+    try {
+      if (pendingApproval.type === 'email') {
+        const draft = pendingApproval.data as EmailDraft;
+        // Execute approval via MCP backend
+        if (pendingApproval.approvalId) {
+          await fetch(`${API_URL}/api/mcp/execute/gmail_send_email/with-approval`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-user-id': DEMO_USER_ID },
+            body: JSON.stringify({
+              input: { to: draft.to, subject: draft.subject, body: draft.body },
+              approvalId: pendingApproval.approvalId,
+              approved: true,
+            }),
+          });
+        }
+        setDraftEmail({ ...draft, status: 'sent' });
+        recordAction('SEND_EMAIL', 'success');
+      } else if (pendingApproval.type === 'meeting') {
+        const meeting = pendingApproval.data as MeetingProposal;
+        setMeetingProposal({ ...meeting, status: 'pending_response' });
+        recordAction('SCHEDULE_MEETING', 'success');
+      } else if (pendingApproval.type === 'qbr') {
+        const qbr = pendingApproval.data as QBRPackage;
+        setQBRPackage({ ...qbr, status: 'approved', approvedAt: new Date() });
+        recordAction('GENERATE_QBR', 'success');
+      } else if (pendingApproval.type === 'renewal') {
+        const renewal = pendingApproval.data as RenewalPlaybook;
+        setRenewalPlaybook({ ...renewal, status: 'in_progress' });
+        recordAction('CREATE_RENEWAL_PLAYBOOK', 'success');
+      }
+    } catch (error) {
+      console.error('Approval error:', error);
+    }
+
+    setPendingApproval(null);
+    setLoadingActionId(null);
   };
+
+  const handleModify = () => {
+    console.log('Modify action:', pendingApproval);
+  };
+
+  // Get unique categories from quick actions
+  const categories: QuickActionCategory[] = [
+    'email', 'calendar', 'document', 'meeting_intelligence',
+    'health_score', 'qbr', 'renewal', 'knowledge',
+  ];
+
+  const getActionsByCategory = (category: QuickActionCategory | 'all') => {
+    if (category === 'all') return CSM_QUICK_ACTIONS;
+    return CSM_QUICK_ACTIONS.filter(a => a.category === category);
+  };
+
+  const getCategoryName = (category: QuickActionCategory | 'all'): string => {
+    const names: Record<string, string> = {
+      all: 'All Actions', email: 'Email', calendar: 'Calendar', document: 'Documents',
+      meeting_intelligence: 'Meeting Intel', health_score: 'Health Score', qbr: 'QBR',
+      renewal: 'Renewal', knowledge: 'Knowledge', onboarding: 'Onboarding', automation: 'Automation',
+    };
+    return names[category] || category;
+  };
+
+  const getCategoryIcon = (category: QuickActionCategory | 'all'): string => {
+    const icons: Record<string, string> = {
+      all: '🎯', email: '📧', calendar: '📅', document: '📁', meeting_intelligence: '🎙️',
+      health_score: '💚', qbr: '📊', renewal: '🔄', knowledge: '💡', onboarding: '🚀', automation: '⚡',
+    };
+    return icons[category] || '📌';
+  };
+
+  const isProcessing = loadingActionId !== null;
 
   // Connection status indicator
   const ConnectionStatus: React.FC = () => (
@@ -898,27 +745,34 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
     </div>
   );
 
-  // Quick action button
-  const ActionButton: React.FC<{ action: QuickAction; size?: 'sm' | 'md' }> = ({ action, size = 'md' }) => (
-    <button
-      onClick={() => executeAction(action)}
-      disabled={isProcessing}
-      className={`bg-cscx-gray-800 hover:bg-cscx-gray-700 border border-cscx-gray-700 rounded-lg text-left transition-all ${
-        isProcessing ? 'opacity-50 cursor-not-allowed' : ''
-      } ${size === 'sm' ? 'p-2' : 'p-3'}`}
-    >
-      <div className="flex items-center gap-2 mb-1">
-        <span className={size === 'sm' ? 'text-base' : 'text-lg'}>{action.icon}</span>
-        <span className="text-white font-medium text-sm">{action.name}</span>
-      </div>
-      {size === 'md' && <p className="text-xs text-cscx-gray-400">{action.description}</p>}
-      {action.requiresApproval && size === 'md' && (
-        <span className="inline-block mt-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded">
-          Requires approval
-        </span>
-      )}
-    </button>
-  );
+  // Quick action button with per-action loading
+  const ActionButton: React.FC<{ action: QuickAction; size?: 'sm' | 'md' }> = ({ action, size = 'md' }) => {
+    const isLoading = loadingActionId === action.id;
+    return (
+      <button
+        onClick={() => executeAction(action)}
+        disabled={isProcessing}
+        className={`bg-cscx-gray-800 hover:bg-cscx-gray-700 border border-cscx-gray-700 rounded-lg text-left transition-all ${
+          isProcessing && !isLoading ? 'opacity-50 cursor-not-allowed' : ''
+        } ${isLoading ? 'ring-2 ring-cscx-accent' : ''} ${size === 'sm' ? 'p-2' : 'p-3'}`}
+      >
+        <div className="flex items-center gap-2 mb-1">
+          {isLoading ? (
+            <div className="animate-spin w-4 h-4 border-2 border-cscx-accent border-t-transparent rounded-full" />
+          ) : (
+            <span className={size === 'sm' ? 'text-base' : 'text-lg'}>{action.icon}</span>
+          )}
+          <span className="text-white font-medium text-sm">{action.name}</span>
+        </div>
+        {size === 'md' && <p className="text-xs text-cscx-gray-400">{action.description}</p>}
+        {action.requiresApproval && size === 'md' && (
+          <span className="inline-block mt-2 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs rounded">
+            Requires approval
+          </span>
+        )}
+      </button>
+    );
+  };
 
   // Compact mode for embedded use
   if (compact) {
@@ -939,7 +793,12 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
               disabled={isProcessing}
               className="p-2 bg-cscx-gray-800 hover:bg-cscx-gray-700 border border-cscx-gray-700 rounded-lg text-left transition-colors"
             >
-              <span className="text-sm text-white">{action.icon} {action.name}</span>
+              <span className="text-sm text-white">
+                {loadingActionId === action.id ? (
+                  <span className="inline-block animate-spin w-3 h-3 border-2 border-cscx-accent border-t-transparent rounded-full mr-1" />
+                ) : action.icon}{' '}
+                {action.name}
+              </span>
             </button>
           ))}
         </div>
@@ -948,6 +807,12 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
           <div className="flex items-center gap-2 p-2 bg-cscx-accent/10 border border-cscx-accent/30 rounded-lg">
             <div className="animate-spin w-4 h-4 border-2 border-cscx-accent border-t-transparent rounded-full" />
             <span className="text-sm text-white">Processing...</span>
+          </div>
+        )}
+
+        {actionError && (
+          <div className="p-2 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-xs text-red-400">{actionError}</p>
           </div>
         )}
 
@@ -1043,11 +908,16 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
           ))}
         </div>
 
-        {/* Processing Indicator */}
-        {isProcessing && (
-          <div className="flex items-center gap-3 p-4 bg-cscx-accent/10 border border-cscx-accent/30 rounded-lg">
-            <div className="animate-spin w-5 h-5 border-2 border-cscx-accent border-t-transparent rounded-full" />
-            <span className="text-white">{activeAction ? `Executing: ${activeAction.name}...` : 'Processing...'}</span>
+        {/* Error Display */}
+        {actionError && !isProcessing && (
+          <div className="flex items-center gap-3 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <span className="text-red-400 text-sm">Action failed: {actionError}</span>
+            <button
+              onClick={() => setActionError(null)}
+              className="ml-auto text-xs text-cscx-gray-400 hover:text-white"
+            >
+              Dismiss
+            </button>
           </div>
         )}
 
@@ -1067,11 +937,13 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
                           <p className="text-white font-medium text-sm">{thread.subject}</p>
                           <p className="text-xs text-cscx-gray-400">{thread.snippet}</p>
                         </div>
-                        <span className={`px-2 py-0.5 text-xs rounded ${
-                          thread.sentiment === 'positive' ? 'bg-green-500/20 text-green-400' :
-                          thread.sentiment === 'negative' ? 'bg-red-500/20 text-red-400' :
-                          'bg-gray-500/20 text-gray-400'
-                        }`}>{thread.sentiment}</span>
+                        {thread.sentiment && (
+                          <span className={`px-2 py-0.5 text-xs rounded ${
+                            thread.sentiment === 'positive' ? 'bg-green-500/20 text-green-400' :
+                            thread.sentiment === 'negative' ? 'bg-red-500/20 text-red-400' :
+                            'bg-gray-500/20 text-gray-400'
+                          }`}>{thread.sentiment}</span>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1143,22 +1015,26 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
                 <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">🎙️ Meeting Summary</h4>
                 <p className="text-sm text-cscx-gray-300 mb-3">{meetingSummary.overview}</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-cscx-gray-500 mb-1">Key Points:</p>
-                    <ul className="text-xs text-cscx-gray-400">
-                      {meetingSummary.keyPoints.slice(0, 3).map((point, i) => (
-                        <li key={i}>• {point}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="text-xs text-cscx-gray-500 mb-1">Action Items:</p>
-                    <ul className="text-xs text-cscx-gray-400">
-                      {meetingSummary.actionItems.slice(0, 3).map((item, i) => (
-                        <li key={i}>• {item.description}</li>
-                      ))}
-                    </ul>
-                  </div>
+                  {meetingSummary.keyPoints.length > 0 && (
+                    <div>
+                      <p className="text-xs text-cscx-gray-500 mb-1">Key Points:</p>
+                      <ul className="text-xs text-cscx-gray-400">
+                        {meetingSummary.keyPoints.slice(0, 3).map((point, i) => (
+                          <li key={i}>• {point}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {meetingSummary.actionItems.length > 0 && (
+                    <div>
+                      <p className="text-xs text-cscx-gray-500 mb-1">Action Items:</p>
+                      <ul className="text-xs text-cscx-gray-400">
+                        {meetingSummary.actionItems.slice(0, 3).map((item, i) => (
+                          <li key={i}>• {item.description}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2 mt-3">
                   <span className={`px-2 py-0.5 text-xs rounded ${
@@ -1200,22 +1076,26 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
                 <h4 className="text-sm font-medium text-white mb-2 flex items-center gap-2">💡 Customer Insights</h4>
                 <p className="text-sm text-cscx-gray-300 mb-3">{customerInsights.relationshipSummary}</p>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-cscx-gray-500 mb-1">Key Stakeholders:</p>
-                    <ul className="text-xs text-cscx-gray-400">
-                      {customerInsights.keyStakeholders.map((s, i) => (
-                        <li key={i}>• {s}</li>
-                      ))}
-                    </ul>
-                  </div>
-                  <div>
-                    <p className="text-xs text-cscx-gray-500 mb-1">Expansion Opportunities:</p>
-                    <ul className="text-xs text-cscx-gray-400">
-                      {customerInsights.expansionOpportunities.map((o, i) => (
-                        <li key={i}>• {o}</li>
-                      ))}
-                    </ul>
-                  </div>
+                  {customerInsights.keyStakeholders.length > 0 && (
+                    <div>
+                      <p className="text-xs text-cscx-gray-500 mb-1">Key Stakeholders:</p>
+                      <ul className="text-xs text-cscx-gray-400">
+                        {customerInsights.keyStakeholders.map((s, i) => (
+                          <li key={i}>• {s}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {customerInsights.expansionOpportunities.length > 0 && (
+                    <div>
+                      <p className="text-xs text-cscx-gray-500 mb-1">Expansion Opportunities:</p>
+                      <ul className="text-xs text-cscx-gray-400">
+                        {customerInsights.expansionOpportunities.map((o, i) => (
+                          <li key={i}>• {o}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -1242,7 +1122,7 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
                         </span>
                         <div>
                           <p className="text-white text-sm">{doc.name}</p>
-                          <p className="text-xs text-cscx-gray-400">{doc.category} • {doc.lastModified.toLocaleDateString()}</p>
+                          <p className="text-xs text-cscx-gray-400">{doc.category || doc.type} • {doc.lastModified.toLocaleDateString()}</p>
                         </div>
                       </div>
                       <span className="text-cscx-gray-400">↗</span>
@@ -1315,8 +1195,12 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
                     Includes: Document + Presentation with {qbrPackage.sections.filter(s => s.included).length} sections
                   </p>
                   <div className="flex gap-2">
-                    <a href={qbrPackage.documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-cscx-accent hover:underline">📄 View Document</a>
-                    <a href={qbrPackage.presentationUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-cscx-accent hover:underline">📊 View Slides</a>
+                    {qbrPackage.documentUrl && (
+                      <a href={qbrPackage.documentUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-cscx-accent hover:underline">📄 View Document</a>
+                    )}
+                    {qbrPackage.presentationUrl && qbrPackage.presentationUrl !== qbrPackage.documentUrl && (
+                      <a href={qbrPackage.presentationUrl} target="_blank" rel="noopener noreferrer" className="text-xs text-cscx-accent hover:underline">📊 View Slides</a>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1342,7 +1226,12 @@ export const WorkspaceAgent: React.FC<WorkspaceAgentProps> = ({
                 disabled={isProcessing}
                 className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                ✓ Approve
+                {loadingActionId === 'approve' ? (
+                  <span className="flex items-center gap-2">
+                    <span className="animate-spin w-3 h-3 border-2 border-white border-t-transparent rounded-full" />
+                    Approving...
+                  </span>
+                ) : '✓ Approve'}
               </button>
               <button
                 onClick={handleModify}
