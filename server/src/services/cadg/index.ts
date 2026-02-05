@@ -82,13 +82,17 @@ export const cadgService = {
    */
   async classify(
     userQuery: string,
-    context?: { customerId?: string; userId?: string }
+    context?: { customerId?: string; userId?: string; activeAgent?: string }
   ): Promise<{
     isGenerative: boolean;
     classification: TaskClassificationResult;
     capability: CapabilityMatchResult | null;
   }> {
-    const classification = await taskClassifier.classify(userQuery);
+    const classification = await taskClassifier.classify(
+      userQuery,
+      undefined,
+      context?.activeAgent as 'onboarding' | 'adoption' | 'renewal' | 'risk' | 'strategic' | undefined
+    );
     const isGenerative = taskClassifier.isGenerativeRequest(userQuery) ||
       classification.confidence >= 0.7;
 

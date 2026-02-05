@@ -895,6 +895,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
           customerId: customer?.id,
           customerContext: buildCustomerContext(),
           forceAgent: selectedAgent !== 'auto' ? selectedAgent : undefined,
+          activeAgent, // Current active agent for CADG contextual boosting
           sessionId,
           useWorkflow: true,
           model: selectedModel,

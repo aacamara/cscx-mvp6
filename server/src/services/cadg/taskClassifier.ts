@@ -124,6 +124,21 @@ function expandWithSynonyms(query: string): string[] {
   return expanded;
 }
 
+// ============================================================================
+// Agent → Task Type Mapping (for contextual boosting)
+// When an active agent is specified, its task types get a confidence boost
+// if multiple results have similar scores (within 0.1).
+// ============================================================================
+type ActiveAgentType = 'onboarding' | 'adoption' | 'renewal' | 'risk' | 'strategic';
+
+const AGENT_TASK_TYPES: Record<ActiveAgentType, TaskType[]> = {
+  onboarding: ['kickoff_plan', 'milestone_plan', 'stakeholder_map', 'training_schedule'],
+  adoption: ['usage_analysis', 'feature_campaign', 'champion_development', 'training_program'],
+  renewal: ['renewal_forecast', 'value_summary', 'expansion_proposal', 'negotiation_brief'],
+  risk: ['risk_assessment', 'save_play', 'escalation_report', 'resolution_plan'],
+  strategic: ['qbr_generation', 'executive_briefing', 'account_plan', 'transformation_roadmap'],
+};
+
 // Keyword patterns for each task type (20+ patterns per CADG card)
 const KEYWORD_PATTERNS: Record<TaskType, string[]> = {
   // ============================================================================
@@ -687,11 +702,57 @@ const PHRASE_PATTERNS: Record<TaskType, RegExp[]> = {
 };
 
 /**
- * Classifies a user query into a task type
+ * Apply contextual agent boosting to keyword match results.
+ * When an activeAgent is provided, boosts confidence of that agent's task types
+ * by +0.15, but only when multiple task types have similar scores (within 0.1).
+ */
+function applyAgentBoosting(
+  keywordResult: { taskType: TaskType; confidence: number },
+  allScores: Map<TaskType, number>,
+  activeAgent?: ActiveAgentType
+): { taskType: TaskType; confidence: number } {
+  if (!activeAgent || !(activeAgent in AGENT_TASK_TYPES)) return keywordResult;
+
+  const agentTaskTypes = AGENT_TASK_TYPES[activeAgent];
+  const bestScore = keywordResult.confidence;
+
+  // Check if any of the active agent's task types have similar scores (within 0.1)
+  let bestBoostedType: TaskType | null = null;
+  let bestBoostedScore = 0;
+
+  for (const taskType of agentTaskTypes) {
+    const rawScore = allScores.get(taskType) || 0;
+    if (rawScore <= 0) continue;
+
+    // Convert raw score to confidence (same formula as matchKeywords)
+    const confidence = Math.min(0.9, rawScore + 0.3);
+
+    // Only boost if within 0.1 of the best match
+    if (bestScore - confidence <= 0.1) {
+      const boosted = Math.min(0.95, confidence + 0.15);
+      if (boosted > bestBoostedScore) {
+        bestBoostedScore = boosted;
+        bestBoostedType = taskType;
+      }
+    }
+  }
+
+  // If boosted score beats the original best, use the boosted result
+  if (bestBoostedType && bestBoostedScore > bestScore) {
+    return { taskType: bestBoostedType, confidence: bestBoostedScore };
+  }
+
+  return keywordResult;
+}
+
+/**
+ * Classifies a user query into a task type.
+ * Optionally accepts activeAgent for contextual boosting of ambiguous matches.
  */
 export async function classify(
   userQuery: string,
-  context?: Partial<AggregatedContext>
+  context?: Partial<AggregatedContext>,
+  activeAgent?: ActiveAgentType
 ): Promise<TaskClassificationResult> {
   const normalizedQuery = userQuery.toLowerCase().trim();
 
@@ -711,45 +772,49 @@ export async function classify(
   }
 
   // Step 2: Try keyword matching with synonym-expanded queries (medium confidence)
-  const keywordMatch = matchKeywords(normalizedQuery, expandedQueries);
-  if (keywordMatch.taskType !== 'custom' && keywordMatch.confidence >= 0.7) {
+  const { best: keywordMatch, allScores } = matchKeywordsWithScores(normalizedQuery, expandedQueries);
+
+  // Apply agent boosting if an active agent is specified
+  const boostedMatch = applyAgentBoosting(keywordMatch, allScores, activeAgent);
+
+  if (boostedMatch.taskType !== 'custom' && boostedMatch.confidence >= 0.7) {
     return {
-      taskType: keywordMatch.taskType,
-      confidence: keywordMatch.confidence,
-      suggestedMethodology: getMethodologyForTask(keywordMatch.taskType),
-      requiredSources: getRequiredSources(keywordMatch.taskType),
+      taskType: boostedMatch.taskType,
+      confidence: boostedMatch.confidence,
+      suggestedMethodology: getMethodologyForTask(boostedMatch.taskType),
+      requiredSources: getRequiredSources(boostedMatch.taskType),
     };
   }
 
   // Step 3: Fall back to LLM classification (for ambiguous or low-confidence queries)
-  if (keywordMatch.confidence < 0.3) {
+  if (boostedMatch.confidence < 0.3) {
     // Low confidence: rely entirely on LLM, fall back to keyword match if LLM fails
     const llmResult = await classifyWithLLM(userQuery);
-    if (llmResult.taskType !== 'custom' || keywordMatch.taskType === 'custom') {
+    if (llmResult.taskType !== 'custom' || boostedMatch.taskType === 'custom') {
       return llmResult;
     }
     // LLM returned custom but we had a keyword match - use keyword match as fallback
     return {
-      taskType: keywordMatch.taskType,
-      confidence: keywordMatch.confidence,
-      suggestedMethodology: getMethodologyForTask(keywordMatch.taskType),
-      requiredSources: getRequiredSources(keywordMatch.taskType),
+      taskType: boostedMatch.taskType,
+      confidence: boostedMatch.confidence,
+      suggestedMethodology: getMethodologyForTask(boostedMatch.taskType),
+      requiredSources: getRequiredSources(boostedMatch.taskType),
     };
   }
 
   // Step 4: Secondary LLM check for medium-confidence zone (0.3-0.7)
   // Keyword match exists but isn't strong - use LLM to confirm or override
   const llmResult = await classifyWithLLM(userQuery);
-  if (llmResult.taskType !== 'custom' && llmResult.confidence > keywordMatch.confidence) {
+  if (llmResult.taskType !== 'custom' && llmResult.confidence > boostedMatch.confidence) {
     return llmResult;
   }
 
   // LLM didn't improve on keyword match - use keyword result as fallback
   return {
-    taskType: keywordMatch.taskType,
-    confidence: keywordMatch.confidence,
-    suggestedMethodology: getMethodologyForTask(keywordMatch.taskType),
-    requiredSources: getRequiredSources(keywordMatch.taskType),
+    taskType: boostedMatch.taskType,
+    confidence: boostedMatch.confidence,
+    suggestedMethodology: getMethodologyForTask(boostedMatch.taskType),
+    requiredSources: getRequiredSources(boostedMatch.taskType),
   };
 }
 
@@ -793,10 +858,12 @@ function matchPhrasePatterns(query: string, expandedQueries?: string[]): { taskT
 
 /**
  * Match against keywords with synonym expansion and fuzzy word-level matching.
- * Uses tokenization (stop word removal + stemming) for individual word matching.
- * Multi-word keyword matches still score higher than single-word matches.
+ * Returns the best match and all raw scores for agent boosting.
  */
-function matchKeywords(query: string, expandedQueries?: string[]): { taskType: TaskType; confidence: number } {
+function matchKeywordsWithScores(query: string, expandedQueries?: string[]): {
+  best: { taskType: TaskType; confidence: number };
+  allScores: Map<TaskType, number>;
+} {
   const queries = expandedQueries || [query];
   const contentWords = query.split(/\s+/).filter(w => !STOP_WORDS.has(w));
 
@@ -804,6 +871,7 @@ function matchKeywords(query: string, expandedQueries?: string[]): { taskType: T
   const tokenizedQueries = queries.map(q => tokenize(q));
 
   let bestMatch: { taskType: TaskType; score: number } = { taskType: 'custom', score: 0 };
+  const allScores = new Map<TaskType, number>();
 
   for (const [taskType, keywords] of Object.entries(KEYWORD_PATTERNS)) {
     if (taskType === 'custom') continue;
@@ -835,6 +903,7 @@ function matchKeywords(query: string, expandedQueries?: string[]): { taskType: T
     }
 
     const score = matchScore / Math.max(contentWords.length, 3); // Normalize by query content length
+    allScores.set(taskType as TaskType, score);
 
     if (score > bestMatch.score) {
       bestMatch = { taskType: taskType as TaskType, score };
@@ -842,9 +911,21 @@ function matchKeywords(query: string, expandedQueries?: string[]): { taskType: T
   }
 
   return {
-    taskType: bestMatch.taskType,
-    confidence: Math.min(0.9, bestMatch.score + 0.3), // Cap at 0.9 for keyword matches
+    best: {
+      taskType: bestMatch.taskType,
+      confidence: Math.min(0.9, bestMatch.score + 0.3), // Cap at 0.9 for keyword matches
+    },
+    allScores,
   };
+}
+
+/**
+ * Match against keywords with synonym expansion and fuzzy word-level matching.
+ * Uses tokenization (stop word removal + stemming) for individual word matching.
+ * Multi-word keyword matches still score higher than single-word matches.
+ */
+function matchKeywords(query: string, expandedQueries?: string[]): { taskType: TaskType; confidence: number } {
+  return matchKeywordsWithScores(query, expandedQueries).best;
 }
 
 /**
@@ -1062,6 +1143,8 @@ function getRequiredSources(taskType: TaskType): string[] {
   };
   return sources[taskType];
 }
+
+export type { ActiveAgentType };
 
 export const taskClassifier = {
   classify,

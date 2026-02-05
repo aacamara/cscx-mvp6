@@ -28,7 +28,7 @@ const router = Router();
  */
 router.post('/plan', async (req: Request, res: Response) => {
   try {
-    const { query, customerId } = req.body;
+    const { query, customerId, activeAgent } = req.body;
     const userId = (req as any).user?.id || req.headers['x-user-id'] as string;
 
     if (!query) {
@@ -45,8 +45,8 @@ router.post('/plan', async (req: Request, res: Response) => {
       });
     }
 
-    // Step 1: Classify the task
-    const classification = await taskClassifier.classify(query);
+    // Step 1: Classify the task (with optional agent boosting)
+    const classification = await taskClassifier.classify(query, undefined, activeAgent);
 
     // Check if it's a generative request
     if (!taskClassifier.isGenerativeRequest(query) && classification.confidence < 0.6) {

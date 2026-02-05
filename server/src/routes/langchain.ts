@@ -445,7 +445,7 @@ function formatGoogleResponse(type: string, data: any): string {
  */
 router.post('/chat', async (req: Request, res: Response) => {
   try {
-    const { message, customerId, customerContext, forceAgent, sessionId, useWorkflow, model, useKnowledgeBase } = req.body;
+    const { message, customerId, customerContext, forceAgent, activeAgent, sessionId, useWorkflow, model, useKnowledgeBase } = req.body;
     const userId = req.headers['x-user-id'] as string;
 
     // Model selection: 'claude' uses WorkflowAgent (LangGraph), 'gemini' uses fallback handlers
@@ -483,6 +483,7 @@ router.post('/chat', async (req: Request, res: Response) => {
         const cadgClassification = await cadgService.classify(message, {
           customerId: customerId || context.id,
           userId,
+          activeAgent: forceAgent || activeAgent || undefined,
         });
 
         console.log(`[CADG] Classification: isGenerative=${cadgClassification.isGenerative}, confidence=${cadgClassification.classification.confidence}, taskType=${cadgClassification.classification.taskType}`);
