@@ -90,7 +90,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "The current sendToAgentRegular is at line 885. It currently does: fetch → await response.json() → process. The new version replaces the response.json() with ReadableStream reading. The CADG check (line 914) needs to happen when processing the 'done' event metadata, not inline. Keep the existing message structure: { agent, message, isApproval, routing, toolResults }. The streaming message should start with content: '' and update as tokens arrive. Reference AIPanel/index.tsx lines 355-390 for the reader pattern."
     },
     {

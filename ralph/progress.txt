@@ -31,6 +31,11 @@
 - Always guard res.write() with clientDisconnected check to avoid "write after end" errors
 - parseSSEData() in AgentControlCenter uses buffer ref for partial chunk handling — reset sseBufferRef before each new stream
 - AgentMessage.isStreaming flag marks messages still receiving tokens — used for cursor/typing indicator
+- sendToAgentRegular() now uses /api/ai/chat/stream — creates streaming message with unique ID, reads chunks via ReadableStream
+- AbortError (DOMException name='AbortError') = user-initiated stop — don't treat as an error, keep partial content
+- The `done` event content is a JSON string that must be parsed — it contains all metadata (routing, toolResults, pendingActions, CADG plan)
+- CADG plans via streaming: done event with isGenerative+plan — handled identically to non-streaming, sets pendingCadgPlan
+- Streaming messages use `id` field on AgentMessage to track which message to update in-place via setMessages map
 
 ---
 
@@ -102,4 +107,32 @@ Initialized: Ready to start US-001
   - `sseBufferRef` must be reset to `{ partial: '' }` before starting a new stream to avoid leftover data from previous streams
   - `streamingMessageIdRef` tracks which message in the messages array is being streamed into — needed for updating the correct message as tokens arrive
   - `AgentMessage.isStreaming` flag distinguishes a message still being streamed vs. a completed message — used by UI to show cursor/typing indicator
+---
+
+## 2026-02-05 - US-004
+- What was implemented: Updated `sendToAgentRegular()` to use SSE streaming via `/api/ai/chat/stream`
+- Files changed: `components/AgentControlCenter/index.tsx`
+- **Details:**
+  - Replaced `fetch → response.json()` with `fetch → ReadableStream → chunk reader` pattern
+  - Creates AbortController and stores in `abortControllerRef` for stop generation support
+  - Resets `sseBufferRef` before each stream to clear leftover partial data
+  - Generates unique streaming message ID (`stream_${Date.now()}`) stored in `streamingMessageIdRef`
+  - Creates initial empty streaming message with `isStreaming: true` flag (replaces thinking indicator)
+  - Reads chunks via `response.body.getReader()` with `TextDecoder` in a while loop
+  - Parses chunks through `parseSSEData()` with buffer ref for partial line handling
+  - `token` events: accumulates content string, updates message in-place via `setMessages` map over `msgId`
+  - `tool_end` events: accumulates tool results array for final processing
+  - `done` event: parses JSON content, handles CADG plans (setPendingCadgPlan), updates routing/agent statuses, processes tool results, saves to DB, finalizes message with full metadata
+  - `error` event: throws to be caught by outer catch block
+  - AbortError (DOMException) caught separately — keeps partial content, doesn't show error
+  - Mid-stream errors show accumulated content + error notice appended
+  - Finally block: resets isStreaming, isProcessing, abortControllerRef, streamingMessageIdRef
+  - TypeScript: `npx tsc --noEmit` passes with no NEW errors (only pre-existing folderName errors)
+- **Learnings for future iterations:**
+  - The streaming message uses the `id` field on AgentMessage to update in-place via `setMessages(prev => prev.map(m => m.id === msgId ? ... : m))`
+  - Tool results can come from both SSE `tool_end` events (accumulated) and the `done` event metadata — prefer `done` event data when available as it's authoritative
+  - AbortError has `error.name === 'AbortError'` and is a DOMException — handle separately from real errors
+  - The `done` event content string must be JSON.parse'd — it's the same shape as the old `/api/ai/chat` response body
+  - CADG plan detection in streaming is identical to non-streaming — check `data.isGenerative && data.plan?.planId` from parsed done event
+  - The function returns early after CADG plan handling to avoid processing as regular response
 ---
