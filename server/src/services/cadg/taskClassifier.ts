@@ -22,47 +22,67 @@ const anthropic = new Anthropic({
   apiKey: config.anthropicApiKey,
 });
 
-// Synonym groups for query expansion before keyword matching
-const SYNONYMS: Record<string, string[]> = {
-  // Action verbs → canonical forms used in keywords
-  create: ['create', 'build', 'generate', 'make', 'prepare', 'draft', 'set up', 'put together', 'design', 'compose'],
-  plan: ['plan', 'strategy', 'roadmap', 'blueprint', 'playbook', 'approach', 'framework'],
-  review: ['review', 'assessment', 'evaluation', 'analysis', 'audit', 'check', 'overview'],
-  meeting: ['meeting', 'call', 'session', 'sync', 'discussion', 'conversation'],
-  customer: ['customer', 'client', 'account', 'company', 'organization'],
-  risk: ['risk', 'danger', 'threat', 'concern', 'issue', 'problem', 'warning'],
-  renewal: ['renewal', 'contract', 'subscription', 'license', 'agreement'],
-};
+// ============================================================================
+// Synonym Expansion Map
+// Maps common words to their synonyms so natural language variations work.
+// Applied to queries BEFORE keyword and phrase matching.
+// ============================================================================
+const SYNONYM_GROUPS: string[][] = [
+  // Action verbs: create/build/generate/make/prepare/draft/set up/put together/design/compose
+  ['create', 'build', 'generate', 'make', 'prepare', 'draft', 'set up', 'put together', 'design', 'compose', 'develop', 'produce', 'craft', 'assemble', 'construct'],
+  // Plan/strategy family
+  ['plan', 'strategy', 'roadmap', 'blueprint', 'playbook', 'approach', 'framework', 'outline', 'agenda', 'scheme'],
+  // Review/assessment family
+  ['review', 'assessment', 'evaluation', 'analysis', 'audit', 'check', 'overview', 'examination', 'inspection', 'appraisal'],
+  // Meeting/call family
+  ['meeting', 'call', 'session', 'sync', 'discussion', 'conversation', 'conference', 'huddle'],
+  // Customer/client family
+  ['customer', 'client', 'account', 'company', 'organization', 'org', 'partner'],
+  // Risk/danger family
+  ['risk', 'danger', 'threat', 'concern', 'issue', 'problem', 'warning', 'jeopardy', 'hazard'],
+  // Renewal/contract family
+  ['renewal', 'contract', 'subscription', 'license', 'agreement', 'deal'],
+];
 
-// Build reverse lookup: synonym → canonical word
-const SYNONYM_REVERSE: Map<string, string> = new Map();
-for (const [canonical, synonyms] of Object.entries(SYNONYMS)) {
-  for (const synonym of synonyms) {
-    // Map each synonym to its canonical form (first word in the group)
-    if (synonym !== canonical) {
-      SYNONYM_REVERSE.set(synonym, canonical);
-    }
+// Build reverse lookup: word → all its synonyms (excluding itself)
+const SYNONYM_LOOKUP: Map<string, string[]> = new Map();
+for (const group of SYNONYM_GROUPS) {
+  for (const word of group) {
+    SYNONYM_LOOKUP.set(word, group.filter(w => w !== word));
   }
 }
 
 /**
- * Expand a query by replacing synonyms with their canonical forms
- * This allows queries like "put together a business review" to match keywords that use "create" and "review"
+ * Expand a query with synonyms to improve matching.
+ * Returns array of query variants: original + one variant per synonym substitution.
  */
-function expandSynonyms(query: string): string {
-  let expanded = query;
+function expandWithSynonyms(query: string): string[] {
+  const expanded: string[] = [query];
 
-  // Sort by length descending to match longer phrases first (e.g., "put together" before "put")
-  const sortedSynonyms = Array.from(SYNONYM_REVERSE.entries()).sort(
-    (a, b) => b[0].length - a[0].length
-  );
+  // Check multi-word synonyms first (e.g., "put together", "set up")
+  const multiWordKeys = Array.from(SYNONYM_LOOKUP.keys()).filter(k => k.includes(' '));
+  for (const key of multiWordKeys) {
+    if (query.includes(key)) {
+      const synonyms = SYNONYM_LOOKUP.get(key) || [];
+      for (const syn of synonyms) {
+        expanded.push(query.replace(key, syn));
+      }
+    }
+  }
 
-  for (const [synonym, canonical] of sortedSynonyms) {
-    // Use word boundary matching to avoid partial replacements
-    const regex = new RegExp(`\\b${synonym.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi');
-    if (regex.test(expanded)) {
-      // Add canonical form alongside original (don't replace, augment)
-      expanded = expanded + ' ' + canonical;
+  // Check single-word synonyms
+  const words = query.split(/\s+/);
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const synonyms = SYNONYM_LOOKUP.get(word);
+    if (synonyms) {
+      for (const syn of synonyms) {
+        if (!syn.includes(' ')) {
+          const newWords = [...words];
+          newWords[i] = syn;
+          expanded.push(newWords.join(' '));
+        }
+      }
     }
   }
 
