@@ -12,6 +12,8 @@
 - **New TaskTypes require updates to**: contextAggregator.ts (TASK_KEYWORDS), reasoningEngine.ts (DEFAULT_SECTIONS, OUTPUT_FORMATS, estimateLength)
 - **Data aggregation**: Use `dataHelpers.aggregateCustomerContext()` for customer-specific cards, `aggregatePortfolioContext()` for General Mode cards
 - **Task classifier synonym expansion**: SYNONYMS map at top of taskClassifier.ts uses canonical-form approach; a hook may add duplicate blocks that must be cleaned up after saves
+- **Task classifier fuzzy matching**: matchKeywords() uses two-tier scoring (exact 1.5x, stem 1.0x) with stop word removal and basicStem() for suffix stripping
+- **Task classifier LLM fallback**: classify() flow is phrase (0.95) → keyword (≥0.7) → LLM (<0.3) → secondary LLM (0.3-0.7). Anthropic SDK uses `{ signal }` 2nd arg for abort
 
 ---
 
@@ -1107,5 +1109,46 @@
   - Bidirectional synonyms (each word maps to all siblings) are simpler than canonical-form approach
   - Expanding into array of query variants is more robust than augmenting a single query string
   - Multi-word synonym keys must be checked before single-word to avoid partial matches
+  - Pre-existing TypeScript errors in the codebase don't affect taskClassifier.ts
+---
+
+## 2026-02-04 - US-002 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Word-level fuzzy matching with stemming for CADG task classifier
+- **Files changed**:
+  - `server/src/services/cadg/taskClassifier.ts` - Added STOP_WORDS, basicStem(), tokenize(), updated matchKeywords()
+- **Features**:
+  - STOP_WORDS set with 30 common words (a, the, for, to, me, my, please, help, etc.)
+  - basicStem() strips -tion, -ing, -ed, -s suffixes (with length guards to avoid over-stemming)
+  - tokenize() helper: lowercase → split → remove stop words → stem each word
+  - matchKeywords() now uses two-tier matching:
+    1. Exact substring match against expanded queries (highest value, 1.5x multiplier for multi-word)
+    2. Stemmed word-level match as fallback (all keyword tokens must appear in query tokens)
+  - Stem matching uses bidirectional prefix check (qt.startsWith(kt) || kt.startsWith(qt)) for flexibility
+  - Content words (stop words excluded) used for score normalization denominator
+  - Multi-word keyword matches still score higher than single-word matches
+- **Learnings for future iterations**:
+  - basicStem() suffix order matters: check -tion before -ing since "tion" contains no overlap but order prevents false stripping
+  - Stem matching uses prefix-based comparison rather than strict equality for more tolerance
+  - Stop words must be excluded from the normalization denominator to avoid score deflation on verbose queries
+  - Two-tier scoring (exact 1.5x → stem 1.0x) ensures exact phrase matches always outrank fuzzy word matches
+---
+
+## 2026-02-04 - US-003 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Lower LLM fallback threshold, secondary LLM check, model upgrade, timeout
+- **Files changed**:
+  - `server/src/services/cadg/taskClassifier.ts` - Updated classify() logic, classifyWithLLM() model and timeout
+- **Features**:
+  - Lowered LLM fallback threshold from 0.5 to 0.3 in classify()
+  - Added secondary LLM check for medium-confidence zone (0.3-0.7): LLM can confirm or override keyword matches
+  - For low confidence (<0.3): LLM result used unless it returns 'custom' and we had a keyword match
+  - For medium confidence (0.3-0.7): LLM used only if it returns higher confidence than keyword match
+  - Upgraded model from claude-3-haiku-20240307 to claude-haiku-4-5-20251001
+  - Added 3-second AbortController timeout for LLM classification
+  - clearTimeout() called on successful LLM response to prevent memory leaks
+  - On LLM failure (timeout or error), best keyword match is used as fallback
+- **Learnings for future iterations**:
+  - Anthropic SDK accepts `{ signal: controller.signal }` as second arg to `.create()` for abort support
+  - The classify() flow is: phrase match (0.95) → keyword match (≥0.7) → LLM fallback (<0.3) → secondary LLM check (0.3-0.7)
+  - When LLM fails in the secondary check zone, returning the keyword match is better than returning custom
   - Pre-existing TypeScript errors in the codebase don't affect taskClassifier.ts
 ---

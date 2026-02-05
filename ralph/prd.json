@@ -36,8 +36,8 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Added STOP_WORDS set (30 words), basicStem() function (strips -tion, -ing, -ed, -s), tokenize() helper, and updated matchKeywords() with two-tier matching: exact substring first (1.5x multiplier for multi-word), then stemmed word-level fallback. Content words used for normalization (stop words excluded from denominator)."
     },
     {
       "id": "US-003",
@@ -52,8 +52,8 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Lowered LLM fallback threshold from 0.5 to 0.3, added secondary LLM check for medium-confidence zone (0.3-0.7), upgraded model to claude-haiku-4-5-20251001, added 3s AbortController timeout, LLM failures fall back to best keyword match."
     },
     {
       "id": "US-004",

@@ -721,13 +721,30 @@ export async function classify(
     };
   }
 
-  // Step 3: Fall back to LLM classification (for ambiguous queries)
-  if (keywordMatch.confidence < 0.5) {
+  // Step 3: Fall back to LLM classification (for ambiguous or low-confidence queries)
+  if (keywordMatch.confidence < 0.3) {
+    // Low confidence: rely entirely on LLM, fall back to keyword match if LLM fails
     const llmResult = await classifyWithLLM(userQuery);
+    if (llmResult.taskType !== 'custom' || keywordMatch.taskType === 'custom') {
+      return llmResult;
+    }
+    // LLM returned custom but we had a keyword match - use keyword match as fallback
+    return {
+      taskType: keywordMatch.taskType,
+      confidence: keywordMatch.confidence,
+      suggestedMethodology: getMethodologyForTask(keywordMatch.taskType),
+      requiredSources: getRequiredSources(keywordMatch.taskType),
+    };
+  }
+
+  // Step 4: Secondary LLM check for medium-confidence zone (0.3-0.7)
+  // Keyword match exists but isn't strong - use LLM to confirm or override
+  const llmResult = await classifyWithLLM(userQuery);
+  if (llmResult.taskType !== 'custom' && llmResult.confidence > keywordMatch.confidence) {
     return llmResult;
   }
 
-  // Return keyword match with lower confidence
+  // LLM didn't improve on keyword match - use keyword result as fallback
   return {
     taskType: keywordMatch.taskType,
     confidence: keywordMatch.confidence,
@@ -835,8 +852,11 @@ function matchKeywords(query: string, expandedQueries?: string[]): { taskType: T
  */
 async function classifyWithLLM(userQuery: string): Promise<TaskClassificationResult> {
   try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+
     const message = await anthropic.messages.create({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 256,
       messages: [{
         role: 'user',
@@ -895,7 +915,9 @@ Query: "${userQuery}"
 Reply format: task_type|confidence
 Example: kickoff_plan|0.85`
       }],
-    });
+    }, { signal: controller.signal });
+
+    clearTimeout(timeout);
 
     const response = (message.content[0] as { type: 'text'; text: string }).text.trim();
     const [taskType, confidenceStr] = response.split('|');
