@@ -169,8 +169,8 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": false,
-      "notes": ""
+      "passes": true,
+      "notes": "Created 37 integration tests in server/src/services/cadg/__tests__/button-to-cadg.integration.test.ts. Tests cover: (1) One button per agent type — kickoff_plan, usage_analysis, renewal_forecast, risk_assessment, qbr_generation all classify correctly with ≥0.7 confidence. (2) All 4 General Mode buttons (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) classify correctly without customer context. (3) All 20 CADG-enabled buttons across all 5 agents classify to their expected task type. (4) Non-CADG actions (meeting_prep, draft_email) confirmed to have no cadgTaskType. (5) Trigger messages verified to contain exact CADG keywords. (6) All button messages achieve 0.95 phrase-match confidence and are classified as generative. Issues found and fixed: (a) matchPhrasePatterns was checking synonym-expanded variants in the same pass as original query, causing 'overview' → 'assessment' synonym expansion to trigger risk_assessment before at_risk_overview. Fixed by splitting into two passes: original query first, then expanded variants. (b) risk_assessment phrase pattern /at.?risk\\s+(customer|account)?/i was too greedy (optional group matched anything). Made more specific: /at.?risk\\s+(customer|account|assessment|evaluation|analysis)/i. (c) at_risk_overview trigger message updated from 'Show me the at-risk customer overview dashboard' to 'Show me the at-risk overview dashboard' to avoid ambiguity."
     }
   ]
 }

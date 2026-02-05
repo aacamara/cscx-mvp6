@@ -18,6 +18,8 @@
 - **AGENT_ACTIONS structure**: AgentAction interface has `{ id, label, icon, cadgTaskType? }`. Actions with `cadgTaskType` should route through CADG flow. Non-CADG actions (meeting_prep, draft_email) have no cadgTaskType. Action IDs match CADG TaskType strings exactly.
 - **Button → CADG routing**: handleAgentAction checks `action.cadgTaskType`, calls `buildCadgTriggerMessage()` → `sendToAgent()`. Non-CADG actions use `fallbackMessages` map. Workflow execution runs first (unchanged).
 - **General Mode actions**: GENERAL_MODE_ACTIONS is a separate export in AgentCard.tsx (not in AGENT_ACTIONS Record since CSAgentType doesn't include 'general_mode'). QuickActions uses `hasCustomer` prop to switch between agent-specific and general mode actions. handleQuickAction routes general mode actions directly via buildCadgTriggerMessage → sendToAgent.
+- **Phrase pattern matching**: matchPhrasePatterns() uses two-pass approach — original query first against ALL task types, then synonym-expanded variants. This prevents synonym expansion from causing false positives across task types (e.g., 'overview' → 'assessment' synonym shouldn't trigger risk_assessment when at_risk_overview pattern should match).
+- **Integration tests**: CADG button-to-card flow test lives in `server/src/services/cadg/__tests__/button-to-cadg.integration.test.ts`. Mocks Anthropic SDK and config. Tests use replicated buildCadgTriggerMessage and AGENT_ACTIONS from frontend.
 
 ---
 
@@ -1284,4 +1286,31 @@
   - Filter by `cadgTaskType` to separate CADG-routable actions from non-CADG ones (meeting_prep, draft_email)
   - The empty state area is centered (flex column, align center) so chips need justifyContent: 'center' and maxWidth for wrapping
   - Pre-existing TypeScript errors (folderName on WorkflowOutput) at lines 1307/1391 are unrelated
+---
+
+## 2026-02-04 - US-010 (cadg-fuzzy-and-buttons)
+- **What was implemented**: Integration test verifying button-to-CADG-card flow end-to-end
+- **Files changed**:
+  - `server/src/services/cadg/__tests__/button-to-cadg.integration.test.ts` (created, 37 tests)
+  - `server/src/services/cadg/taskClassifier.ts` - Fixed matchPhrasePatterns and risk_assessment pattern
+  - `components/AgentControlCenter/index.tsx` - Fixed at_risk_overview trigger message
+- **Features**:
+  - 37 integration tests covering the full button → trigger message → classifier → task type flow
+  - Tests all 20 CADG-enabled buttons across 5 agent types (onboarding, adoption, renewal, risk, strategic)
+  - Tests all 4 General Mode buttons (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview)
+  - Verifies non-CADG actions (meeting_prep, draft_email) have no cadgTaskType
+  - Verifies trigger messages contain exact CADG keywords for phrase matching
+  - Verifies all button messages achieve 0.95 phrase-match confidence
+  - Tests agent boosting context passing
+- **Issues found and fixed**:
+  - **Synonym expansion false positives**: matchPhrasePatterns was checking synonym-expanded variants in same pass as original query. "overview" → "assessment" synonym expansion caused risk_assessment to match before at_risk_overview. Fixed by splitting into two passes: original query first across all task types, then expanded variants.
+  - **Greedy risk_assessment pattern**: `/at.?risk\s+(customer|account)?/i` had optional group that matched anything starting with "at-risk ". Changed to `/at.?risk\s+(customer|account|assessment|evaluation|analysis)/i` to require a specific follow-up word.
+  - **at_risk_overview trigger message**: Updated from "Show me the at-risk customer overview dashboard" to "Show me the at-risk overview dashboard" to reliably hit at_risk_overview phrase pattern.
+- **Learnings for future iterations**:
+  - matchPhrasePatterns two-pass approach: original query first, expanded variants second. This prevents synonym expansion from creating cross-task-type false positives.
+  - PHRASE_PATTERNS iteration order matters (Object.entries follows insertion order). Task types defined earlier in the object get checked first.
+  - Regex patterns with optional groups (`?`) can be overly greedy — prefer explicit alternatives for phrase matching.
+  - Vitest uses source .ts files directly (not compiled dist), resolving `.js` imports to `.ts` via the vitest transform.
+  - When synonym expansion maps a word to terms used in OTHER task types' patterns, it can cause misclassification. Two-pass approach prevents this.
+  - Mock Anthropic SDK and config in test setup; button-generated messages should always hit phrase/keyword matching and never reach LLM fallback.
 ---
