@@ -24,6 +24,11 @@
 - chatStream() bypasses LangGraph graph and calls Anthropic directly — LangGraph doesn't support streaming callbacks
 - System prompt in chatStream() is duplicated from callClaude() — future refactor opportunity
 - WorkflowAgent.chatStream() added after chat() in WorkflowAgent class — same file, same class
+- SSE streaming route at /api/ai/chat/stream added in langchain.ts BEFORE /chat route
+- sendSSE() helper in langchain.ts — local to file, decoupled from agents.ts sendSSEEvent()
+- CADG plans are sent as single done events (not streamed) — plan creation is fast, no need to stream
+- Non-Claude fallbacks send their response as a single done event since they don't support streaming
+- Always guard res.write() with clientDisconnected check to avoid "write after end" errors
 
 ---
 
@@ -52,4 +57,29 @@ Initialized: Ready to start US-001
   - The system prompt is duplicated between `callClaude()` and `chatStream()` — consider extracting to a shared function
   - `stream.abort()` can be called to cancel generation mid-stream
   - AbortSignal listeners need cleanup — use `{ once: true }` and clean up on stream end
+---
+
+## 2026-02-05 - US-002
+- What was implemented: Added `POST /api/ai/chat/stream` SSE endpoint in `server/src/routes/langchain.ts`
+- Files changed: `server/src/routes/langchain.ts`
+- **Details:**
+  - Added `sendSSE()` helper function (writes `data: JSON.stringify(event)\n\n`)
+  - New route placed BEFORE existing `POST /chat` route
+  - Sets SSE headers: Content-Type, Cache-Control, Connection, X-Accel-Buffering + flushHeaders()
+  - Tracks client disconnect via `req.on('close')` and `req.on('aborted')`
+  - CADG handling: classifies request, if generative with ≥0.7 confidence, creates plan and sends single `done` event (no streaming for CADG)
+  - Session handling: same as `/chat` — getOrCreateSession(), addMessage(), getConversationHistory()
+  - WorkflowAgent streaming: calls `chatStream()` with `onToken` → `{type:'token', content}` and `onToolEvent` → `{type:'tool_start'/'tool_end', ...}`
+  - After stream completes, sends `done` event with full metadata JSON (response, agentType, routing, toolsUsed, toolResults, requiresApproval, pendingActions, sessionId)
+  - Saves assistant response to session after stream completes
+  - Non-Claude fallbacks (action handler, Google query, orchestrator) run normally and send response as single `done` event
+  - Error handling: wraps everything in try/catch, sends `{type:'error', error}` then `res.end()`
+  - TypeScript: `npx tsc --noEmit` passes with no NEW errors (all errors are pre-existing)
+- **Learnings for future iterations:**
+  - The streaming route mirrors `/chat` logic 1:1 but replaces `res.json()` with SSE events
+  - CADG plans are NOT streamed — they're instant since plan creation is fast
+  - Non-Claude fallbacks (Gemini-based action/Google/orchestrator handlers) don't support streaming — wrap their responses as single `done` events
+  - `sendSSE()` is a local helper, not imported from agents.ts, to keep the files decoupled
+  - Always check `clientDisconnected` before writing to res to avoid "write after end" errors
+  - The streaming route at `/chat/stream` must be registered BEFORE `/chat` otherwise Express matches `/chat` first
 ---

@@ -437,6 +437,350 @@ function formatGoogleResponse(type: string, data: any): string {
 }
 
 /**
+ * Helper to send an SSE event over the response stream
+ */
+function sendSSE(res: Response, event: { type: string; content?: string; name?: string; params?: any; result?: any; duration?: number; error?: string }): void {
+  res.write(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+/**
+ * POST /api/ai/chat/stream
+ * SSE streaming variant of /api/ai/chat — streams Claude WorkflowAgent responses token-by-token.
+ * CADG plan responses are sent as a single done event (not streamed).
+ * Non-Claude fallbacks (action handler, Google query, orchestrator) are sent as single done events.
+ */
+router.post('/chat/stream', async (req: Request, res: Response) => {
+  // Set SSE headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  // Track client disconnect
+  let clientDisconnected = false;
+  req.on('close', () => { clientDisconnected = true; });
+  req.on('aborted', () => { clientDisconnected = true; });
+
+  try {
+    const { message, customerId, customerContext, forceAgent, activeAgent, sessionId, useWorkflow, model, useKnowledgeBase } = req.body;
+    const userId = req.headers['x-user-id'] as string;
+
+    const useClaudeModel = model === 'claude' || (model === undefined && USE_CLAUDE_WORKFLOW);
+    const enableKnowledgeBase = useKnowledgeBase !== false;
+
+    if (!message) {
+      sendSSE(res, { type: 'error', error: 'Message is required' });
+      res.end();
+      return;
+    }
+
+    const context: CustomerContext = {
+      ...(customerContext || {
+        id: customerId || 'unknown',
+        name: 'Unknown Customer',
+        arr: 0,
+        healthScore: 70,
+        status: 'active'
+      }),
+      userId,
+      useKnowledgeBase: enableKnowledgeBase
+    };
+
+    console.log(`🤖 AI Chat Stream: "${message.substring(0, 50)}..." for ${context.name} (user: ${userId || 'anonymous'}, model: ${model || 'auto'}, kb: ${enableKnowledgeBase})`);
+
+    // ============================================
+    // CADG: Check if this is a generative request
+    // ============================================
+    if (userId) {
+      try {
+        const cadgClassification = await cadgService.classify(message, {
+          customerId: customerId || context.id,
+          userId,
+          activeAgent: forceAgent || activeAgent || undefined,
+        });
+
+        console.log(`[CADG-Stream] Classification: isGenerative=${cadgClassification.isGenerative}, confidence=${cadgClassification.classification.confidence}, taskType=${cadgClassification.classification.taskType}`);
+
+        if (cadgClassification.isGenerative && cadgClassification.classification.confidence >= 0.7) {
+          console.log(`[CADG-Stream] Creating execution plan for: ${cadgClassification.classification.taskType}`);
+
+          const validCustomerId = customerId && customerId !== 'unknown' ? customerId : null;
+
+          const planResult = await cadgService.createPlan({
+            userQuery: message,
+            customerId: validCustomerId,
+            userId,
+            taskType: cadgClassification.classification.taskType,
+          });
+
+          if (planResult.success && planResult.plan) {
+            console.log(`[CADG-Stream] Plan created successfully: ${planResult.plan.planId}`);
+
+            // Send the full CADG result as a single done event (no streaming for CADG)
+            sendSSE(res, {
+              type: 'done',
+              content: JSON.stringify({
+                response: `I've analyzed your request and created an execution plan for generating a ${cadgClassification.classification.taskType.replace(/_/g, ' ')}. Please review the plan and approve it to proceed with generation.`,
+                agentType: 'cadg',
+                model: 'claude',
+                isGenerative: true,
+                taskType: cadgClassification.classification.taskType,
+                confidence: cadgClassification.classification.confidence,
+                requiresApproval: true,
+                plan: {
+                  planId: planResult.plan.planId,
+                  taskType: planResult.plan.taskType,
+                  structure: planResult.plan.structure,
+                  inputs: planResult.plan.inputs,
+                  destination: planResult.plan.destination,
+                },
+                capability: cadgClassification.capability?.capability ? {
+                  id: cadgClassification.capability.capability.id,
+                  name: cadgClassification.capability.capability.name,
+                  description: cadgClassification.capability.capability.description,
+                } : null,
+                methodology: cadgClassification.capability?.methodology ? {
+                  id: cadgClassification.capability.methodology.id,
+                  name: cadgClassification.capability.methodology.name,
+                  steps: cadgClassification.capability.methodology.steps?.length || 0,
+                } : null,
+                sessionId,
+              })
+            });
+            res.end();
+            return;
+          } else {
+            console.log(`[CADG-Stream] Plan creation failed: ${planResult.error}, falling back to regular agent`);
+          }
+        }
+      } catch (cadgError) {
+        console.error('[CADG-Stream] Classification/plan error:', cadgError);
+        // Fall through to regular agent
+      }
+    }
+
+    // Get or create session for persistence
+    const session = await sessionService.getOrCreateSession({
+      sessionId,
+      customerId,
+      userId,
+      context: { customerContext: context }
+    });
+
+    // Save user message to session
+    await sessionService.addMessage({
+      sessionId: session.id,
+      role: 'user',
+      content: message,
+      metadata: { customerId, forceAgent }
+    });
+
+    // Get conversation history for context
+    const conversationHistory = await sessionService.getConversationHistory(session.id, 20);
+
+    // ============================================
+    // PRIMARY: Use Claude WorkflowAgent with streaming
+    // ============================================
+    if (useClaudeModel && userId && useWorkflow !== false) {
+      try {
+        console.log('📊 Using Claude WorkflowAgent (Streaming) - Model:', model || 'claude');
+
+        const result = await workflowAgent.chatStream(
+          message,
+          userId,
+          context,
+          conversationHistory,
+          forceAgent,
+          {
+            onToken: (text: string) => {
+              if (!clientDisconnected) {
+                sendSSE(res, { type: 'token', content: text });
+              }
+            },
+            onToolEvent: (event) => {
+              if (!clientDisconnected) {
+                sendSSE(res, {
+                  type: event.type,
+                  name: event.name,
+                  params: event.params,
+                  result: event.result,
+                  duration: event.duration,
+                });
+              }
+            },
+          },
+          // AbortSignal — abort when client disconnects
+          undefined // AbortController is managed inside chatStream via the callbacks checking clientDisconnected
+        );
+
+        // Clean and save assistant response to session
+        const cleanedResponse = cleanResponse(result.response);
+        await sessionService.addMessage({
+          sessionId: session.id,
+          role: 'assistant',
+          content: cleanedResponse,
+          agentId: 'workflow_agent',
+          metadata: {
+            toolsUsed: result.toolsUsed,
+            requiresApproval: result.requiresApproval
+          }
+        });
+
+        // Send done event with all metadata
+        if (!clientDisconnected) {
+          sendSSE(res, {
+            type: 'done',
+            content: JSON.stringify({
+              response: cleanedResponse,
+              agentType: result.specialistUsed || 'workflow_agent',
+              model: 'claude',
+              routing: {
+                agentType: 'claude_langgraph',
+                model: 'claude',
+                knowledgeBase: enableKnowledgeBase,
+                confidence: 1.0,
+                reasoning: result.specialistUsed
+                  ? `Claude WorkflowAgent with ${result.specialistUsed} specialist persona`
+                  : 'Claude WorkflowAgent with native tool use'
+              },
+              toolsUsed: result.toolsUsed,
+              toolResults: result.toolResults,
+              requiresApproval: result.requiresApproval,
+              pendingActions: result.pendingActions,
+              sessionId: session.id,
+            })
+          });
+        }
+
+        res.end();
+        return;
+      } catch (workflowError) {
+        console.error('WorkflowAgent stream error, falling back to Gemini:', workflowError);
+        // Fall through to Gemini-based handlers
+      }
+    }
+
+    // ============================================
+    // FALLBACK: Gemini-based handlers (non-streaming, sent as single events)
+    // ============================================
+
+    // Check if this is an action request
+    if (userId) {
+      const actionResult = await handleActionRequest(message, userId, context);
+      if (actionResult.handled) {
+        const cleanedActionResponse = cleanResponse(actionResult.response || '');
+        await sessionService.addMessage({
+          sessionId: session.id,
+          role: 'assistant',
+          content: cleanedActionResponse,
+          agentId: 'action_handler',
+          metadata: { requiresApproval: true }
+        });
+
+        if (!clientDisconnected) {
+          sendSSE(res, {
+            type: 'done',
+            content: JSON.stringify({
+              response: cleanedActionResponse,
+              agentType: 'action_handler',
+              model: 'gemini',
+              routing: { agentType: 'action_handler', model: 'gemini', confidence: 1.0, reasoning: 'Action request detected (Gemini)' },
+              toolsUsed: ['approval_service'],
+              requiresApproval: true,
+              pendingApproval: actionResult.approval,
+              sessionId: session.id,
+            })
+          });
+        }
+        res.end();
+        return;
+      }
+    }
+
+    // Check if this is a Google Workspace query
+    if (userId) {
+      const googleResult = await handleGoogleQuery(message, userId);
+      if (googleResult.handled) {
+        const formattedResponse = cleanResponse(formatGoogleResponse(googleResult.type!, googleResult.data));
+        await sessionService.addMessage({
+          sessionId: session.id,
+          role: 'assistant',
+          content: formattedResponse,
+          agentId: 'google_workspace',
+          metadata: { queryType: googleResult.type }
+        });
+
+        if (!clientDisconnected) {
+          sendSSE(res, {
+            type: 'done',
+            content: JSON.stringify({
+              response: formattedResponse,
+              agentType: 'google_workspace',
+              model: 'gemini',
+              routing: { agentType: 'google_workspace', model: 'gemini', confidence: 1.0, reasoning: 'Google Workspace query detected' },
+              toolsUsed: [googleResult.type],
+              requiresApproval: false,
+              sessionId: session.id,
+            })
+          });
+        }
+        res.end();
+        return;
+      }
+    }
+
+    // Get response from orchestrator for general CS queries
+    const specialistContext = {
+      userId: userId || 'anonymous',
+      sessionId: session.id,
+      customerContext: context
+    };
+
+    const response = forceAgent
+      ? await orchestrator.chatWithSpecialist(message, forceAgent as any, specialistContext)
+      : await orchestrator.chat(message, specialistContext);
+
+    const cleanedOrchestratorResponse = cleanResponse(response.response);
+    await sessionService.addMessage({
+      sessionId: session.id,
+      role: 'assistant',
+      content: cleanedOrchestratorResponse,
+      agentId: response.specialistUsed,
+      metadata: {
+        toolsUsed: response.toolsUsed,
+        requiresApproval: response.requiresApproval
+      }
+    });
+
+    if (!clientDisconnected) {
+      sendSSE(res, {
+        type: 'done',
+        content: JSON.stringify({
+          response: cleanedOrchestratorResponse,
+          agentType: response.specialistUsed,
+          model: 'gemini',
+          routing: { agentType: response.specialistUsed, model: 'gemini', confidence: 1.0, reasoning: `Routed to ${response.specialistUsed}` },
+          toolsUsed: response.toolsUsed,
+          requiresApproval: response.requiresApproval,
+          pendingActions: response.pendingActions,
+          sessionId: session.id,
+        })
+      });
+    }
+
+    res.end();
+  } catch (error) {
+    console.error('AI Chat Stream error:', error);
+    sendSSE(res, {
+      type: 'error',
+      error: error instanceof Error ? error.message : 'Failed to process chat stream'
+    });
+    res.end();
+  }
+});
+
+/**
  * POST /api/ai/chat
  * Chat with the AI orchestrator - automatically routes to the right agent
  *

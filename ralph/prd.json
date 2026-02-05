@@ -44,7 +44,7 @@
         "Run npx tsc --noEmit from project root — no NEW type errors introduced"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Reference the existing SSE patterns in server/src/routes/agents.ts lines 219-468 for sendSSEEvent helper and headers. The /chat handler starts at line 446 of langchain.ts. Mirror its CADG detection (lines 479-543), session management (lines 546-562), and WorkflowAgent call (lines 567-614) but use streaming variants. For non-Claude fallbacks (action handler, Google query, orchestrator) — just run them normally and send response as a single token + done event since they don't support streaming."
     },
     {
