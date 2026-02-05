@@ -2608,6 +2608,26 @@
   user-select: none;
 }
 
+/* Stop generation button */
+.stop-generation-btn {
+  padding: 12px 20px;
+  background: transparent;
+  border: 1px solid #444;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #ccc;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.stop-generation-btn:hover {
+  background: #222;
+  border-color: #666;
+  color: #fff;
+}
+
 /* Slide up animation for new messages button */
 @keyframes slideUp {
   from {

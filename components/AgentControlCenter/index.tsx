@@ -1908,6 +1908,10 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     }
   };
 
+  const handleStopGeneration = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
   const handleSend = async () => {
     if ((!input.trim() && !selectedFile) || isProcessing) return;
 
@@ -2819,12 +2823,21 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               placeholder={showOnboardingFlow ? 'Complete onboarding flow above...' : activeWorkflow ? 'Workflow in progress...' : selectedFile ? `Message with ${selectedFile.name}...` : `Message the ${CS_AGENTS[activeAgent]?.name || 'AI Agent'}...`}
               disabled={isProcessing || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
             />
-            <button
-              onClick={handleSend}
-              disabled={isProcessing || (!input.trim() && !selectedFile) || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
-            >
-              {isProcessing ? '...' : 'Send'}
-            </button>
+            {isStreaming ? (
+              <button
+                className="stop-generation-btn"
+                onClick={handleStopGeneration}
+              >
+                ■ Stop
+              </button>
+            ) : (
+              <button
+                onClick={handleSend}
+                disabled={isProcessing || (!input.trim() && !selectedFile) || pendingApproval !== null || activeWorkflow !== null || showOnboardingFlow}
+              >
+                {isProcessing ? '...' : 'Send'}
+              </button>
+            )}
           </div>
           <p className="input-hint">
             {agenticModeEnabled ? '⚡ Agentic Mode' : 'LangChain RAG'} · {
