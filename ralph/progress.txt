@@ -1089,17 +1089,23 @@
 ## 2026-02-04 - US-001 (cadg-fuzzy-and-buttons)
 - **What was implemented**: Synonym expansion for CADG task classifier
 - **Files changed**:
-  - `server/src/services/cadg/taskClassifier.ts` - Added SYNONYMS map, SYNONYM_REVERSE lookup, expandSynonyms() function, updated matchKeywords()
+  - `server/src/services/cadg/taskClassifier.ts` - Added SYNONYMS map, expandWithSynonyms(), updated classify/matchKeywords/matchPhrasePatterns
 - **Features**:
-  - SYNONYMS map with 7 synonym groups (create, plan, review, meeting, customer, risk, renewal)
-  - SYNONYM_REVERSE Map for efficient reverse lookup (synonym → canonical form)
-  - expandSynonyms() augments query with canonical forms (doesn't replace, adds alongside)
-  - Sorts by phrase length descending to match multi-word synonyms first ("put together" before "put")
-  - Uses word boundary regex to avoid partial matches
-  - matchKeywords() now calls expandSynonyms() before keyword matching
+  - SYNONYMS map with 7 synonym families:
+    - Action verbs: create/build/generate/make/prepare/draft/set up/put together/design/compose
+    - Plans: plan/strategy/roadmap/blueprint/playbook/approach/framework
+    - Reviews: review/assessment/evaluation/analysis/audit/check/overview
+    - Meetings: meeting/call/session/sync/discussion/conversation
+    - Customers: customer/client/account/company/organization
+    - Risks: risk/danger/threat/concern/issue/problem/warning
+    - Renewals: renewal/contract/subscription/license/agreement
+  - expandWithSynonyms() generates expanded query variants by word substitution
+  - Multi-word synonyms ("put together", "set up") checked first before single-word
+  - classify() runs expansion at Step 0, passes expanded variants to matchPhrasePatterns and matchKeywords
+  - Both matchers check if ANY expanded variant matches their patterns/keywords
 - **Learnings for future iterations**:
-  - A hook/linter modifies taskClassifier.ts on save, adding a duplicate SYNONYMS block with bidirectional mappings - need to clean up after saves
-  - The canonical-form approach (synonym → canonical) is cleaner than bidirectional (each word → all others) for synonym expansion
-  - Augmentation (adding canonical alongside original) works better than replacement for keyword matching
+  - Bidirectional synonyms (each word maps to all siblings) are simpler than canonical-form approach
+  - Expanding into array of query variants is more robust than augmenting a single query string
+  - Multi-word synonym keys must be checked before single-word to avoid partial matches
   - Pre-existing TypeScript errors in the codebase don't affect taskClassifier.ts
 ---
