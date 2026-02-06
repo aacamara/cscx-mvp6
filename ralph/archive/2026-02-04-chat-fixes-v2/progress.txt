@@ -1,0 +1,77 @@
+# Ralph Progress Log
+# Project: CSCX.AI Chat Fixes V2
+# Branch: ralph/chat-fixes-v2
+# Started: 2026-02-03
+
+---
+
+## Session 1: 2026-02-03
+
+### Completed User Stories
+
+#### US-001: Add intent classification endpoint ✅
+- Added POST `/api/agents/intent/classify` endpoint in `server/src/routes/agents.ts`
+- Uses Claude AI to classify message intent
+- Returns `{ agent, confidence, reasoning }`
+- Fallback to 'general' on error (graceful degradation)
+- Uses fast model for < 500ms response
+
+#### US-002: Wire frontend intent classifier to backend API ✅
+- Updated `classifyIntent` in `components/AgentControlCenter/index.tsx`
+- Now async function that calls backend endpoint
+- 300ms debounce with AbortController for cancellation
+- Falls back to local regex classifier if backend fails
+- Shows classification result in input hint
+
+#### US-003: Update saveChatMessage to persist status ✅
+- Updated `server/src/routes/chat.ts` POST /api/chat/messages
+- Added `status` and `client_id` fields to insert
+- Changed to upsert with `onConflict: 'client_id'` for deduplication
+- Updated batch insert to include status/client_id
+- Interface extended with optional status and client_id
+
+#### US-004: Update getChatHistory to return message status ✅
+- Updated GET /api/chat/history select to include `status, client_id`
+- Frontend now receives and displays status from backend
+
+#### US-005: Implement real optimistic updates with reconciliation ✅
+- `handleSend` generates client-side UUID with `crypto.randomUUID()`
+- Message added to UI immediately with `status: 'sending'`
+- `saveChatMessage` updated to use client_id for deduplication
+- On success: updates message with server ID, status to 'sent'
+- On failure: sets status to 'failed'
+- Functional setState pattern prevents race conditions
+
+#### US-006: Wire retry button ✅
+- `handleRetryMessage` calls `sendToAgent` with existing messageId
+- Same client_id used for deduplication
+- Status updates: failed → sending → sent/failed
+
+#### US-007: Fix offline queue with exponential backoff ✅
+- Added `retryCountsRef` to track retry attempts per message
+- Queue processing uses exponential backoff with jitter
+- Max 3 retries before marking as failed
+- Messages removed from queue on max retries
+- Process queue called on online event
+
+#### US-008: Fix contract parsing database ✅
+- Updated `server/src/services/supabase.ts` saveContract method
+- Optional columns (total_value, start_date, end_date) handled gracefully
+- If insert fails due to missing columns, retries without them
+- Works whether or not migration is run
+
+### Files Modified
+- `server/src/routes/agents.ts` - Added intent classify endpoint
+- `server/src/routes/chat.ts` - Added status/client_id, upsert
+- `server/src/services/supabase.ts` - Optional column handling
+- `components/AgentControlCenter/index.tsx` - Backend classifier, optimistic updates
+
+### Documentation Updated
+- `docs/plans/2026-02-03-fix-chat-production-wiring-plan.md` - Enhanced with research insights
+
+### Next Steps
+- Run migrations in Supabase (if not done)
+- Manual testing of all features
+- Run E2E tests
+
+---

@@ -1,0 +1,116 @@
+## Codebase Patterns
+- Use Tailwind CSS with CSCX custom colors: cscx-accent (#e63946), cscx-black, cscx-gray-900, cscx-gray-800, cscx-gray-700, cscx-gray-400, cscx-gray-300
+- API calls use `const API_URL = import.meta.env.VITE_API_URL || ''` and `getAuthHeaders()` from useAuth hook
+- Components use functional React with hooks (useState, useEffect, useCallback)
+- Dark theme: bg-cscx-black, bg-cscx-gray-900, text-white, text-cscx-gray-400
+- Buttons: bg-cscx-accent for primary, border-cscx-gray-700 for secondary
+- Cards: bg-cscx-gray-900 border border-cscx-gray-800 rounded-lg
+
+---
+
+## WorkspaceAgent V2 Dashboard - Progress Log
+
+## 2026-01-29 - WAD-001
+- Implemented tabbed dashboard layout in AgentCenterView
+- Files changed:
+  - `components/AgentCenterView.tsx` - Updated activeAgentTab type from `'chat' | 'workspace'` to include all 7 tabs; replaced 2-button tab UI with dynamic tab rendering; added placeholder components for each new tab; removed WorkspaceAgent import
+- **Learnings for future iterations:**
+  - Tab array pattern with `as const` for type inference works well for dynamic tab rendering
+  - Placeholders should include the story ID (e.g., "Coming in WAD-002") for tracking progress
+  - Pre-existing TypeScript errors in other files don't block compilation of modified components
+  - `flex-wrap` is useful for tab navigation that may need multiple rows
+---
+
+## 2026-01-29 - WAD-002
+- Implemented MCP Tools Browser component
+- Files changed:
+  - `components/WorkspaceAgentV2/MCPToolsBrowser.tsx` - New component with tools fetching, category grouping, provider filtering, search, and collapsible sections
+  - `components/AgentCenterView.tsx` - Added MCPToolsBrowser import and replaced placeholder with component
+- **Learnings for future iterations:**
+  - API endpoint is `/api/mcp/tools` returning `{ tools: MCPTool[], total: number }`
+  - Tool structure: `{ name, description, category, provider, requiresApproval }`
+  - Categories: communication, scheduling, documents, meeting_intelligence
+  - Providers: google, slack, zoom, internal
+  - Use `useMemo` for filtered/grouped data to avoid recalculation on every render
+---
+
+## 2026-01-29 - WAD-003
+- Implemented Triggers Dashboard component
+- Files changed:
+  - `components/WorkspaceAgentV2/TriggersDashboard.tsx` - New component with triggers fetching, enable/disable toggle, stats display, empty state
+  - `components/AgentCenterView.tsx` - Added TriggersDashboard import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/triggers` returning `{ triggers: Trigger[] }` or direct array
+  - PATCH to `/api/triggers/:id` with `{ enabled }` body to toggle
+  - Trigger structure: `{ id, name, description, type, conditions, actions, enabled, fire_count, last_fired_at }`
+  - Types: email, calendar, health_score, renewal, custom
+  - formatLastFired helper converts timestamps to relative time (e.g., "2h ago")
+---
+
+## 2026-01-29 - WAD-004
+- Implemented Playbooks Manager component
+- Files changed:
+  - `components/WorkspaceAgentV2/PlaybooksManager.tsx` - New component with playbooks fetching, stage timeline visualization, expandable details, start button
+  - `components/AgentCenterView.tsx` - Added PlaybooksManager import and replaced placeholder, passing customerId and customerName props
+- **Learnings for future iterations:**
+  - API endpoint is `/api/playbooks` returning `{ playbooks: Playbook[] }` or direct array
+  - POST to `/api/playbooks/:id/execute` with `{ customer_id }` body to start
+  - Playbook structure: `{ id, name, description, type, stages, total_duration_days }`
+  - Stage structure: `{ name, description, duration_days, actions }`
+  - Types: onboarding, renewal, expansion, risk, qbr, custom
+  - Stage timeline uses dynamic width based on duration_days for visual representation
+---
+
+## 2026-01-29 - WAD-005
+- Implemented Skills Library component
+- Files changed:
+  - `components/WorkspaceAgentV2/SkillsLibrary.tsx` - New component with skills fetching, variable inputs, execute functionality
+  - `components/AgentCenterView.tsx` - Added SkillsLibrary import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/skills` returning `{ skills: Skill[] }` or direct array
+  - POST to `/api/skills/:id/execute` with `{ customer_id, variables }` body
+  - Skill structure: `{ id, name, description, icon, category, variables, estimated_duration_seconds, cost_savings_percent }`
+  - Variable structure: `{ name, type, description, required, default }`
+  - Types for variables: string, number, boolean, email, date
+  - Grid layout (md:grid-cols-2) works well for skill cards
+---
+
+## 2026-01-29 - WAD-006
+- Implemented Automations Panel component
+- Files changed:
+  - `components/WorkspaceAgentV2/AutomationsPanel.tsx` - New component with automations fetching, enable/disable toggle, natural language creation
+  - `components/AgentCenterView.tsx` - Added AutomationsPanel import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/automations` returning `{ automations: Automation[] }` or direct array
+  - POST to `/api/automations` with `{ natural_language }` body to create
+  - PATCH to `/api/automations/:id` with `{ enabled }` body to toggle
+  - Automation structure: `{ id, name, description, natural_language, schedule, enabled, run_count, last_run_at, next_run_at }`
+  - formatTimestamp handles both past (e.g., "2h ago") and future (e.g., "in 1h") timestamps
+  - parseSchedule helper converts cron-like strings to human-readable format
+---
+
+## 2026-01-29 - WAD-007
+- Implemented Meeting Intelligence Viewer component (FINAL STORY)
+- Files changed:
+  - `components/WorkspaceAgentV2/MeetingIntelligenceViewer.tsx` - New component with meeting analyses, sentiment indicators, action items, risk indicators, customer filter
+  - `components/AgentCenterView.tsx` - Added MeetingIntelligenceViewer import and replaced placeholder
+- **Learnings for future iterations:**
+  - API endpoint is `/api/meeting-intelligence/analyses` returning `{ analyses: MeetingAnalysis[] }` or direct array
+  - Fetches customers from `/api/customers` in parallel for the filter dropdown
+  - Analysis structure: `{ id, title, date, duration_minutes, platform, customer_id, customer_name, summary, sentiment, key_points, action_items, risk_indicators, participants }`
+  - Sentiment options: positive, neutral, negative, mixed (each with emoji icons)
+  - Platform options: zoom, google_meet, teams, other (each with platform icons)
+  - Action item structure: `{ description, assignee, due_date, priority }`
+  - useMemo for filtered analyses prevents recalculation on every render
+---
+
+## ALL STORIES COMPLETE ✅
+Dashboard features implemented:
+1. WAD-001: Tabbed dashboard layout ✅
+2. WAD-002: MCP Tools Browser ✅
+3. WAD-003: Triggers Dashboard ✅
+4. WAD-004: Playbooks Manager ✅
+5. WAD-005: Skills Library ✅
+6. WAD-006: Automations Panel ✅
+7. WAD-007: Meeting Intelligence Viewer ✅
+
