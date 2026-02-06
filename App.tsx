@@ -118,7 +118,7 @@ const AppContent: React.FC = () => {
   const [view, setView] = useState<AppView>('observability');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  const [observabilityTab, setObservabilityTab] = useState<'overview' | 'customers' | 'health-portfolio'>('overview');
+  const [observabilityTab, setObservabilityTab] = useState<'overview' | 'customers' | 'health-portfolio'>('health-portfolio');
   const [agentCenterOnboardingMode, setAgentCenterOnboardingMode] = useState(false);
 
   // Toast notification state
@@ -159,13 +159,13 @@ const AppContent: React.FC = () => {
 
   const handleBackFromDetail = () => {
     setView('observability');
-    setObservabilityTab('customers');
+    setObservabilityTab('health-portfolio');
     setSelectedCustomerId(null);
   };
 
   const handleBackToCustomers = () => {
     setView('observability');
-    setObservabilityTab('overview');
+    setObservabilityTab('health-portfolio');
   };
 
   // Get current view title
@@ -283,7 +283,7 @@ const AppContent: React.FC = () => {
           {/* Navigation - Observability (with Customers) is primary */}
           <nav className="flex gap-1 p-1 bg-cscx-gray-900 rounded-lg w-fit">
             <button
-              onClick={() => { setView('observability'); setObservabilityTab('overview'); setSelectedCustomerId(null); }}
+              onClick={() => { setView('observability'); setObservabilityTab('health-portfolio'); setSelectedCustomerId(null); }}
               className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
                 view === 'observability'
                   ? 'bg-cscx-accent text-white'
@@ -443,9 +443,9 @@ const AppContent: React.FC = () => {
                     error instanceof Error ? error.message : 'Failed to create customer',
                     'error'
                   );
-                  // Still navigate to customers list on error
+                  // Still navigate to health portfolio on error
                   setView('observability');
-                  setObservabilityTab('customers');
+                  setObservabilityTab('health-portfolio');
                 }
               }}
             />
