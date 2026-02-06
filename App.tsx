@@ -329,6 +329,7 @@ const AppContent: React.FC = () => {
                   <span>📥</span> Actions
                 </button>
 
+                {/* ARCHIVED: Support and Admin tabs
                 <button
                   onClick={() => setView('support')}
                   className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
@@ -350,6 +351,7 @@ const AppContent: React.FC = () => {
                 >
                   <span>⚙️</span> Admin
                 </button>
+                */}
               </>
             )}
           </nav>
@@ -462,19 +464,19 @@ const AppContent: React.FC = () => {
             <KnowledgeBase />
           )}
 
-          {/* VIEW: ADMIN DASHBOARD - Platform Metrics for Admins (PRD-5) */}
+          {/* ARCHIVED: Admin and Support views
           {view === 'admin' && (
             <div className="max-w-6xl mx-auto px-4 py-6">
               <AdminDashboard onClose={() => setView('observability')} />
             </div>
           )}
 
-          {/* VIEW: SUPPORT TICKETS - Support Ticket Management (PRD-4) */}
           {view === 'support' && (
             <div className="max-w-6xl mx-auto px-4 py-6">
               <SupportTickets onClose={() => setView('observability')} />
             </div>
           )}
+          */}
 
           {/* VIEW: AGENT ACTIONS - Agent Inbox for HITL Approval (PRD-3) */}
           {view === 'agent-actions' && (

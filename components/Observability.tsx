@@ -152,7 +152,8 @@ export const Observability: React.FC<ObservabilityProps> = ({
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [sortBy, setSortBy] = useState('arr');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'health-portfolio'>(initialTab || 'overview');
+  // ARCHIVED: Overview and Customers tabs - now only Health Portfolio
+  const [activeTab, setActiveTab] = useState<'overview' | 'customers' | 'health-portfolio'>(initialTab || 'health-portfolio');
 
   // Engagement metrics state (PRD-157)
   const [engagementCustomerId, setEngagementCustomerId] = useState<string | undefined>(undefined);
@@ -412,7 +413,7 @@ export const Observability: React.FC<ObservabilityProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Tab Navigation */}
+      {/* ARCHIVED: Tab Navigation - now only Health Portfolio is shown
       <div className="flex gap-2 p-1 bg-cscx-gray-900 rounded-lg w-fit">
         {(['overview', 'customers', 'health-portfolio'] as const).map(tab => (
           <button
@@ -430,6 +431,7 @@ export const Observability: React.FC<ObservabilityProps> = ({
           </button>
         ))}
       </div>
+      */}
 
       {/* Overview Tab */}
       {activeTab === 'overview' && (
