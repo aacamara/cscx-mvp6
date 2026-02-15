@@ -103,8 +103,7 @@ function getUserId(req: Request): string | null {
  * Returns 401 if not authenticated in production.
  */
 function requireAuth(req: Request, res: Response): string | null {
-  const userId = requireAuth(req, res);
-    if (!userId) return;
+  const userId = getUserId(req);
   if (!userId) {
     res.status(401).json({
       success: false,
