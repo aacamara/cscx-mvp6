@@ -1066,7 +1066,9 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               }
 
               // Regular response — extract routing, tools, approval info
-              const routedAgent = data.routing?.agentType as CSAgentType || 'onboarding';
+              // Use data.agentType (specialist name like 'risk', 'adoption') over
+              // data.routing.agentType (infrastructure label like 'claude_langgraph')
+              const routedAgent = (data.agentType && data.agentType in CS_AGENTS ? data.agentType : data.routing?.agentType) as CSAgentType || 'onboarding';
               const finalResponse = data.response || accumulatedContent;
               const toolResults = data.toolResults?.length > 0 ? data.toolResults : (accumulatedToolResults.length > 0 ? accumulatedToolResults : undefined);
 
@@ -1231,8 +1233,8 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                 : m
             ));
           } else {
-            // Regular response from fallback
-            const routedAgent = data.routing?.agentType as CSAgentType || 'onboarding';
+            // Regular response from fallback — prefer specialist agentType over routing label
+            const routedAgent = (data.agentType && data.agentType in CS_AGENTS ? data.agentType : data.routing?.agentType) as CSAgentType || 'onboarding';
             const finalResponse = data.response || '';
             const toolResults = data.toolResults?.length > 0 ? data.toolResults : undefined;
 
