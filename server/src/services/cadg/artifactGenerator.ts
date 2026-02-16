@@ -757,7 +757,37 @@ function generatePreview(
  */
 function formatTaskTitle(taskType: string): string {
   const titles: Record<string, string> = {
+    // Onboarding Specialist Cards
+    kickoff_plan: 'Kickoff Plan',
+    milestone_plan: '30-60-90 Day Plan',
+    stakeholder_map: 'Stakeholder Map',
+    training_schedule: 'Training Schedule',
+    // Adoption Specialist Cards
+    usage_analysis: 'Usage Analysis',
+    feature_campaign: 'Feature Adoption Campaign',
+    champion_development: 'Champion Development Program',
+    training_program: 'Training Program',
+    // Renewal Specialist Cards
+    renewal_forecast: 'Renewal Forecast',
+    value_summary: 'Value Summary',
+    expansion_proposal: 'Expansion Proposal',
+    negotiation_brief: 'Negotiation Brief',
+    // Risk Specialist Cards
+    risk_assessment: 'Risk Assessment',
+    save_play: 'Save Play',
+    escalation_report: 'Escalation Report',
+    resolution_plan: 'Resolution Plan',
+    // Strategic CSM Cards
     qbr_generation: 'Quarterly Business Review',
+    executive_briefing: 'Executive Briefing',
+    account_plan: 'Strategic Account Plan',
+    transformation_roadmap: 'Transformation Roadmap',
+    // General Mode Cards
+    portfolio_dashboard: 'Portfolio Dashboard',
+    team_metrics: 'Team Metrics',
+    renewal_pipeline: 'Renewal Pipeline',
+    at_risk_overview: 'At-Risk Customer Overview',
+    // Legacy types
     data_analysis: 'Data Analysis Report',
     presentation_creation: 'Presentation',
     document_creation: 'Document',
@@ -766,7 +796,6 @@ function formatTaskTitle(taskType: string): string {
     transcription_summary: 'Meeting Summary',
     health_analysis: 'Health Analysis',
     expansion_planning: 'Expansion Plan',
-    risk_assessment: 'Risk Assessment',
     custom: 'Generated Content',
   };
   return titles[taskType] || 'Generated Content';

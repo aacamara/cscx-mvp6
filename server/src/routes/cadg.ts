@@ -191,226 +191,125 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       userId,
     });
 
-    // Check if this is an email artifact - return preview instead of sending
-    const isEmailArtifact = finalPlan.taskType === 'email_drafting' ||
-                            planRow.user_query?.toLowerCase().includes('email');
+    // ====================================================================
+    // Route to the correct preview generator based on taskType.
+    // IMPORTANT: We dispatch solely on finalPlan.taskType (set by the task
+    // classifier). The old code also matched on user_query substrings,
+    // which caused cross-type collisions (e.g. "account plan" in the query
+    // matching the document_creation handler before reaching account_plan).
+    // ====================================================================
 
-    if (isEmailArtifact) {
-      // Generate email content but don't send - return preview for HITL
-      const emailPreview = await artifactGenerator.generateEmailPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
+    const previewParams = {
+      plan: finalPlan,
+      context,
+      userId,
+      customerId: planRow.customer_id,
+      isTemplate: isTemplateMode,
+    };
 
-      // Keep plan in 'approved' status until user confirms send
+    const customerInfo = {
+      id: planRow.customer_id || null,
+      name: context.platformData.customer360?.name || 'Unknown Customer',
+      healthScore: context.platformData.customer360?.healthScore,
+      renewalDate: context.platformData.customer360?.renewalDate,
+      arr: context.platformData.customer360?.arr,
+    };
+
+    // Helper: mark plan as approved and return a preview response
+    const returnPreview = async (previewFlag: string, preview: Record<string, any>) => {
       await planService.updatePlanStatus(planId, 'approved');
+      return res.json({ success: true, [previewFlag]: true, preview, planId });
+    };
 
-      return res.json({
-        success: true,
-        isPreview: true,
-        preview: {
+    switch (finalPlan.taskType) {
+      // --- Email ---
+      case 'email_drafting': {
+        const emailPreview = await artifactGenerator.generateEmailPreview(previewParams);
+        return returnPreview('isPreview', {
           to: emailPreview.to,
           cc: emailPreview.cc,
           subject: emailPreview.subject,
           body: emailPreview.body,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a document artifact - return preview instead of creating
-    const isDocumentArtifact = finalPlan.taskType === 'document_creation' ||
-                               planRow.user_query?.toLowerCase().includes('document') ||
-                               planRow.user_query?.toLowerCase().includes('success plan') ||
-                               planRow.user_query?.toLowerCase().includes('account plan');
-
-    if (isDocumentArtifact) {
-      // Generate document content but don't create - return preview for HITL
-      const documentPreview = await artifactGenerator.generateDocumentPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isDocumentPreview: true,
-        preview: {
+      // --- Generic Document ---
+      case 'document_creation': {
+        const documentPreview = await artifactGenerator.generateDocumentPreview(previewParams);
+        return returnPreview('isDocumentPreview', {
           title: documentPreview.title,
           sections: documentPreview.sections,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a meeting prep artifact - return preview instead of markdown
-    const isMeetingPrepArtifact = finalPlan.taskType === 'meeting_prep' ||
-                                  planRow.user_query?.toLowerCase().includes('meeting prep') ||
-                                  planRow.user_query?.toLowerCase().includes('prep for meeting') ||
-                                  planRow.user_query?.toLowerCase().includes('prepare for meeting');
-
-    if (isMeetingPrepArtifact) {
-      // Generate meeting prep content but don't finalize - return preview for HITL
-      const meetingPrepPreview = await artifactGenerator.generateMeetingPrepPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isMeetingPrepPreview: true,
-        preview: {
+      // --- Meeting Prep ---
+      case 'meeting_prep': {
+        const meetingPrepPreview = await artifactGenerator.generateMeetingPrepPreview(previewParams);
+        return returnPreview('isMeetingPrepPreview', {
           title: meetingPrepPreview.title,
           attendees: meetingPrepPreview.attendees,
           agenda: meetingPrepPreview.agenda,
           talkingPoints: meetingPrepPreview.talkingPoints,
           risks: meetingPrepPreview.risks,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a milestone plan artifact (30-60-90) - return preview for HITL
-    const isMilestonePlanArtifact = finalPlan.taskType === 'milestone_plan' ||
-                                     planRow.user_query?.toLowerCase().includes('30-60-90') ||
-                                     planRow.user_query?.toLowerCase().includes('30 60 90') ||
-                                     planRow.user_query?.toLowerCase().includes('milestone plan') ||
-                                     planRow.user_query?.toLowerCase().includes('first 90 days') ||
-                                     planRow.user_query?.toLowerCase().includes('onboarding timeline') ||
-                                     planRow.user_query?.toLowerCase().includes('implementation plan');
+      // --- Onboarding Specialist Cards ---
+      case 'kickoff_plan': {
+        const kickoffPlanPreview = await artifactGenerator.generateKickoffPlanPreview(previewParams);
+        return returnPreview('isKickoffPlanPreview', {
+          title: kickoffPlanPreview.title,
+          attendees: kickoffPlanPreview.attendees,
+          agenda: kickoffPlanPreview.agenda,
+          goals: kickoffPlanPreview.goals,
+          nextSteps: kickoffPlanPreview.nextSteps,
+          notes: kickoffPlanPreview.notes,
+          meetingDate: kickoffPlanPreview.meetingDate,
+          meetingDuration: kickoffPlanPreview.meetingDuration,
+          customer: customerInfo,
+        });
+      }
 
-    if (isMilestonePlanArtifact) {
-      // Generate milestone plan content but don't finalize - return preview for HITL
-      const milestonePlanPreview = await artifactGenerator.generateMilestonePlanPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isMilestonePlanPreview: true,
-        preview: {
+      case 'milestone_plan': {
+        const milestonePlanPreview = await artifactGenerator.generateMilestonePlanPreview(previewParams);
+        return returnPreview('isMilestonePlanPreview', {
           title: milestonePlanPreview.title,
           phases: milestonePlanPreview.phases,
           notes: milestonePlanPreview.notes,
           startDate: milestonePlanPreview.startDate,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a stakeholder map artifact - return preview for HITL
-    const isStakeholderMapArtifact = finalPlan.taskType === 'stakeholder_map' ||
-                                      planRow.user_query?.toLowerCase().includes('stakeholder map') ||
-                                      planRow.user_query?.toLowerCase().includes('stakeholder analysis') ||
-                                      planRow.user_query?.toLowerCase().includes('map stakeholders') ||
-                                      planRow.user_query?.toLowerCase().includes('key contacts') ||
-                                      planRow.user_query?.toLowerCase().includes('org chart') ||
-                                      planRow.user_query?.toLowerCase().includes('contact map');
-
-    if (isStakeholderMapArtifact) {
-      // Generate stakeholder map content but don't finalize - return preview for HITL
-      const stakeholderMapPreview = await artifactGenerator.generateStakeholderMapPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isStakeholderMapPreview: true,
-        preview: {
+      case 'stakeholder_map': {
+        const stakeholderMapPreview = await artifactGenerator.generateStakeholderMapPreview(previewParams);
+        return returnPreview('isStakeholderMapPreview', {
           title: stakeholderMapPreview.title,
           stakeholders: stakeholderMapPreview.stakeholders,
           relationships: stakeholderMapPreview.relationships,
           notes: stakeholderMapPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a usage analysis artifact - return preview for HITL
-    const isUsageAnalysisArtifact = finalPlan.taskType === 'usage_analysis' ||
-                                     planRow.user_query?.toLowerCase().includes('usage analysis') ||
-                                     planRow.user_query?.toLowerCase().includes('usage report') ||
-                                     planRow.user_query?.toLowerCase().includes('analyze usage') ||
-                                     planRow.user_query?.toLowerCase().includes('feature adoption') ||
-                                     planRow.user_query?.toLowerCase().includes('adoption report') ||
-                                     planRow.user_query?.toLowerCase().includes('engagement analysis') ||
-                                     planRow.user_query?.toLowerCase().includes('user activity report');
+      case 'training_schedule': {
+        const trainingSchedulePreview = await artifactGenerator.generateTrainingSchedulePreview(previewParams);
+        return returnPreview('isTrainingSchedulePreview', {
+          title: trainingSchedulePreview.title,
+          sessions: trainingSchedulePreview.sessions,
+          notes: trainingSchedulePreview.notes,
+          startDate: trainingSchedulePreview.startDate,
+          customer: customerInfo,
+        });
+      }
 
-    if (isUsageAnalysisArtifact) {
-      // Generate usage analysis content but don't finalize - return preview for HITL
-      const usageAnalysisPreview = await artifactGenerator.generateUsageAnalysisPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isUsageAnalysisPreview: true,
-        preview: {
+      // --- Adoption Specialist Cards ---
+      case 'usage_analysis': {
+        const usageAnalysisPreview = await artifactGenerator.generateUsageAnalysisPreview(previewParams);
+        return returnPreview('isUsageAnalysisPreview', {
           title: usageAnalysisPreview.title,
           timeRange: usageAnalysisPreview.timeRange,
           metrics: usageAnalysisPreview.metrics,
@@ -419,45 +318,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           recommendations: usageAnalysisPreview.recommendations,
           chartTypes: usageAnalysisPreview.chartTypes,
           notes: usageAnalysisPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a feature campaign artifact - return preview for HITL
-    const isFeatureCampaignArtifact = finalPlan.taskType === 'feature_campaign' ||
-                                       planRow.user_query?.toLowerCase().includes('feature campaign') ||
-                                       planRow.user_query?.toLowerCase().includes('drive adoption') ||
-                                       planRow.user_query?.toLowerCase().includes('increase adoption') ||
-                                       planRow.user_query?.toLowerCase().includes('adoption campaign') ||
-                                       planRow.user_query?.toLowerCase().includes('feature rollout') ||
-                                       planRow.user_query?.toLowerCase().includes('promote feature') ||
-                                       planRow.user_query?.toLowerCase().includes('underutilized features') ||
-                                       planRow.user_query?.toLowerCase().includes('boost usage');
-
-    if (isFeatureCampaignArtifact) {
-      // Generate feature campaign content but don't finalize - return preview for HITL
-      const featureCampaignPreview = await artifactGenerator.generateFeatureCampaignPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isFeatureCampaignPreview: true,
-        preview: {
+      case 'feature_campaign': {
+        const featureCampaignPreview = await artifactGenerator.generateFeatureCampaignPreview(previewParams);
+        return returnPreview('isFeatureCampaignPreview', {
           title: featureCampaignPreview.title,
           campaignGoal: featureCampaignPreview.campaignGoal,
           targetFeatures: featureCampaignPreview.targetFeatures,
@@ -466,46 +333,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           messaging: featureCampaignPreview.messaging,
           successMetrics: featureCampaignPreview.successMetrics,
           notes: featureCampaignPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a champion development artifact - return preview for HITL
-    const isChampionDevelopmentArtifact = finalPlan.taskType === 'champion_development' ||
-                                           planRow.user_query?.toLowerCase().includes('champion development') ||
-                                           planRow.user_query?.toLowerCase().includes('champion program') ||
-                                           planRow.user_query?.toLowerCase().includes('develop champions') ||
-                                           planRow.user_query?.toLowerCase().includes('customer champions') ||
-                                           planRow.user_query?.toLowerCase().includes('champion candidates') ||
-                                           planRow.user_query?.toLowerCase().includes('identify champions') ||
-                                           planRow.user_query?.toLowerCase().includes('nurture champions') ||
-                                           planRow.user_query?.toLowerCase().includes('power users') ||
-                                           planRow.user_query?.toLowerCase().includes('advocate program');
-
-    if (isChampionDevelopmentArtifact) {
-      // Generate champion development content but don't finalize - return preview for HITL
-      const championDevelopmentPreview = await artifactGenerator.generateChampionDevelopmentPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isChampionDevelopmentPreview: true,
-        preview: {
+      case 'champion_development': {
+        const championDevelopmentPreview = await artifactGenerator.generateChampionDevelopmentPreview(previewParams);
+        return returnPreview('isChampionDevelopmentPreview', {
           title: championDevelopmentPreview.title,
           programGoal: championDevelopmentPreview.programGoal,
           candidates: championDevelopmentPreview.candidates,
@@ -514,45 +348,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           timeline: championDevelopmentPreview.timeline,
           successMetrics: championDevelopmentPreview.successMetrics,
           notes: championDevelopmentPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a training program artifact - return preview for HITL
-    const isTrainingProgramArtifact = finalPlan.taskType === 'training_program' ||
-                                       planRow.user_query?.toLowerCase().includes('training program') ||
-                                       planRow.user_query?.toLowerCase().includes('training curriculum') ||
-                                       planRow.user_query?.toLowerCase().includes('learning program') ||
-                                       planRow.user_query?.toLowerCase().includes('training modules') ||
-                                       planRow.user_query?.toLowerCase().includes('training course') ||
-                                       planRow.user_query?.toLowerCase().includes('learning path') ||
-                                       planRow.user_query?.toLowerCase().includes('onboarding curriculum') ||
-                                       planRow.user_query?.toLowerCase().includes('certification program');
-
-    if (isTrainingProgramArtifact) {
-      // Generate training program content but don't finalize - return preview for HITL
-      const trainingProgramPreview = await artifactGenerator.generateTrainingProgramPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isTrainingProgramPreview: true,
-        preview: {
+      case 'training_program': {
+        const trainingProgramPreview = await artifactGenerator.generateTrainingProgramPreview(previewParams);
+        return returnPreview('isTrainingProgramPreview', {
           title: trainingProgramPreview.title,
           programGoal: trainingProgramPreview.programGoal,
           modules: trainingProgramPreview.modules,
@@ -561,101 +363,14 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           completionCriteria: trainingProgramPreview.completionCriteria,
           successMetrics: trainingProgramPreview.successMetrics,
           notes: trainingProgramPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a value summary artifact - return preview for HITL
-    const isValueSummaryArtifact = finalPlan.taskType === 'value_summary' ||
-                                    planRow.user_query?.toLowerCase().includes('value summary') ||
-                                    planRow.user_query?.toLowerCase().includes('value realization') ||
-                                    planRow.user_query?.toLowerCase().includes('roi summary') ||
-                                    planRow.user_query?.toLowerCase().includes('roi report') ||
-                                    planRow.user_query?.toLowerCase().includes('roi calculation') ||
-                                    planRow.user_query?.toLowerCase().includes('success metrics') ||
-                                    planRow.user_query?.toLowerCase().includes('value delivered') ||
-                                    planRow.user_query?.toLowerCase().includes('business value') ||
-                                    planRow.user_query?.toLowerCase().includes('customer value') ||
-                                    planRow.user_query?.toLowerCase().includes('demonstrate value') ||
-                                    planRow.user_query?.toLowerCase().includes('show value') ||
-                                    planRow.user_query?.toLowerCase().includes('prove value') ||
-                                    planRow.user_query?.toLowerCase().includes('value report');
-
-    if (isValueSummaryArtifact) {
-      // Generate value summary content but don't finalize - return preview for HITL
-      const valueSummaryPreview = await artifactGenerator.generateValueSummaryPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isValueSummaryPreview: true,
-        preview: {
-          title: valueSummaryPreview.title,
-          executiveSummary: valueSummaryPreview.executiveSummary,
-          valueMetrics: valueSummaryPreview.valueMetrics,
-          successStories: valueSummaryPreview.successStories,
-          testimonials: valueSummaryPreview.testimonials,
-          roiCalculation: valueSummaryPreview.roiCalculation,
-          keyHighlights: valueSummaryPreview.keyHighlights,
-          nextSteps: valueSummaryPreview.nextSteps,
-          notes: valueSummaryPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-          },
-        },
-        planId,
-      });
-    }
-
-    // Check if this is a renewal forecast artifact - return preview for HITL
-    const isRenewalForecastArtifact = finalPlan.taskType === 'renewal_forecast' ||
-                                       planRow.user_query?.toLowerCase().includes('renewal forecast') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal prediction') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal probability') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal likelihood') ||
-                                       planRow.user_query?.toLowerCase().includes('forecast renewal') ||
-                                       planRow.user_query?.toLowerCase().includes('predict renewal') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal outlook') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal projections') ||
-                                       planRow.user_query?.toLowerCase().includes('will they renew') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal risk') ||
-                                       planRow.user_query?.toLowerCase().includes('renewal chance');
-
-    if (isRenewalForecastArtifact) {
-      // Generate renewal forecast content but don't finalize - return preview for HITL
-      const renewalForecastPreview = await artifactGenerator.generateRenewalForecastPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isRenewalForecastPreview: true,
-        preview: {
+      // --- Renewal Specialist Cards ---
+      case 'renewal_forecast': {
+        const renewalForecastPreview = await artifactGenerator.generateRenewalForecastPreview(previewParams);
+        return returnPreview('isRenewalForecastPreview', {
           title: renewalForecastPreview.title,
           renewalDate: renewalForecastPreview.renewalDate,
           currentProbability: renewalForecastPreview.currentProbability,
@@ -668,51 +383,29 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           recommendedActions: renewalForecastPreview.recommendedActions,
           historicalContext: renewalForecastPreview.historicalContext,
           notes: renewalForecastPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is an expansion proposal artifact - return preview for HITL
-    const isExpansionProposalArtifact = finalPlan.taskType === 'expansion_proposal' ||
-                                         planRow.user_query?.toLowerCase().includes('expansion proposal') ||
-                                         planRow.user_query?.toLowerCase().includes('expansion plan') ||
-                                         planRow.user_query?.toLowerCase().includes('upsell proposal') ||
-                                         planRow.user_query?.toLowerCase().includes('upsell plan') ||
-                                         planRow.user_query?.toLowerCase().includes('growth proposal') ||
-                                         planRow.user_query?.toLowerCase().includes('upgrade proposal') ||
-                                         planRow.user_query?.toLowerCase().includes('expand account') ||
-                                         planRow.user_query?.toLowerCase().includes('account expansion') ||
-                                         planRow.user_query?.toLowerCase().includes('expand customer') ||
-                                         planRow.user_query?.toLowerCase().includes('pricing proposal') ||
-                                         planRow.user_query?.toLowerCase().includes('expansion opportunity') ||
-                                         planRow.user_query?.toLowerCase().includes('upsell opportunity') ||
-                                         planRow.user_query?.toLowerCase().includes('cross-sell') ||
-                                         planRow.user_query?.toLowerCase().includes('cross sell');
+      case 'value_summary': {
+        const valueSummaryPreview = await artifactGenerator.generateValueSummaryPreview(previewParams);
+        return returnPreview('isValueSummaryPreview', {
+          title: valueSummaryPreview.title,
+          executiveSummary: valueSummaryPreview.executiveSummary,
+          valueMetrics: valueSummaryPreview.valueMetrics,
+          successStories: valueSummaryPreview.successStories,
+          testimonials: valueSummaryPreview.testimonials,
+          roiCalculation: valueSummaryPreview.roiCalculation,
+          keyHighlights: valueSummaryPreview.keyHighlights,
+          nextSteps: valueSummaryPreview.nextSteps,
+          notes: valueSummaryPreview.notes,
+          customer: customerInfo,
+        });
+      }
 
-    if (isExpansionProposalArtifact) {
-      // Generate expansion proposal content but don't finalize - return preview for HITL
-      const expansionProposalPreview = await artifactGenerator.generateExpansionProposalPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isExpansionProposalPreview: true,
-        preview: {
+      case 'expansion_proposal': {
+        const expansionProposalPreview = await artifactGenerator.generateExpansionProposalPreview(previewParams);
+        return returnPreview('isExpansionProposalPreview', {
           title: expansionProposalPreview.title,
           proposalDate: expansionProposalPreview.proposalDate,
           validUntil: expansionProposalPreview.validUntil,
@@ -727,50 +420,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           growthSignals: expansionProposalPreview.growthSignals,
           nextSteps: expansionProposalPreview.nextSteps,
           notes: expansionProposalPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a negotiation brief artifact - return preview for HITL
-    const isNegotiationBriefArtifact = finalPlan.taskType === 'negotiation_brief' ||
-                                        planRow.user_query?.toLowerCase().includes('negotiation brief') ||
-                                        planRow.user_query?.toLowerCase().includes('negotiation prep') ||
-                                        planRow.user_query?.toLowerCase().includes('negotiation strategy') ||
-                                        planRow.user_query?.toLowerCase().includes('renewal negotiation') ||
-                                        planRow.user_query?.toLowerCase().includes('contract negotiation') ||
-                                        planRow.user_query?.toLowerCase().includes('negotiate renewal') ||
-                                        planRow.user_query?.toLowerCase().includes('prepare negotiation') ||
-                                        planRow.user_query?.toLowerCase().includes('leverage points') ||
-                                        planRow.user_query?.toLowerCase().includes('counter strategy') ||
-                                        planRow.user_query?.toLowerCase().includes('walk-away') ||
-                                        planRow.user_query?.toLowerCase().includes('walkaway') ||
-                                        planRow.user_query?.toLowerCase().includes('bargaining') ||
-                                        planRow.user_query?.toLowerCase().includes('deal terms');
-
-    if (isNegotiationBriefArtifact) {
-      // Generate negotiation brief content but don't finalize - return preview for HITL
-      const negotiationBriefPreview = await artifactGenerator.generateNegotiationBriefPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isNegotiationBriefPreview: true,
-        preview: {
+      case 'negotiation_brief': {
+        const negotiationBriefPreview = await artifactGenerator.generateNegotiationBriefPreview(previewParams);
+        return returnPreview('isNegotiationBriefPreview', {
           title: negotiationBriefPreview.title,
           negotiationDate: negotiationBriefPreview.negotiationDate,
           contractValue: negotiationBriefPreview.contractValue,
@@ -783,132 +439,14 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           competitorIntel: negotiationBriefPreview.competitorIntel,
           valueDelivered: negotiationBriefPreview.valueDelivered,
           internalNotes: negotiationBriefPreview.internalNotes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a training schedule artifact - return preview for HITL
-    const isTrainingScheduleArtifact = finalPlan.taskType === 'training_schedule' ||
-                                        planRow.user_query?.toLowerCase().includes('training schedule') ||
-                                        planRow.user_query?.toLowerCase().includes('training calendar') ||
-                                        planRow.user_query?.toLowerCase().includes('training plan') ||
-                                        planRow.user_query?.toLowerCase().includes('training sessions') ||
-                                        planRow.user_query?.toLowerCase().includes('schedule training');
-
-    if (isTrainingScheduleArtifact) {
-      // Generate training schedule content but don't finalize - return preview for HITL
-      const trainingSchedulePreview = await artifactGenerator.generateTrainingSchedulePreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isTrainingSchedulePreview: true,
-        preview: {
-          title: trainingSchedulePreview.title,
-          sessions: trainingSchedulePreview.sessions,
-          notes: trainingSchedulePreview.notes,
-          startDate: trainingSchedulePreview.startDate,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
-
-    // Check if this is a kickoff plan artifact - return preview for HITL
-    const isKickoffPlanArtifact = finalPlan.taskType === 'kickoff_plan' ||
-                                   planRow.user_query?.toLowerCase().includes('kickoff plan') ||
-                                   planRow.user_query?.toLowerCase().includes('kickoff meeting') ||
-                                   planRow.user_query?.toLowerCase().includes('build kickoff') ||
-                                   planRow.user_query?.toLowerCase().includes('kickoff agenda');
-
-    if (isKickoffPlanArtifact) {
-      // Generate kickoff plan content but don't finalize - return preview for HITL
-      const kickoffPlanPreview = await artifactGenerator.generateKickoffPlanPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isKickoffPlanPreview: true,
-        preview: {
-          title: kickoffPlanPreview.title,
-          attendees: kickoffPlanPreview.attendees,
-          agenda: kickoffPlanPreview.agenda,
-          goals: kickoffPlanPreview.goals,
-          nextSteps: kickoffPlanPreview.nextSteps,
-          notes: kickoffPlanPreview.notes,
-          meetingDate: kickoffPlanPreview.meetingDate,
-          meetingDuration: kickoffPlanPreview.meetingDuration,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
-
-    // Check if this is a risk assessment artifact - return preview for HITL
-    const isRiskAssessmentArtifact = finalPlan.taskType === 'risk_assessment' ||
-                                      planRow.user_query?.toLowerCase().includes('risk assessment') ||
-                                      planRow.user_query?.toLowerCase().includes('risk analysis') ||
-                                      planRow.user_query?.toLowerCase().includes('churn risk') ||
-                                      planRow.user_query?.toLowerCase().includes('at-risk') ||
-                                      planRow.user_query?.toLowerCase().includes('at risk') ||
-                                      planRow.user_query?.toLowerCase().includes('assess risk') ||
-                                      planRow.user_query?.toLowerCase().includes('evaluate risk') ||
-                                      planRow.user_query?.toLowerCase().includes('risk profile') ||
-                                      planRow.user_query?.toLowerCase().includes('risk factors') ||
-                                      planRow.user_query?.toLowerCase().includes('mitigation plan') ||
-                                      planRow.user_query?.toLowerCase().includes('health risk');
-
-    if (isRiskAssessmentArtifact) {
-      // Generate risk assessment content but don't finalize - return preview for HITL
-      const riskAssessmentPreview = await artifactGenerator.generateRiskAssessmentPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isRiskAssessmentPreview: true,
-        preview: {
+      // --- Risk Specialist Cards ---
+      case 'risk_assessment': {
+        const riskAssessmentPreview = await artifactGenerator.generateRiskAssessmentPreview(previewParams);
+        return returnPreview('isRiskAssessmentPreview', {
           title: riskAssessmentPreview.title,
           assessmentDate: riskAssessmentPreview.assessmentDate,
           overallRiskScore: riskAssessmentPreview.overallRiskScore,
@@ -920,51 +458,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           mitigationActions: riskAssessmentPreview.mitigationActions,
           executiveSummary: riskAssessmentPreview.executiveSummary,
           notes: riskAssessmentPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a save play artifact - return preview for HITL
-    const isSavePlayArtifact = finalPlan.taskType === 'save_play' ||
-                               planRow.user_query?.toLowerCase().includes('save play') ||
-                               planRow.user_query?.toLowerCase().includes('save this customer') ||
-                               planRow.user_query?.toLowerCase().includes('save the customer') ||
-                               planRow.user_query?.toLowerCase().includes('save account') ||
-                               planRow.user_query?.toLowerCase().includes('churn save') ||
-                               planRow.user_query?.toLowerCase().includes('retention play') ||
-                               planRow.user_query?.toLowerCase().includes('retention plan') ||
-                               planRow.user_query?.toLowerCase().includes('prevent churn') ||
-                               planRow.user_query?.toLowerCase().includes('rescue plan') ||
-                               planRow.user_query?.toLowerCase().includes('rescue this') ||
-                               planRow.user_query?.toLowerCase().includes('intervention plan') ||
-                               planRow.user_query?.toLowerCase().includes('turnaround plan') ||
-                               planRow.user_query?.toLowerCase().includes('win back');
-
-    if (isSavePlayArtifact) {
-      // Generate save play content but don't finalize - return preview for HITL
-      const savePlayPreview = await artifactGenerator.generateSavePlayPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isSavePlayPreview: true,
-        preview: {
+      case 'save_play': {
+        const savePlayPreview = await artifactGenerator.generateSavePlayPreview(previewParams);
+        return returnPreview('isSavePlayPreview', {
           title: savePlayPreview.title,
           createdDate: savePlayPreview.createdDate,
           riskLevel: savePlayPreview.riskLevel,
@@ -977,49 +477,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           successMetrics: savePlayPreview.successMetrics,
           timeline: savePlayPreview.timeline,
           notes: savePlayPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is an escalation report artifact - return preview for HITL
-    const isEscalationReportArtifact = finalPlan.taskType === 'escalation_report' ||
-                                       planRow.user_query?.toLowerCase().includes('escalation report') ||
-                                       planRow.user_query?.toLowerCase().includes('escalation') ||
-                                       planRow.user_query?.toLowerCase().includes('escalate this') ||
-                                       planRow.user_query?.toLowerCase().includes('escalate issue') ||
-                                       planRow.user_query?.toLowerCase().includes('executive escalation') ||
-                                       planRow.user_query?.toLowerCase().includes('urgent escalation') ||
-                                       planRow.user_query?.toLowerCase().includes('escalate to') ||
-                                       planRow.user_query?.toLowerCase().includes('raise escalation') ||
-                                       planRow.user_query?.toLowerCase().includes('formal escalation') ||
-                                       planRow.user_query?.toLowerCase().includes('critical issue') ||
-                                       planRow.user_query?.toLowerCase().includes('create escalation');
-
-    if (isEscalationReportArtifact) {
-      // Generate escalation report content but don't finalize - return preview for HITL
-      const escalationReportPreview = await artifactGenerator.generateEscalationReportPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isEscalationReportPreview: true,
-        preview: {
+      case 'escalation_report': {
+        const escalationReportPreview = await artifactGenerator.generateEscalationReportPreview(previewParams);
+        return returnPreview('isEscalationReportPreview', {
           title: escalationReportPreview.title,
           createdDate: escalationReportPreview.createdDate,
           escalationLevel: escalationReportPreview.escalationLevel,
@@ -1036,53 +500,34 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           supportingEvidence: escalationReportPreview.supportingEvidence,
           recommendedActions: escalationReportPreview.recommendedActions,
           notes: escalationReportPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is an executive briefing artifact - return preview for HITL
-    const isExecutiveBriefingArtifact = finalPlan.taskType === 'executive_briefing' ||
-                                        planRow.user_query?.toLowerCase().includes('executive briefing') ||
-                                        planRow.user_query?.toLowerCase().includes('exec briefing') ||
-                                        planRow.user_query?.toLowerCase().includes('executive summary') ||
-                                        planRow.user_query?.toLowerCase().includes('leadership briefing') ||
-                                        planRow.user_query?.toLowerCase().includes('board briefing') ||
-                                        planRow.user_query?.toLowerCase().includes('c-suite briefing') ||
-                                        planRow.user_query?.toLowerCase().includes('executive deck') ||
-                                        planRow.user_query?.toLowerCase().includes('executive presentation') ||
-                                        planRow.user_query?.toLowerCase().includes('exec presentation') ||
-                                        planRow.user_query?.toLowerCase().includes('brief the exec') ||
-                                        planRow.user_query?.toLowerCase().includes('brief leadership') ||
-                                        planRow.user_query?.toLowerCase().includes('leadership presentation') ||
-                                        planRow.user_query?.toLowerCase().includes('stakeholder briefing') ||
-                                        planRow.user_query?.toLowerCase().includes('account overview for exec') ||
-                                        planRow.user_query?.toLowerCase().includes('account brief');
+      case 'resolution_plan': {
+        const resolutionPlanPreview = await artifactGenerator.generateResolutionPlanPreview(previewParams);
+        return returnPreview('isResolutionPlanPreview', {
+          title: resolutionPlanPreview.title,
+          createdDate: resolutionPlanPreview.createdDate,
+          targetResolutionDate: resolutionPlanPreview.targetResolutionDate,
+          overallStatus: resolutionPlanPreview.overallStatus,
+          summary: resolutionPlanPreview.summary,
+          healthScore: resolutionPlanPreview.healthScore,
+          daysUntilRenewal: resolutionPlanPreview.daysUntilRenewal,
+          arr: resolutionPlanPreview.arr,
+          issues: resolutionPlanPreview.issues,
+          actionItems: resolutionPlanPreview.actionItems,
+          dependencies: resolutionPlanPreview.dependencies,
+          timeline: resolutionPlanPreview.timeline,
+          notes: resolutionPlanPreview.notes,
+          customer: customerInfo,
+        });
+      }
 
-    if (isExecutiveBriefingArtifact) {
-      // Generate executive briefing content but don't finalize - return preview for HITL
-      const executiveBriefingPreview = await artifactGenerator.generateExecutiveBriefingPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isExecutiveBriefingPreview: true,
-        preview: {
+      // --- Strategic CSM Cards ---
+      case 'executive_briefing': {
+        const executiveBriefingPreview = await artifactGenerator.generateExecutiveBriefingPreview(previewParams);
+        return returnPreview('isExecutiveBriefingPreview', {
           title: executiveBriefingPreview.title,
           preparedFor: executiveBriefingPreview.preparedFor,
           preparedBy: executiveBriefingPreview.preparedBy,
@@ -1098,51 +543,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           daysUntilRenewal: executiveBriefingPreview.daysUntilRenewal,
           arr: executiveBriefingPreview.arr,
           notes: executiveBriefingPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is an account plan artifact - return preview for HITL
-    const isAccountPlanArtifact = finalPlan.taskType === 'account_plan' ||
-                                  planRow.user_query?.toLowerCase().includes('account plan') ||
-                                  planRow.user_query?.toLowerCase().includes('strategic plan') ||
-                                  planRow.user_query?.toLowerCase().includes('strategic account plan') ||
-                                  planRow.user_query?.toLowerCase().includes('account strategy') ||
-                                  planRow.user_query?.toLowerCase().includes('account roadmap') ||
-                                  planRow.user_query?.toLowerCase().includes('strategic roadmap') ||
-                                  planRow.user_query?.toLowerCase().includes('customer plan') ||
-                                  planRow.user_query?.toLowerCase().includes('annual plan') ||
-                                  planRow.user_query?.toLowerCase().includes('success plan') ||
-                                  planRow.user_query?.toLowerCase().includes('growth plan') ||
-                                  planRow.user_query?.toLowerCase().includes('engagement plan') ||
-                                  planRow.user_query?.toLowerCase().includes('partnership plan') ||
-                                  planRow.user_query?.toLowerCase().includes('relationship plan');
-
-    if (isAccountPlanArtifact) {
-      // Generate account plan content but don't finalize - return preview for HITL
-      const accountPlanPreview = await artifactGenerator.generateAccountPlanPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isAccountPlanPreview: true,
-        preview: {
+      case 'account_plan': {
+        const accountPlanPreview = await artifactGenerator.generateAccountPlanPreview(previewParams);
+        return returnPreview('isAccountPlanPreview', {
           title: accountPlanPreview.title,
           planPeriod: accountPlanPreview.planPeriod,
           createdDate: accountPlanPreview.createdDate,
@@ -1158,106 +565,13 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           daysUntilRenewal: accountPlanPreview.daysUntilRenewal,
           arr: accountPlanPreview.arr,
           notes: accountPlanPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a resolution plan artifact - return preview for HITL
-    const isResolutionPlanArtifact = finalPlan.taskType === 'resolution_plan' ||
-                                     planRow.user_query?.toLowerCase().includes('resolution plan') ||
-                                     planRow.user_query?.toLowerCase().includes('action plan') ||
-                                     planRow.user_query?.toLowerCase().includes('issue resolution') ||
-                                     planRow.user_query?.toLowerCase().includes('problem resolution') ||
-                                     planRow.user_query?.toLowerCase().includes('fix plan') ||
-                                     planRow.user_query?.toLowerCase().includes('remediation plan') ||
-                                     planRow.user_query?.toLowerCase().includes('corrective action') ||
-                                     planRow.user_query?.toLowerCase().includes('resolve issues') ||
-                                     planRow.user_query?.toLowerCase().includes('address issues') ||
-                                     planRow.user_query?.toLowerCase().includes('issue tracker') ||
-                                     planRow.user_query?.toLowerCase().includes('action tracker');
-
-    if (isResolutionPlanArtifact) {
-      // Generate resolution plan content but don't finalize - return preview for HITL
-      const resolutionPlanPreview = await artifactGenerator.generateResolutionPlanPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isResolutionPlanPreview: true,
-        preview: {
-          title: resolutionPlanPreview.title,
-          createdDate: resolutionPlanPreview.createdDate,
-          targetResolutionDate: resolutionPlanPreview.targetResolutionDate,
-          overallStatus: resolutionPlanPreview.overallStatus,
-          summary: resolutionPlanPreview.summary,
-          healthScore: resolutionPlanPreview.healthScore,
-          daysUntilRenewal: resolutionPlanPreview.daysUntilRenewal,
-          arr: resolutionPlanPreview.arr,
-          issues: resolutionPlanPreview.issues,
-          actionItems: resolutionPlanPreview.actionItems,
-          dependencies: resolutionPlanPreview.dependencies,
-          timeline: resolutionPlanPreview.timeline,
-          notes: resolutionPlanPreview.notes,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
-
-    // Check if this is a transformation roadmap artifact - return preview for HITL
-    const isTransformationRoadmapArtifact = finalPlan.taskType === 'transformation_roadmap' ||
-                                            planRow.user_query?.toLowerCase().includes('transformation roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('transformation plan') ||
-                                            planRow.user_query?.toLowerCase().includes('digital transformation') ||
-                                            planRow.user_query?.toLowerCase().includes('transformation journey') ||
-                                            planRow.user_query?.toLowerCase().includes('change roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('transformation timeline') ||
-                                            planRow.user_query?.toLowerCase().includes('maturity roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('evolution roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('adoption roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('implementation roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('rollout roadmap') ||
-                                            planRow.user_query?.toLowerCase().includes('deployment roadmap');
-
-    if (isTransformationRoadmapArtifact) {
-      // Generate transformation roadmap content but don't finalize - return preview for HITL
-      const transformationRoadmapPreview = await artifactGenerator.generateTransformationRoadmapPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: planRow.customer_id,
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isTransformationRoadmapPreview: true,
-        preview: {
+      case 'transformation_roadmap': {
+        const transformationRoadmapPreview = await artifactGenerator.generateTransformationRoadmapPreview(previewParams);
+        return returnPreview('isTransformationRoadmapPreview', {
           title: transformationRoadmapPreview.title,
           visionStatement: transformationRoadmapPreview.visionStatement,
           createdDate: transformationRoadmapPreview.createdDate,
@@ -1275,49 +589,17 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           notes: transformationRoadmapPreview.notes,
           healthScore: transformationRoadmapPreview.healthScore,
           arr: transformationRoadmapPreview.arr,
-          customer: {
-            id: planRow.customer_id || null,
-            name: context.platformData.customer360?.name || 'Unknown Customer',
-            healthScore: context.platformData.customer360?.healthScore,
-            arr: context.platformData.customer360?.arr,
-            renewalDate: context.platformData.customer360?.renewalDate,
-          },
-        },
-        planId,
-      });
-    }
+          customer: customerInfo,
+        });
+      }
 
-    // Check if this is a portfolio dashboard artifact - return preview for HITL (General Mode)
-    const isPortfolioDashboardArtifact = finalPlan.taskType === 'portfolio_dashboard' ||
-                                          planRow.user_query?.toLowerCase().includes('portfolio dashboard') ||
-                                          planRow.user_query?.toLowerCase().includes('portfolio overview') ||
-                                          planRow.user_query?.toLowerCase().includes('customer portfolio') ||
-                                          planRow.user_query?.toLowerCase().includes('my portfolio') ||
-                                          planRow.user_query?.toLowerCase().includes('all customers') ||
-                                          planRow.user_query?.toLowerCase().includes('all my customers') ||
-                                          planRow.user_query?.toLowerCase().includes('customer list') ||
-                                          planRow.user_query?.toLowerCase().includes('book of business') ||
-                                          planRow.user_query?.toLowerCase().includes('account list') ||
-                                          planRow.user_query?.toLowerCase().includes('show customers') ||
-                                          planRow.user_query?.toLowerCase().includes('customer health dashboard');
-
-    if (isPortfolioDashboardArtifact) {
-      // Generate portfolio dashboard content - this works in General Mode (no customer required)
-      const portfolioDashboardPreview = await artifactGenerator.generatePortfolioDashboardPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: null, // General Mode - no specific customer
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isPortfolioDashboardPreview: true,
-        preview: {
+      // --- General Mode Cards (portfolio-level, no customer required) ---
+      case 'portfolio_dashboard': {
+        const portfolioDashboardPreview = await artifactGenerator.generatePortfolioDashboardPreview({
+          ...previewParams,
+          customerId: null,
+        });
+        return returnPreview('isPortfolioDashboardPreview', {
           title: portfolioDashboardPreview.title,
           createdDate: portfolioDashboardPreview.createdDate,
           lastUpdated: portfolioDashboardPreview.lastUpdated,
@@ -1329,45 +611,15 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           availableTiers: portfolioDashboardPreview.availableTiers,
           availableOwners: portfolioDashboardPreview.availableOwners,
           notes: portfolioDashboardPreview.notes,
-        },
-        planId,
-      });
-    }
+        });
+      }
 
-    // Check if this is a team metrics artifact - return preview for HITL (General Mode)
-    const isTeamMetricsArtifact = finalPlan.taskType === 'team_metrics' ||
-                                  planRow.user_query?.toLowerCase().includes('team metrics') ||
-                                  planRow.user_query?.toLowerCase().includes('team performance') ||
-                                  planRow.user_query?.toLowerCase().includes('csm metrics') ||
-                                  planRow.user_query?.toLowerCase().includes('csm performance') ||
-                                  planRow.user_query?.toLowerCase().includes('team dashboard') ||
-                                  planRow.user_query?.toLowerCase().includes('manager dashboard') ||
-                                  planRow.user_query?.toLowerCase().includes('team report') ||
-                                  planRow.user_query?.toLowerCase().includes('csm report') ||
-                                  planRow.user_query?.toLowerCase().includes('team kpis') ||
-                                  planRow.user_query?.toLowerCase().includes('csm kpis') ||
-                                  planRow.user_query?.toLowerCase().includes('team health') ||
-                                  planRow.user_query?.toLowerCase().includes('compare csms') ||
-                                  planRow.user_query?.toLowerCase().includes('csm comparison') ||
-                                  planRow.user_query?.toLowerCase().includes('my team');
-
-    if (isTeamMetricsArtifact) {
-      // Generate team metrics content - this works in General Mode (no customer required)
-      const teamMetricsPreview = await artifactGenerator.generateTeamMetricsPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: null, // General Mode - no specific customer
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isTeamMetricsPreview: true,
-        preview: {
+      case 'team_metrics': {
+        const teamMetricsPreview = await artifactGenerator.generateTeamMetricsPreview({
+          ...previewParams,
+          customerId: null,
+        });
+        return returnPreview('isTeamMetricsPreview', {
           title: teamMetricsPreview.title,
           createdDate: teamMetricsPreview.createdDate,
           lastUpdated: teamMetricsPreview.lastUpdated,
@@ -1378,45 +630,15 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           columns: teamMetricsPreview.columns,
           availableCsms: teamMetricsPreview.availableCsms,
           notes: teamMetricsPreview.notes,
-        },
-        planId,
-      });
-    }
+        });
+      }
 
-    // Check if this is a renewal pipeline artifact - return preview for HITL (General Mode)
-    const isRenewalPipelineArtifact = finalPlan.taskType === 'renewal_pipeline' ||
-                                      planRow.user_query?.toLowerCase().includes('renewal pipeline') ||
-                                      planRow.user_query?.toLowerCase().includes('renewals pipeline') ||
-                                      planRow.user_query?.toLowerCase().includes('upcoming renewals') ||
-                                      planRow.user_query?.toLowerCase().includes('renewal forecast') ||
-                                      planRow.user_query?.toLowerCase().includes('renewal calendar') ||
-                                      planRow.user_query?.toLowerCase().includes('renewal schedule') ||
-                                      planRow.user_query?.toLowerCase().includes('renewal tracker') ||
-                                      planRow.user_query?.toLowerCase().includes('renewal list') ||
-                                      planRow.user_query?.toLowerCase().includes('renewals this quarter') ||
-                                      planRow.user_query?.toLowerCase().includes('renewals this month') ||
-                                      planRow.user_query?.toLowerCase().includes('renewals due') ||
-                                      planRow.user_query?.toLowerCase().includes('upcoming renewals') ||
-                                      planRow.user_query?.toLowerCase().includes('show renewals') ||
-                                      planRow.user_query?.toLowerCase().includes('all renewals');
-
-    if (isRenewalPipelineArtifact) {
-      // Generate renewal pipeline content - this works in General Mode (no customer required)
-      const renewalPipelinePreview = await artifactGenerator.generateRenewalPipelinePreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: null, // General Mode - no specific customer
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isRenewalPipelinePreview: true,
-        preview: {
+      case 'renewal_pipeline': {
+        const renewalPipelinePreview = await artifactGenerator.generateRenewalPipelinePreview({
+          ...previewParams,
+          customerId: null,
+        });
+        return returnPreview('isRenewalPipelinePreview', {
           title: renewalPipelinePreview.title,
           createdDate: renewalPipelinePreview.createdDate,
           lastUpdated: renewalPipelinePreview.lastUpdated,
@@ -1428,44 +650,15 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           availableTiers: renewalPipelinePreview.availableTiers,
           availableSegments: renewalPipelinePreview.availableSegments,
           notes: renewalPipelinePreview.notes,
-        },
-        planId,
-      });
-    }
+        });
+      }
 
-    // Check if this is an at-risk overview artifact - return preview for HITL (General Mode)
-    const isAtRiskOverviewArtifact = finalPlan.taskType === 'at_risk_overview' ||
-                                      planRow.user_query?.toLowerCase().includes('at-risk overview') ||
-                                      planRow.user_query?.toLowerCase().includes('at risk overview') ||
-                                      planRow.user_query?.toLowerCase().includes('at-risk customers') ||
-                                      planRow.user_query?.toLowerCase().includes('at risk customers') ||
-                                      planRow.user_query?.toLowerCase().includes('customers at risk') ||
-                                      planRow.user_query?.toLowerCase().includes('show at-risk') ||
-                                      planRow.user_query?.toLowerCase().includes('show at risk') ||
-                                      planRow.user_query?.toLowerCase().includes('risk overview') ||
-                                      planRow.user_query?.toLowerCase().includes('churn risk overview') ||
-                                      planRow.user_query?.toLowerCase().includes('high risk customers') ||
-                                      planRow.user_query?.toLowerCase().includes('critical customers') ||
-                                      planRow.user_query?.toLowerCase().includes('risky accounts') ||
-                                      planRow.user_query?.toLowerCase().includes('accounts at risk');
-
-    if (isAtRiskOverviewArtifact) {
-      // Generate at-risk overview content - this works in General Mode (no customer required)
-      const atRiskOverviewPreview = await artifactGenerator.generateAtRiskOverviewPreview({
-        plan: finalPlan,
-        context,
-        userId,
-        customerId: null, // General Mode - no specific customer
-        isTemplate: isTemplateMode,
-      });
-
-      // Keep plan in 'approved' status until user confirms save
-      await planService.updatePlanStatus(planId, 'approved');
-
-      return res.json({
-        success: true,
-        isAtRiskOverviewPreview: true,
-        preview: {
+      case 'at_risk_overview': {
+        const atRiskOverviewPreview = await artifactGenerator.generateAtRiskOverviewPreview({
+          ...previewParams,
+          customerId: null,
+        });
+        return returnPreview('isAtRiskOverviewPreview', {
           title: atRiskOverviewPreview.title,
           createdDate: atRiskOverviewPreview.createdDate,
           lastUpdated: atRiskOverviewPreview.lastUpdated,
@@ -1477,9 +670,12 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
           availableTiers: atRiskOverviewPreview.availableTiers,
           availableSegments: atRiskOverviewPreview.availableSegments,
           notes: atRiskOverviewPreview.notes,
-        },
-        planId,
-      });
+        });
+      }
+
+      // --- QBR and other types fall through to generic generate() below ---
+      default:
+        break;
     }
 
     // Generate the artifact (with template mode support)

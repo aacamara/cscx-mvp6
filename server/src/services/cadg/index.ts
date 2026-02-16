@@ -60,6 +60,50 @@ import {
 } from './types.js';
 
 /**
+ * Detect if a query is a conversational question that should bypass CADG.
+ * Questions starting with interrogative words are conversational and should
+ * get a text answer, not an Execution Plan.
+ */
+function isConversationalQuestion(query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+
+  // Interrogative word patterns that indicate a question, not a generative command
+  const questionPatterns = [
+    /^what\s/,
+    /^how\s/,
+    /^why\s/,
+    /^when\s/,
+    /^which\s/,
+    /^should\s/,
+    /^can\s+(i|we|you)\s/,
+    /^is\s+(there|it|this|that)\s/,
+    /^are\s+(there|they|we|you)\s/,
+    /^do\s+(i|we|you|they)\s/,
+    /^does\s/,
+    /^will\s/,
+    /^would\s/,
+    /^where\s/,
+    /^who\s/,
+    /^tell\s+me\s+(about|what|how|why|when)/,
+  ];
+
+  // If the query matches a question pattern, it's conversational UNLESS
+  // it also contains an explicit generative verb that overrides the question form.
+  // e.g., "Can you create a kickoff plan?" should still be generative.
+  const isQuestion = questionPatterns.some(p => p.test(trimmed));
+  if (!isQuestion) return false;
+
+  // Check for generative verbs that override the question form
+  const generativeOverrides = [
+    /\b(create|build|generate|design|prepare|draft|make|compose|develop|produce|craft|construct)\s+(a|an|the|me|my)\b/,
+    /\b(write|put together|set up)\s+(a|an|the|me|my)\b/,
+  ];
+
+  const hasGenerativeIntent = generativeOverrides.some(p => p.test(trimmed));
+  return !hasGenerativeIntent;
+}
+
+/**
  * Full CADG orchestration result
  */
 export interface CADGResult {
@@ -88,12 +132,30 @@ export const cadgService = {
     classification: TaskClassificationResult;
     capability: CapabilityMatchResult | null;
   }> {
+    // Early exit: conversational questions bypass CADG entirely
+    if (isConversationalQuestion(userQuery)) {
+      console.log(`[CADG] Conversational question detected, bypassing CADG: "${userQuery.substring(0, 60)}..."`);
+      return {
+        isGenerative: false,
+        classification: {
+          taskType: 'custom',
+          confidence: 0,
+          suggestedMethodology: null,
+          requiredSources: ['knowledge_base'],
+        },
+        capability: null,
+      };
+    }
+
     const classification = await taskClassifier.classify(
       userQuery,
       undefined,
       context?.activeAgent as 'onboarding' | 'adoption' | 'renewal' | 'risk' | 'strategic' | undefined
     );
-    const isGenerative = taskClassifier.isGenerativeRequest(userQuery) ||
+
+    // Only treat as generative if the query has explicit generative intent
+    // (imperative verbs like create/build/generate), not just high classification confidence
+    const isGenerative = taskClassifier.isGenerativeRequest(userQuery) &&
       classification.confidence >= 0.7;
 
     let capability: CapabilityMatchResult | null = null;

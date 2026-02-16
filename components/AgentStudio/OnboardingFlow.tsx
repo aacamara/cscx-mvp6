@@ -57,12 +57,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
   onComplete,
   onCancel,
 }) => {
-  const { user, userId, getAuthHeaders } = useAuth();
+  const { user, userId, isAuthenticated, hasGoogleAccess, getAuthHeaders } = useAuth();
+
+  // Detect Demo Mode: no authentication or no Google tokens available
+  const isDemoMode = !isAuthenticated || !hasGoogleAccess;
 
   // Flow state - Start directly at contract_upload for demo (bypass Google auth)
   const [currentStep, setCurrentStep] = useState<FlowStep>('contract_upload');
   const [error, setError] = useState<string | null>(null);
-  const [demoMode] = useState(false); // Real mode - creates actual Google Workspace
+  const [demoMode] = useState(false); // Legacy flag for workspace step - kept for compatibility
 
   // Google connection
   const [googleStatus, setGoogleStatus] = useState<GoogleStatus>({ connected: false });
@@ -150,6 +153,99 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
     setCurrentStep('parsing');
     setError(null);
 
+    // Demo Mode: use simulated analysis results instead of calling the API
+    if (isDemoMode) {
+      try {
+        // Simulate realistic analysis delay (2-3 seconds)
+        await new Promise(r => setTimeout(r, 2000 + Math.random() * 1000));
+
+        const demoContractData: ContractExtraction = {
+          company_name: input.fileName?.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ') || 'Acme Corporation',
+          arr: 185000,
+          contract_period: 'January 1, 2026 - December 31, 2026',
+          entitlements: [
+            { type: 'Platform License', description: 'Enterprise Platform Access', quantity: '150 seats', start_date: '2026-01-01', end_date: '2026-12-31', dependencies: 'SSO Configuration' },
+            { type: 'API Access', description: 'REST API with 10,000 req/day', quantity: '10,000 requests/day', start_date: '2026-01-01', end_date: '2026-12-31', dependencies: 'API Key Setup' },
+            { type: 'Premium Support', description: '24/7 Priority Support with 1-hour SLA', quantity: 'Unlimited', start_date: '2026-01-01', end_date: '2026-12-31', dependencies: 'None' },
+            { type: 'Data Storage', description: 'Cloud Storage Allocation', quantity: '500 GB', start_date: '2026-01-01', end_date: '2026-12-31', dependencies: 'Data Migration' },
+            { type: 'Training', description: 'Onboarding Training Sessions', quantity: '8 sessions', start_date: '2026-01-01', end_date: '2026-03-31', dependencies: 'Kickoff Meeting' },
+          ],
+          stakeholders: [
+            { name: 'Sarah Chen', role: 'VP of Customer Success', department: 'Customer Success', contact: 'sarah.chen@acme.com', responsibilities: 'Executive sponsor, final approval authority', approval_required: true },
+            { name: 'Marcus Johnson', role: 'Director of Operations', department: 'Operations', contact: 'marcus.j@acme.com', responsibilities: 'Day-to-day implementation lead', approval_required: false },
+            { name: 'Priya Patel', role: 'Technical Lead', department: 'Engineering', contact: 'priya.p@acme.com', responsibilities: 'API integration and SSO setup', approval_required: false },
+            { name: 'David Kim', role: 'Head of Product', department: 'Product', contact: 'david.kim@acme.com', responsibilities: 'Feature requirements and roadmap alignment', approval_required: true },
+          ],
+          technical_requirements: [
+            { requirement: 'SSO Integration via SAML 2.0', type: 'Integration', priority: 'High', owner: 'Engineering', status: 'Pending', due_date: '2026-01-15' },
+            { requirement: 'Data migration from legacy system', type: 'Migration', priority: 'High', owner: 'Operations', status: 'Pending', due_date: '2026-02-01' },
+          ],
+          contract_tasks: [
+            { task: 'Complete SSO Configuration', description: 'Set up SAML 2.0 SSO with customer IdP', assigned_agent: 'Onboarding', priority: 'High', dependencies: 'Technical requirements doc', due_date: '2026-01-15' },
+            { task: 'Conduct Kickoff Meeting', description: 'Initial alignment meeting with all stakeholders', assigned_agent: 'Onboarding', priority: 'High', dependencies: 'None', due_date: '2026-01-10' },
+          ],
+          pricing_terms: [
+            { item: 'Enterprise License', description: '150-seat annual license', quantity: '1', unit_price: '$120,000', total: '$120,000', payment_terms: 'Annual prepaid' },
+            { item: 'Premium Support', description: '24/7 priority support', quantity: '1', unit_price: '$45,000', total: '$45,000', payment_terms: 'Annual prepaid' },
+            { item: 'Training Package', description: '8 onboarding sessions', quantity: '1', unit_price: '$20,000', total: '$20,000', payment_terms: 'Due on signing' },
+          ],
+          missing_info: ['Preferred SSO identity provider details', 'Data migration timeline from customer'],
+          next_steps: 'Schedule kickoff meeting with all stakeholders within 5 business days. Begin SSO technical discovery in parallel.',
+        };
+
+        const demoPlan: OnboardingPlan = {
+          timeline_days: 90,
+          phases: [
+            {
+              name: 'Foundation (Days 1-30)',
+              days: '1-30',
+              description: 'Establish relationship and complete initial setup',
+              tasks: [
+                { task: 'Kickoff Meeting', title: 'Kickoff Meeting', owner: 'CSM', due_days: 5, success_criteria: 'All stakeholders aligned on goals' },
+                { task: 'SSO Configuration', title: 'SSO Configuration', owner: 'SA', due_days: 14, success_criteria: 'SSO working for all users' },
+                { task: 'Initial Training', title: 'Initial Training', owner: 'CSM', due_days: 21, success_criteria: '80% of users can log in and navigate' },
+              ],
+              success_metrics: ['First login within 7 days', 'SSO configured', 'Training sessions scheduled'],
+            },
+            {
+              name: 'Adoption (Days 31-60)',
+              days: '31-60',
+              description: 'Drive usage and value realization',
+              tasks: [
+                { task: 'Value Check-in', title: 'Value Check-in', owner: 'CSM', due_days: 45, success_criteria: 'Customer confirms progress on goals' },
+                { task: 'Advanced Training', title: 'Advanced Training', owner: 'CSM', due_days: 50, success_criteria: 'Power users identified and enabled' },
+              ],
+              success_metrics: ['50% DAU achieved', 'First success metric hit'],
+            },
+            {
+              name: 'Optimization (Days 61-90)',
+              days: '61-90',
+              description: 'Expand usage and prepare for first QBR',
+              tasks: [
+                { task: 'QBR Preparation', title: 'QBR Preparation', owner: 'CSM', due_days: 80, success_criteria: 'ROI metrics documented' },
+                { task: 'Expansion Discussion', title: 'Expansion Discussion', owner: 'AE', due_days: 85, success_criteria: 'Expansion pipeline identified' },
+              ],
+              success_metrics: ['CSAT > 8', 'Expansion opportunities identified'],
+            },
+          ],
+          risk_factors: ['Stakeholder availability for meetings', 'SSO integration complexity', 'Data migration timeline'],
+          opportunities: ['Cross-sell API analytics add-on', 'Expand seat count to 250', 'Case study potential'],
+          recommended_touchpoints: ['Day 1: Welcome email', 'Day 5: Kickoff meeting', 'Day 14: Technical check-in', 'Day 30: First month review', 'Day 60: Mid-quarter check-in', 'Day 90: QBR'],
+        };
+
+        setContractData(demoContractData);
+        setEditedData(demoContractData);
+        setOnboardingPlan(demoPlan);
+        setCurrentStep('review');
+      } catch (err) {
+        console.error('Demo mode parsing error:', err);
+        setError('Demo mode analysis failed unexpectedly');
+        setCurrentStep('contract_upload');
+      }
+      return;
+    }
+
+    // Real mode: call the backend API
     try {
       const result = await parseContractFull(input);
       setContractData(result.contractData);
@@ -161,7 +257,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       setError(err instanceof Error ? err.message : 'Failed to parse contract');
       setCurrentStep('contract_upload');
     }
-  }, []);
+  }, [isDemoMode]);
 
   const handleReviewContinue = async () => {
     const dataToUse = editedData || contractData;
@@ -174,7 +270,7 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       // Simulate progress updates
       setWorkspaceProgress({ folders: false, contract: false, tracker: false, data: false });
 
-      if (demoMode) {
+      if (isDemoMode) {
         // Demo mode - create mock workspace data with simulated progress
         await new Promise(r => setTimeout(r, 800));
         setWorkspaceProgress(prev => ({ ...prev, folders: true }));

@@ -24,8 +24,10 @@ import { sessionService } from '../services/session.js';
 import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { config } from '../config/index.js';
 import { cadgService } from '../services/cadg/index.js';
+import { SupabaseService } from '../services/supabase.js';
 
 const router = Router();
+const db = new SupabaseService();
 
 /**
  * Clean placeholder patterns from AI responses
@@ -475,8 +477,28 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
       return;
     }
 
+    // Build customer context: prefer explicit customerContext, then DB lookup by customerId, then fallback
+    let resolvedCustomerContext = customerContext;
+    if (!resolvedCustomerContext && customerId) {
+      try {
+        const customerData = await db.getCustomer(customerId);
+        if (customerData) {
+          resolvedCustomerContext = {
+            id: customerData.id as string,
+            name: customerData.name as string,
+            arr: (customerData.arr as number) || 0,
+            healthScore: (customerData.health_score as number) || 70,
+            status: (customerData.stage as string) || 'active',
+            renewalDate: customerData.renewal_date as string | undefined,
+          };
+        }
+      } catch (e) {
+        console.log('[LangChain] Could not load customer from DB:', e);
+      }
+    }
+
     const context: CustomerContext = {
-      ...(customerContext || {
+      ...(resolvedCustomerContext || {
         id: customerId || 'unknown',
         name: 'Unknown Customer',
         arr: 0,
@@ -804,9 +826,28 @@ router.post('/chat', async (req: Request, res: Response) => {
       });
     }
 
-    // Build customer context with userId for Google API access
+    // Build customer context: prefer explicit customerContext, then DB lookup by customerId, then fallback
+    let resolvedCtx = customerContext;
+    if (!resolvedCtx && customerId) {
+      try {
+        const customerData = await db.getCustomer(customerId);
+        if (customerData) {
+          resolvedCtx = {
+            id: customerData.id as string,
+            name: customerData.name as string,
+            arr: (customerData.arr as number) || 0,
+            healthScore: (customerData.health_score as number) || 70,
+            status: (customerData.stage as string) || 'active',
+            renewalDate: customerData.renewal_date as string | undefined,
+          };
+        }
+      } catch (e) {
+        console.log('[LangChain] Could not load customer from DB:', e);
+      }
+    }
+
     const context: CustomerContext = {
-      ...(customerContext || {
+      ...(resolvedCtx || {
         id: customerId || 'unknown',
         name: 'Unknown Customer',
         arr: 0,
@@ -1083,7 +1124,7 @@ router.post('/chat', async (req: Request, res: Response) => {
 router.post('/chat/:agentType', async (req: Request, res: Response) => {
   try {
     const { agentType } = req.params;
-    const { message, customerContext } = req.body;
+    const { message, customerId, customerContext } = req.body;
 
     if (!message) {
       return res.status(400).json({
@@ -1100,7 +1141,27 @@ router.post('/chat/:agentType', async (req: Request, res: Response) => {
       });
     }
 
-    const context: CustomerContext = customerContext || {
+    // Build customer context: prefer explicit customerContext, then DB lookup by customerId, then fallback
+    let resolvedAgentCtx = customerContext;
+    if (!resolvedAgentCtx && customerId) {
+      try {
+        const customerData = await db.getCustomer(customerId);
+        if (customerData) {
+          resolvedAgentCtx = {
+            id: customerData.id as string,
+            name: customerData.name as string,
+            arr: (customerData.arr as number) || 0,
+            healthScore: (customerData.health_score as number) || 70,
+            status: (customerData.stage as string) || 'active',
+            renewalDate: customerData.renewal_date as string | undefined,
+          };
+        }
+      } catch (e) {
+        console.log('[LangChain] Could not load customer from DB:', e);
+      }
+    }
+
+    const context: CustomerContext = resolvedAgentCtx || {
       id: 'unknown',
       name: 'Unknown Customer',
       arr: 0,

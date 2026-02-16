@@ -819,16 +819,19 @@ export async function classify(
 }
 
 /**
- * Check if a query is a generative request (vs a simple question)
+ * Check if a query is a generative request (vs a simple question).
+ * Only matches explicit generative/imperative verbs that indicate the user
+ * wants CADG to produce a document, plan, or artifact.
+ * Conversational queries ("What should I focus on?") should NOT match.
  */
 export function isGenerativeRequest(userQuery: string): boolean {
   const generativeIndicators = [
-    /^(create|build|generate|make|write|draft|prepare|compose)/i,
-    /^(analyze|assess|evaluate|review)/i,
-    /^(show me|give me|get me)/i,
-    /^(help me|can you)/i,
-    /(build|create|generate|write|draft)\s+(a|an|the|me)/i,
-    /for\s+(my|the)\s+(meeting|call|qbr|review)/i,
+    // Explicit generative verbs at the start of the query
+    /^(create|build|generate|make|write|draft|prepare|compose|design|develop|produce|craft|construct)\b/i,
+    // Generative verbs with an object (anywhere in query)
+    /(create|build|generate|write|draft|prepare|compose|design|develop|produce|craft)\s+(a|an|the|me)\b/i,
+    // "put together" / "set up" with an object
+    /(put together|set up)\s+(a|an|the|me)\b/i,
   ];
 
   return generativeIndicators.some(pattern => pattern.test(userQuery));
