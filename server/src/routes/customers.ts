@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/index.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -657,6 +658,9 @@ router.get('/', async (req: Request, res: Response) => {
       try {
         let query = supabase.from('customers').select('*');
 
+        // Multi-tenant: filter by organization_id
+        query = applyOrgFilter(query, req);
+
         // Design partners see: demo customers OR their own uploaded customers
         if (!isAdmin && userId) {
           query = query.or(`is_demo.eq.true,owner_id.eq.${userId}`);
@@ -716,8 +720,10 @@ router.get('/', async (req: Request, res: Response) => {
           updated_at: c.updated_at
         }));
 
-        // Get total count for pagination
-        const { count: totalCount } = await supabase.from('customers').select('*', { count: 'exact', head: true });
+        // Get total count for pagination (with org filter)
+        let countQuery = supabase.from('customers').select('*', { count: 'exact', head: true });
+        countQuery = applyOrgFilter(countQuery, req);
+        const { count: totalCount } = await countQuery;
 
         // Calculate totals
         const totalArr = transformedCustomers.reduce((sum, c) => sum + (c.arr || 0), 0);
@@ -1478,7 +1484,7 @@ router.post('/import-csv', async (req: Request, res: Response) => {
 
       // Create customer
       if (supabase) {
-        const { error } = await supabase.from('customers').insert({
+        const { error } = await supabase.from('customers').insert(withOrgId({
           name: rowData.name.trim(),
           industry: rowData.industry?.trim() || null,
           arr,
@@ -1486,7 +1492,7 @@ router.post('/import-csv', async (req: Request, res: Response) => {
           stage,
           is_demo: false,
           owner_id: isAdmin ? null : userId // Design partners own their imports
-        });
+        }, req));
 
         if (error) {
           results.errors.push({ row: i + 1, field: 'database', message: error.message });

@@ -32,6 +32,12 @@ export interface GoogleTokens {
   expiresAt?: number;
 }
 
+export interface OrgMembership {
+  organizationId: string;
+  organizationName: string;
+  role: 'admin' | 'csm' | 'viewer';
+}
+
 export interface AuthContextType {
   user: User | null;
   session: Session | null;
@@ -42,6 +48,9 @@ export interface AuthContextType {
   googleTokens: GoogleTokens | null;
   hasGoogleAccess: boolean;
   userId: string; // Always available - uses demo ID when not authenticated
+  organizationId: string | null;
+  userRole: string | null;
+  orgMembership: OrgMembership | null;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   connectGoogleWorkspace: () => Promise<void>;
@@ -55,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [googleTokens, setGoogleTokens] = useState<GoogleTokens | null>(null);
+  const [orgMembership, setOrgMembership] = useState<OrgMembership | null>(null);
 
   // Check for Google tokens in session
   const extractGoogleTokens = useCallback((session: Session | null): GoogleTokens | null => {
@@ -67,6 +77,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Fetch org membership for the authenticated user
+  const fetchOrgMembership = useCallback(async (userId: string, accessToken: string) => {
+    const API_URL = import.meta.env.VITE_API_URL || '';
+    try {
+      const response = await fetch(`${API_URL}/api/auth/session`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+        },
+      });
+      if (!response.ok) return;
+
+      const data = await response.json();
+      // Use first workspace as org context (multi-org support can come later)
+      const firstWorkspace = data.workspaces?.[0];
+      if (firstWorkspace) {
+        setOrgMembership({
+          organizationId: firstWorkspace.id,
+          organizationName: firstWorkspace.name,
+          role: firstWorkspace.role || 'csm',
+        });
+      }
+    } catch (error) {
+      console.warn('Failed to fetch org membership:', error);
+      // Non-fatal — org context just won't be available
+    }
+  }, []);
+
   // Initialize auth state
   useEffect(() => {
     if (!supabase) {
@@ -75,10 +112,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
       setGoogleTokens(extractGoogleTokens(session));
+      // Fetch org membership if we have a session
+      if (session?.user && session.access_token) {
+        await fetchOrgMembership(session.user.id, session.access_token);
+      }
       setLoading(false);
     });
 
@@ -94,11 +135,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (event === 'SIGNED_IN' && session?.provider_token) {
           await syncGoogleTokensToBackend(session);
         }
+
+        // Fetch org membership on sign in
+        if (event === 'SIGNED_IN' && session?.user && session.access_token) {
+          await fetchOrgMembership(session.user.id, session.access_token);
+        }
+
+        // Clear org membership on sign out
+        if (event === 'SIGNED_OUT') {
+          setOrgMembership(null);
+        }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, [extractGoogleTokens]);
+  }, [extractGoogleTokens, fetchOrgMembership]);
 
   // Sync Google tokens to backend for server-side API access
   const syncGoogleTokensToBackend = async (session: Session) => {
@@ -189,6 +240,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setSession(null);
     setGoogleTokens(null);
+    setOrgMembership(null);
   }, []);
 
   // Get the current user ID (authenticated user or demo user)
@@ -212,9 +264,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (user?.email) {
       headers['x-user-email'] = user.email;
     }
+    // Include org context when available
+    if (orgMembership?.organizationId) {
+      headers['x-organization-id'] = orgMembership.organizationId;
+    }
 
     return headers;
-  }, [session, user]);
+  }, [session, user, orgMembership]);
 
   const value: AuthContextType = {
     user,
@@ -226,6 +282,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     googleTokens,
     hasGoogleAccess: !!googleTokens?.accessToken,
     userId,
+    organizationId: orgMembership?.organizationId ?? null,
+    userRole: orgMembership?.role ?? null,
+    orgMembership,
     signInWithGoogle,
     signOut,
     connectGoogleWorkspace,
