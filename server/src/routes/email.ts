@@ -9,6 +9,7 @@ import { Anthropic } from '@anthropic-ai/sdk';
 import { emailService } from '../services/email/index.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -160,9 +161,11 @@ ${email.body_text || '(No content)'}`;
     const customerIds = [...new Set(emails.filter(e => e.customer_id).map(e => e.customer_id))];
     let customerContext = '';
     if (customerIds.length > 0) {
-      const { data: customers } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id, name')
+        .select('id, name');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customers } = await custQuery
         .in('id', customerIds) as { data: Array<{ id: string; name: string }> | null };
 
       if (customers && customers.length > 0) {
@@ -241,9 +244,11 @@ Return ONLY valid JSON.`;
 
       // Match mentioned customers to actual customer IDs if possible
       if (result.mentioned_customers.length > 0 && customerIds.length > 0) {
-        const { data: allCustomers } = await supabase
+        let allCustQuery = supabase
           .from('customers')
-          .select('id, name')
+          .select('id, name');
+        allCustQuery = applyOrgFilter(allCustQuery, req);
+        const { data: allCustomers } = await allCustQuery
           .eq('csm_id', userId) as { data: Array<{ id: string; name: string }> | null };
 
         if (allCustomers) {

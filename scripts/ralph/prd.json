@@ -139,7 +139,7 @@
         "Typecheck passes with no NEW errors"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "These files may also delegate to service layers \u2014 only filter direct Supabase queries in the route files."
     },
     {

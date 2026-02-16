@@ -15,6 +15,7 @@ import {
 } from '../services/support/satisfaction.js';
 import { sendSlackAlert } from '../services/notifications/slack.js';
 import { sendNotification } from '../services/notifications/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey
@@ -52,7 +53,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
 
     // If alert was generated, send notifications
     if (result.alertGenerated && result.alert) {
-      await sendAlertNotifications(result.alert, payload);
+      await sendAlertNotifications(result.alert, payload, req);
     }
 
     res.status(201).json({
@@ -90,7 +91,7 @@ router.post('/batch', async (req: Request, res: Response) => {
         const result = await supportSatisfactionService.processCSATWebhook(payload);
 
         if (result.alertGenerated && result.alert) {
-          await sendAlertNotifications(result.alert, payload);
+          await sendAlertNotifications(result.alert, payload, req);
         }
 
         results.push({
@@ -447,7 +448,8 @@ router.get('/at-risk', async (req: Request, res: Response) => {
  */
 async function sendAlertNotifications(
   alert: any,
-  payload: CSATWebhookPayload
+  payload: CSATWebhookPayload,
+  req?: Request
 ): Promise<void> {
   try {
     // Build Slack alert context matching PRD format
@@ -468,7 +470,7 @@ async function sendAlertNotifications(
     });
 
     // Get CSM for customer
-    const csmId = await getCustomerCSM(payload.customerId);
+    const csmId = await getCustomerCSM(payload.customerId, req);
 
     if (csmId) {
       // Send in-app notification
@@ -551,12 +553,16 @@ function getOrdinal(n: number): string {
 /**
  * Get CSM ID for customer
  */
-async function getCustomerCSM(customerId: string): Promise<string | null> {
+async function getCustomerCSM(customerId: string, req?: Request): Promise<string | null> {
   if (!supabase) return null;
 
-  const { data } = await supabase
+  let custQuery = supabase
     .from('customers')
-    .select('assigned_csm_id')
+    .select('assigned_csm_id');
+  if (req) {
+    custQuery = applyOrgFilter(custQuery, req);
+  }
+  const { data } = await custQuery
     .eq('id', customerId)
     .single();
 

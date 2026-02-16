@@ -23,6 +23,7 @@ import {
   AdvocateOpportunity,
 } from '../../../types/socialMention.js';
 import crypto from 'crypto';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -488,9 +489,11 @@ router.post('/mentions/:id/draft-response', async (req: Request, res: Response) 
     // Get customer name if matched
     let customerName: string | undefined;
     if (mention.customer_id) {
-      const { data: customer } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('name')
+        .select('name');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customer } = await custQuery
         .eq('id', mention.customer_id)
         .single();
       customerName = customer?.name;
