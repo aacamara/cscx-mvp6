@@ -35,8 +35,9 @@ export function applyOrgFilter<T>(
     return query.eq('organization_id', orgId) as T;
   }
 
-  // No org context (demo mode) — show data without org_id (legacy/demo data)
-  return query.is('organization_id', null) as T;
+  // No org context (demo mode) — return unfiltered query.
+  // This works before migration (column doesn't exist yet) and after (shows all data).
+  return query as T;
 }
 
 /**
@@ -54,7 +55,8 @@ export function applyOrgFilterInclusive<T>(
     return query.or(`organization_id.eq.${orgId},organization_id.is.null`) as T;
   }
 
-  return query.is('organization_id', null) as T;
+  // No org context — return unfiltered query (safe before migration)
+  return query as T;
 }
 
 /**
@@ -64,11 +66,13 @@ export function applyOrgFilterInclusive<T>(
 export function withOrgId<T extends Record<string, unknown>>(
   data: T,
   req: Request
-): T & { organization_id: string | null } {
+): T {
+  const orgId = getOrgId(req);
+  if (!orgId) return data; // No org context — don't add column (safe before migration)
   return {
     ...data,
-    organization_id: getOrgId(req),
-  };
+    organization_id: orgId,
+  } as T;
 }
 
 /**
