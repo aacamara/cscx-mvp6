@@ -131,6 +131,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   const { getAuthHeaders, isAuthenticated } = useAuth();
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false); // Prevents duplicate approve submissions
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected' | 'generating' | 'complete' | 'error'>('pending');
   const [error, setError] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set([0]));
@@ -368,6 +369,10 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   };
 
   const handleApprove = async () => {
+    // Prevent duplicate submissions
+    if (hasSubmitted || isApproving) return;
+
+    setHasSubmitted(true);
     setIsApproving(true);
     setError(null);
     setStatus('generating');
@@ -384,7 +389,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error?.message || 'Failed to approve plan');
+        throw new Error(data.error || data.error?.message || 'Failed to approve plan');
       }
 
       const data = await response.json();
@@ -1228,6 +1233,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to approve plan');
       setStatus('error');
+      setHasSubmitted(false); // Allow retry on error
     } finally {
       setIsApproving(false);
     }
@@ -3847,7 +3853,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
       )}
 
       {/* Template Mode Info */}
-      {status === 'pending' && isTemplateMode && (
+      {(status === 'pending' || status === 'error') && isTemplateMode && (
         <div className="px-4 pb-3">
           <div className="bg-blue-900/20 border border-blue-600/30 rounded-lg p-3 text-blue-300 text-sm flex items-start gap-2">
             <span className="text-blue-400 mt-0.5">ℹ️</span>
@@ -3862,25 +3868,30 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
         </div>
       )}
 
-      {/* Action Buttons */}
-      {status === 'pending' && (
+      {/* Action Buttons - show on pending and error (so user can retry) */}
+      {(status === 'pending' || status === 'error') && (
         <div className="px-4 pb-4 flex gap-3">
           <button
             onClick={handleReject}
-            disabled={isRejecting || isApproving}
+            disabled={isRejecting || isApproving || hasSubmitted}
             className="flex-1 px-4 py-2.5 bg-cscx-gray-700 hover:bg-cscx-gray-600 text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50"
           >
             {isRejecting ? 'Rejecting...' : 'Reject'}
           </button>
           <button
             onClick={handleApprove}
-            disabled={isApproving || isRejecting}
+            disabled={isApproving || isRejecting || hasSubmitted}
             className={`flex-1 px-4 py-2.5 ${isTemplateMode ? 'bg-blue-600 hover:bg-blue-700' : 'bg-cscx-accent hover:bg-red-700'} text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center gap-2`}
           >
             {isApproving ? (
               <>
                 <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent" />
                 {isTemplateMode ? 'Generating Template...' : 'Generating...'}
+              </>
+            ) : status === 'error' ? (
+              <>
+                <span>↻</span>
+                Retry
               </>
             ) : (
               <>
