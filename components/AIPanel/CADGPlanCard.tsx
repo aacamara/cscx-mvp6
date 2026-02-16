@@ -128,7 +128,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
   onApproved,
   onRejected,
 }) => {
-  const { getAuthHeaders } = useAuth();
+  const { getAuthHeaders, isAuthenticated } = useAuth();
   const [isApproving, setIsApproving] = useState(false);
   const [isRejecting, setIsRejecting] = useState(false);
   const [status, setStatus] = useState<'pending' | 'approved' | 'rejected' | 'generating' | 'complete' | 'error'>('pending');
@@ -2944,11 +2944,82 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
     }
   };
 
-  const handleExportSources = async () => {
-    if (!artifact) return;
+  // Generate CSV locally from plan structure data
+  const generateLocalCSV = (): string => {
+    const csvRows: string[] = [
+      'Step,Description,Data Sources,Status',
+    ];
 
+    for (const section of plan.structure.sections) {
+      const sources = section.dataSources?.join('; ') || '';
+      // Escape CSV fields that may contain commas or quotes
+      const escapeCsv = (val: string) => {
+        if (val.includes(',') || val.includes('"') || val.includes('\n')) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      };
+      csvRows.push(
+        `${escapeCsv(section.name)},${escapeCsv(section.description)},${escapeCsv(sources)},Planned`
+      );
+    }
+
+    // Add metadata
+    csvRows.push('');
+    csvRows.push('Metadata,Value');
+    csvRows.push(`Task Type,${formatTaskType(taskType)}`);
+    csvRows.push(`Output Format,${plan.structure.outputFormat || 'N/A'}`);
+    csvRows.push(`Estimated Length,${plan.structure.estimatedLength || 'N/A'}`);
+    csvRows.push(`Confidence,${(confidence * 100).toFixed(0)}%`);
+
+    return csvRows.join('\n');
+  };
+
+  // Trigger browser download of CSV content
+  const downloadCSV = (csvContent: string, filename: string) => {
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+  };
+
+  const handleExportSources = async () => {
     setIsExporting(true);
     setDownloadError(null);
+
+    // Demo Mode: generate CSV locally from plan structure
+    if (!isAuthenticated) {
+      try {
+        const csvContent = generateLocalCSV();
+        const filename = `execution-plan-${plan.planId.slice(0, 8)}.csv`;
+        downloadCSV(csvContent, filename);
+      } catch (err) {
+        setDownloadError('Export requires Google Workspace integration');
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
+
+    // Authenticated mode: try server-side export
+    if (!artifact) {
+      // No artifact yet — fall back to local CSV
+      try {
+        const csvContent = generateLocalCSV();
+        const filename = `execution-plan-${plan.planId.slice(0, 8)}.csv`;
+        downloadCSV(csvContent, filename);
+      } catch (err) {
+        setDownloadError('Export requires Google Workspace integration');
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -2963,7 +3034,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
 
       if (!response.ok) {
         const data = await response.json();
-        throw new Error(data.error?.message || 'Export failed');
+        throw new Error(data.error?.message || 'Export requires Google Workspace integration');
       }
 
       // Get the blob and trigger download
@@ -2977,7 +3048,14 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (err) {
-      setDownloadError(err instanceof Error ? err.message : 'Export failed');
+      // Fallback: try local CSV generation instead of showing error
+      try {
+        const csvContent = generateLocalCSV();
+        const filename = `execution-plan-${plan.planId.slice(0, 8)}.csv`;
+        downloadCSV(csvContent, filename);
+      } catch {
+        setDownloadError(err instanceof Error ? err.message : 'Export requires Google Workspace integration');
+      }
     } finally {
       setIsExporting(false);
     }
