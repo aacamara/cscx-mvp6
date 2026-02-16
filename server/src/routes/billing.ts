@@ -8,6 +8,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 import {
   overdueDetector,
   invoiceOverdueSlackAlerts,
@@ -549,9 +550,11 @@ router.get('/summary', async (req: Request, res: Response) => {
     );
 
     // Get customers with overdue invoices
-    const { count: customersWithOverdue } = await supabase
+    let customerQuery = supabase
       .from('customers')
-      .select('id', { count: 'exact', head: true })
+      .select('id', { count: 'exact', head: true });
+    customerQuery = applyOrgFilter(customerQuery, req);
+    const { count: customersWithOverdue } = await customerQuery
       .gt('overdue_invoice_count', 0);
 
     res.json({

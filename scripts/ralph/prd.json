@@ -126,7 +126,7 @@
         "Typecheck passes with no NEW errors"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "Same pattern as US-008. Quick batch of SELECT-only filtering."
     },
     {
