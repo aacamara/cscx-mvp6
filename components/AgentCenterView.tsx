@@ -5,7 +5,7 @@
  * Now includes contract upload for starting new onboardings
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AgentControlCenter } from './AgentControlCenter';
 import { ContractUpload } from './ContractUpload';
 import { ExtractionPreview } from './ContractUpload/ExtractionPreview';
@@ -67,6 +67,9 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [loadingCustomers, setLoadingCustomers] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // View mode - go directly to chat (no customer selector)
   const [showCustomerSelector] = useState(false);
@@ -96,10 +99,28 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
     }
   }, [startOnboarding, onOnboardingStarted]);
 
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (dropdownOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [dropdownOpen]);
+
   const fetchCustomers = async () => {
     setLoadingCustomers(true);
     try {
-      const response = await fetch(`${API_URL}/api/customers`, {
+      const response = await fetch(`${API_URL}/api/customers?limit=100`, {
         headers: getAuthHeaders(),
         credentials: 'include',
       });
@@ -323,25 +344,67 @@ export const AgentCenterView: React.FC<AgentCenterViewProps> = ({
           <div className="flex items-center gap-3">
             <span className="text-white font-medium">AI Assistant</span>
             <span className="text-cscx-gray-500">•</span>
-            <select
-              value={selectedCustomer?.id || ''}
-              onChange={(e) => {
-                const customer = customers.find(c => c.id === e.target.value);
-                setSelectedCustomer(customer || null);
-              }}
-              className="bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cscx-accent cursor-pointer min-w-[200px]"
-            >
-              <option value="">🌐 General Mode</option>
-              {loadingCustomers ? (
-                <option disabled>Loading customers...</option>
-              ) : (
-                customers.map(customer => (
-                  <option key={customer.id} value={customer.id}>
-                    {customer.name} (${Math.round(customer.arr / 1000)}K • {customer.health_score}%)
-                  </option>
-                ))
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => { setDropdownOpen(!dropdownOpen); setSearchQuery(''); }}
+                className="bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-cscx-accent cursor-pointer min-w-[200px] text-left flex items-center justify-between gap-2"
+              >
+                <span className="truncate">
+                  {loadingCustomers
+                    ? 'Loading...'
+                    : selectedCustomer
+                      ? `${selectedCustomer.name} ($${Math.round(selectedCustomer.arr / 1000)}K)`
+                      : 'General Mode'}
+                </span>
+                <svg className={`w-4 h-4 flex-shrink-0 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {dropdownOpen && (
+                <div className="absolute top-full left-0 mt-1 w-80 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                  <div className="p-2 border-b border-cscx-gray-700">
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search customers..."
+                      className="w-full bg-cscx-gray-900 border border-cscx-gray-600 rounded px-3 py-1.5 text-sm text-white placeholder-cscx-gray-500 focus:outline-none focus:border-cscx-accent"
+                    />
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
+                    <button
+                      onClick={() => { setSelectedCustomer(null); setDropdownOpen(false); setSearchQuery(''); }}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-cscx-gray-700 transition-colors ${!selectedCustomer ? 'bg-cscx-accent/20 text-cscx-accent' : 'text-white'}`}
+                    >
+                      General Mode
+                    </button>
+                    {filteredCustomers.map(customer => (
+                      <button
+                        key={customer.id}
+                        onClick={() => { setSelectedCustomer(customer); setDropdownOpen(false); setSearchQuery(''); }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-cscx-gray-700 transition-colors ${selectedCustomer?.id === customer.id ? 'bg-cscx-accent/20 text-cscx-accent' : 'text-white'}`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="truncate font-medium">{customer.name}</span>
+                          <span className={`text-xs ml-2 flex-shrink-0 ${customer.health_score >= 80 ? 'text-green-400' : customer.health_score >= 60 ? 'text-yellow-400' : 'text-red-400'}`}>
+                            {customer.health_score}%
+                          </span>
+                        </div>
+                        <div className="text-xs text-cscx-gray-400 mt-0.5">
+                          {customer.industry || 'N/A'} &middot; ${Math.round(customer.arr / 1000)}K ARR
+                        </div>
+                      </button>
+                    ))}
+                    {filteredCustomers.length === 0 && !loadingCustomers && (
+                      <div className="px-3 py-4 text-sm text-cscx-gray-500 text-center">
+                        No customers match &ldquo;{searchQuery}&rdquo;
+                      </div>
+                    )}
+                  </div>
+                </div>
               )}
-            </select>
+            </div>
           </div>
           <p className="text-sm text-cscx-gray-400 mt-1">
             {selectedCustomer
