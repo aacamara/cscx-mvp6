@@ -10,6 +10,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { gmailService } from '../services/google/gmail.js';
 import { googleOAuth } from '../services/google/oauth.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 import {
   generateThankYouReferralEmail,
   generateThankYouRenewalEmail,
@@ -101,9 +102,9 @@ router.get('/:id/thank-you/preview', async (req: Request, res: Response) => {
     const userId = req.headers['x-user-id'] as string || req.query.userId as string;
 
     // Fetch customer data
-    const { data: customer, error: customerError } = await supabase
-      .from('customers')
-      .select('*')
+    let previewCustQuery = supabase.from('customers').select('*');
+    previewCustQuery = applyOrgFilter(previewCustQuery, req);
+    const { data: customer, error: customerError } = await previewCustQuery
       .eq('id', customerId)
       .single();
 
@@ -229,9 +230,9 @@ router.post('/:id/thank-you', async (req: Request, res: Response) => {
     const sendNow = req.query.send === 'true';
 
     // Fetch customer data
-    const { data: customer, error: customerError } = await supabase
-      .from('customers')
-      .select('*')
+    let sendCustQuery = supabase.from('customers').select('*');
+    sendCustQuery = applyOrgFilter(sendCustQuery, req);
+    const { data: customer, error: customerError } = await sendCustQuery
       .eq('id', customerId)
       .single();
 
@@ -411,7 +412,9 @@ router.get('/:id/thank-you-history', async (req: Request, res: Response) => {
           email,
           role
         )
-      `)
+      `);
+    query = applyOrgFilter(query, req);
+    query = query
       .eq('customer_id', customerId)
       .order('sent_at', { ascending: false })
       .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
@@ -474,9 +477,9 @@ router.get('/:id/thank-you/occasions', async (req: Request, res: Response) => {
     }
 
     // Fetch customer data
-    const { data: customer, error: customerError } = await supabase
-      .from('customers')
-      .select('*')
+    let occasionCustQuery = supabase.from('customers').select('*');
+    occasionCustQuery = applyOrgFilter(occasionCustQuery, req);
+    const { data: customer, error: customerError } = await occasionCustQuery
       .eq('id', customerId)
       .single();
 

@@ -13,6 +13,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -284,8 +285,9 @@ router.get('/', async (req: Request, res: Response) => {
               arr,
               industry
             )
-          `)
-          .eq('overall_status', 'in_progress');
+          `);
+        query = applyOrgFilter(query, req);
+        query = query.eq('overall_status', 'in_progress');
 
         if (segment) {
           query = query.eq('segment', segment);
@@ -510,9 +512,9 @@ router.get('/:customerId', async (req: Request, res: Response) => {
 
     // Fetch from Supabase if available
     if (supabase) {
-      const { data: customerData } = await supabase
-        .from('customers')
-        .select('*')
+      let detailCustQuery = supabase.from('customers').select('*');
+      detailCustQuery = applyOrgFilter(detailCustQuery, req);
+      const { data: customerData } = await detailCustQuery
         .eq('id', customerId)
         .single();
 
@@ -520,9 +522,9 @@ router.get('/:customerId', async (req: Request, res: Response) => {
         customer = customerData;
       }
 
-      const { data: progressData } = await supabase
-        .from('customer_onboarding_progress')
-        .select('*')
+      let detailProgressQuery = supabase.from('customer_onboarding_progress').select('*');
+      detailProgressQuery = applyOrgFilter(detailProgressQuery, req);
+      const { data: progressData } = await detailProgressQuery
         .eq('customer_id', customerId)
         .single();
 

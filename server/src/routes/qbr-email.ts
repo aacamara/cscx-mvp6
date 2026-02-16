@@ -12,6 +12,7 @@ import { gmailService } from '../services/google/gmail.js';
 import { googleOAuth } from '../services/google/oauth.js';
 import { generateQBRInviteEmail, type QBRInviteData } from '../templates/emails/qbr-invite.js';
 import { generateQBRFollowupEmail, type QBRFollowupData } from '../templates/emails/qbr-followup.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -66,9 +67,9 @@ router.get('/:id/qbr-email/preview', async (req: Request, res: Response) => {
     const userId = req.headers['x-user-id'] as string || req.query.userId as string;
 
     // Fetch customer data
-    const { data: customer, error: customerError } = await supabase
-      .from('customers')
-      .select('*')
+    let previewCustQuery = supabase.from('customers').select('*');
+    previewCustQuery = applyOrgFilter(previewCustQuery, req);
+    const { data: customer, error: customerError } = await previewCustQuery
       .eq('id', customerId)
       .single();
 
@@ -79,9 +80,9 @@ router.get('/:id/qbr-email/preview', async (req: Request, res: Response) => {
     }
 
     // Fetch stakeholders
-    const { data: stakeholders } = await supabase
-      .from('stakeholders')
-      .select('*')
+    let previewStakeQuery = supabase.from('stakeholders').select('*');
+    previewStakeQuery = applyOrgFilter(previewStakeQuery, req);
+    const { data: stakeholders } = await previewStakeQuery
       .eq('customer_id', customerId);
 
     // Get CSM info (from user or default)
@@ -129,9 +130,9 @@ router.get('/:id/qbr-email/preview', async (req: Request, res: Response) => {
 
     // Determine health trend
     let healthTrend: 'improving' | 'stable' | 'declining' = 'stable';
-    const { data: recentMetrics } = await supabase
-      .from('usage_metrics')
-      .select('health_score')
+    let previewMetricsQuery = supabase.from('usage_metrics').select('health_score');
+    previewMetricsQuery = applyOrgFilter(previewMetricsQuery, req);
+    const { data: recentMetrics } = await previewMetricsQuery
       .eq('customer_id', customerId)
       .order('metric_date', { ascending: false })
       .limit(5);
@@ -264,9 +265,9 @@ router.post('/:id/qbr-email', async (req: Request, res: Response) => {
     }
 
     // Fetch customer data
-    const { data: customer, error: customerError } = await supabase
-      .from('customers')
-      .select('*')
+    let sendCustQuery = supabase.from('customers').select('*');
+    sendCustQuery = applyOrgFilter(sendCustQuery, req);
+    const { data: customer, error: customerError } = await sendCustQuery
       .eq('id', customerId)
       .single();
 
@@ -277,9 +278,9 @@ router.post('/:id/qbr-email', async (req: Request, res: Response) => {
     }
 
     // Fetch stakeholders
-    const { data: stakeholders } = await supabase
-      .from('stakeholders')
-      .select('*')
+    let sendStakeQuery = supabase.from('stakeholders').select('*');
+    sendStakeQuery = applyOrgFilter(sendStakeQuery, req);
+    const { data: stakeholders } = await sendStakeQuery
       .eq('customer_id', customerId);
 
     // Get CSM info
@@ -327,9 +328,9 @@ router.post('/:id/qbr-email', async (req: Request, res: Response) => {
 
     // Determine health trend
     let healthTrend: 'improving' | 'stable' | 'declining' = 'stable';
-    const { data: recentMetrics } = await supabase
-      .from('usage_metrics')
-      .select('health_score')
+    let sendMetricsQuery = supabase.from('usage_metrics').select('health_score');
+    sendMetricsQuery = applyOrgFilter(sendMetricsQuery, req);
+    const { data: recentMetrics } = await sendMetricsQuery
       .eq('customer_id', customerId)
       .order('metric_date', { ascending: false })
       .limit(5);

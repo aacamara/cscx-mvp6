@@ -155,7 +155,7 @@
         "Typecheck passes with no NEW errors"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "Last batch. Some files are large (workspace-agent.ts is 800+ lines). Focus only on direct Supabase .from() calls."
     }
   ]

@@ -17,6 +17,7 @@ import { SheetsService } from '../services/google/sheets.js';
 import { activityLogger } from '../services/activityLogger.js';
 import { mcpRegistry } from '../mcp/registry.js';
 import type { MCPContext } from '../mcp/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -135,19 +136,19 @@ router.post('/execute', async (req: Request, res: Response) => {
           result = await executeDocumentAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'health_score':
-          result = await executeHealthScoreAction(userId, resolvedActionId, customerId, customerName, params);
+          result = await executeHealthScoreAction(req, userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'qbr':
           result = await executeQBRAction(userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'renewal':
-          result = await executeRenewalAction(userId, resolvedActionId, customerId, customerName, params);
+          result = await executeRenewalAction(req, userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'knowledge':
-          result = await executeKnowledgeAction(userId, resolvedActionId, customerId, customerName, params);
+          result = await executeKnowledgeAction(req, userId, resolvedActionId, customerId, customerName, params);
           break;
         case 'meeting_intelligence':
-          result = await executeMeetingIntelligenceAction(userId, resolvedActionId, customerId, customerName, params);
+          result = await executeMeetingIntelligenceAction(req, userId, resolvedActionId, customerId, customerName, params);
           break;
         default:
           result = {
@@ -465,6 +466,7 @@ async function executeDocumentAction(
 // ============================================
 
 async function executeHealthScoreAction(
+  req: Request,
   userId: string,
   actionId: string,
   customerId?: string,
@@ -482,9 +484,9 @@ async function executeHealthScoreAction(
   switch (actionId) {
     case 'calculate_score': {
       // Get customer data and calculate health score
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('*')
+      let custQuery = supabase.from('customers').select('*');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customer } = await custQuery
         .eq('id', customerId)
         .single();
 
@@ -520,9 +522,9 @@ async function executeHealthScoreAction(
 
     case 'get_trends': {
       // Get health score history
-      const { data: history } = await supabase
-        .from('health_score_history')
-        .select('*')
+      let histQuery = supabase.from('health_score_history').select('*');
+      histQuery = applyOrgFilter(histQuery, req);
+      const { data: history } = await histQuery
         .eq('customer_id', customerId)
         .order('recorded_at', { ascending: false })
         .limit(30);
@@ -614,6 +616,7 @@ async function executeQBRAction(
 // ============================================
 
 async function executeRenewalAction(
+  req: Request,
   userId: string,
   actionId: string,
   customerId?: string,
@@ -631,9 +634,9 @@ async function executeRenewalAction(
   switch (actionId) {
     case 'check_renewal': {
       // Get renewal information
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('*, renewal_pipeline(*)')
+      let renewQuery = supabase.from('customers').select('*, renewal_pipeline(*)');
+      renewQuery = applyOrgFilter(renewQuery, req);
+      const { data: customer } = await renewQuery
         .eq('id', customerId)
         .single();
 
@@ -711,6 +714,7 @@ async function executeRenewalAction(
 // ============================================
 
 async function executeKnowledgeAction(
+  req: Request,
   userId: string,
   actionId: string,
   customerId?: string,
@@ -769,9 +773,9 @@ async function executeKnowledgeAction(
 
     case 'get_customer_insights': {
       // Aggregate customer insights from multiple sources
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('*')
+      let insightCustQuery = supabase.from('customers').select('*');
+      insightCustQuery = applyOrgFilter(insightCustQuery, req);
+      const { data: customer } = await insightCustQuery
         .eq('id', customerId)
         .single();
 
@@ -881,6 +885,7 @@ function resolveActionId(actionId: string, category: string): string {
 // ============================================
 
 async function executeMeetingIntelligenceAction(
+  req: Request,
   userId: string,
   actionId: string,
   customerId?: string,
@@ -905,9 +910,9 @@ async function executeMeetingIntelligenceAction(
       if (!result.success) {
         // Fallback: query meeting_analyses table if Zoom isn't connected
         if (supabase && customerId) {
-          const { data } = await supabase
-            .from('meeting_analyses')
-            .select('*')
+          let mtgQuery = supabase.from('meeting_analyses').select('*');
+          mtgQuery = applyOrgFilter(mtgQuery, req);
+          const { data } = await mtgQuery
             .eq('customer_id', customerId)
             .order('meeting_date', { ascending: false })
             .limit(10);
@@ -958,9 +963,9 @@ async function executeMeetingIntelligenceAction(
 
       // If no meeting ID, get latest meeting analysis from DB
       if (supabase && customerId) {
-        const { data } = await supabase
-          .from('meeting_analyses')
-          .select('*')
+        let analyzeMtgQuery = supabase.from('meeting_analyses').select('*');
+        analyzeMtgQuery = applyOrgFilter(analyzeMtgQuery, req);
+        const { data } = await analyzeMtgQuery
           .eq('customer_id', customerId)
           .order('meeting_date', { ascending: false })
           .limit(1)
@@ -979,9 +984,9 @@ async function executeMeetingIntelligenceAction(
     case 'extract_action_items': {
       // Get action items from latest meeting analysis
       if (supabase && customerId) {
-        const { data } = await supabase
-          .from('meeting_analyses')
-          .select('meeting_id, meeting_title, action_items, meeting_date')
+        let actionItemsQuery = supabase.from('meeting_analyses').select('meeting_id, meeting_title, action_items, meeting_date');
+        actionItemsQuery = applyOrgFilter(actionItemsQuery, req);
+        const { data } = await actionItemsQuery
           .eq('customer_id', customerId)
           .order('meeting_date', { ascending: false })
           .limit(1)

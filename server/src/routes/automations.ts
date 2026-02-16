@@ -9,6 +9,7 @@ import { config } from '../config/index.js';
 import { automationService, nlAutomationParser } from '../services/automations/index.js';
 import { skillsService } from '../services/skills/index.js';
 import type { MCPContext } from '../mcp/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
@@ -38,10 +39,9 @@ router.post('/parse', async (req: Request, res: Response) => {
     }));
 
     // Get customer segments for context
-    const { data: segments } = await supabase
-      .from('customers')
-      .select('segment')
-      .not('segment', 'is', null);
+    let segQuery = supabase.from('customers').select('segment').not('segment', 'is', null);
+    segQuery = applyOrgFilter(segQuery, req);
+    const { data: segments } = await segQuery;
 
     const uniqueSegments = [...new Set(segments?.map(s => s.segment) || [])];
 
@@ -345,16 +345,16 @@ router.get('/stats', async (req: Request, res: Response) => {
     cutoffDate.setDate(cutoffDate.getDate() - daysNum);
 
     // Get automation counts
-    const { data: automations, error: autoError } = await supabase
-      .from('automations')
-      .select('id, type, enabled');
+    let autoQuery = supabase.from('automations').select('id, type, enabled');
+    autoQuery = applyOrgFilter(autoQuery, req);
+    const { data: automations, error: autoError } = await autoQuery;
 
     if (autoError) throw autoError;
 
     // Get run counts
-    const { data: runs, error: runError } = await supabase
-      .from('automation_runs')
-      .select('status, customers_processed, customers_succeeded, customers_failed')
+    let runsQuery = supabase.from('automation_runs').select('status, customers_processed, customers_succeeded, customers_failed');
+    runsQuery = applyOrgFilter(runsQuery, req);
+    const { data: runs, error: runError } = await runsQuery
       .gte('started_at', cutoffDate.toISOString());
 
     if (runError) throw runError;

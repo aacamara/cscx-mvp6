@@ -13,6 +13,7 @@ import {
   DetectionSource,
 } from '../services/executiveChange.js';
 import { triggerEngine } from '../triggers/engine.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey
@@ -211,9 +212,9 @@ router.post('/:changeId/research', async (req: Request, res: Response) => {
     // Get customer name for context
     let companyName = 'Unknown';
     if (supabase) {
-      const { data: customer } = await supabase
-        .from('customers')
-        .select('name')
+      let researchCustQuery = supabase.from('customers').select('name');
+      researchCustQuery = applyOrgFilter(researchCustQuery, req);
+      const { data: customer } = await researchCustQuery
         .eq('id', change.customerId)
         .single();
       if (customer) companyName = customer.name;
@@ -488,7 +489,9 @@ router.get('/tasks', async (req: Request, res: Response) => {
 
     let query = supabase
       .from('executive_change_tasks')
-      .select('*, customers(id, name), executive_changes(id, executive_name, new_title)')
+      .select('*, customers(id, name), executive_changes(id, executive_name, new_title)');
+    query = applyOrgFilter(query, req);
+    query = query
       .order('due_at', { ascending: true })
       .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 

@@ -13,6 +13,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/index.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 import {
   patternRecognitionService,
   analyzeCustomerPatterns,
@@ -166,9 +167,9 @@ router.get('/portfolio', async (req: Request, res: Response) => {
     let customers: Array<{ id: string; name: string; health_score?: number }> = [];
 
     if (supabase) {
-      const { data } = await supabase
-        .from('customers')
-        .select('id, name, health_score')
+      let portfolioCustQuery = supabase.from('customers').select('id, name, health_score');
+      portfolioCustQuery = applyOrgFilter(portfolioCustQuery, req);
+      const { data } = await portfolioCustQuery
         .order('health_score', { ascending: true })
         .limit(maxCustomers);
 
@@ -298,9 +299,9 @@ router.get('/alerts', async (req: Request, res: Response) => {
     let customers: Array<{ id: string; name: string }> = [];
 
     if (supabase) {
-      const { data } = await supabase
-        .from('customers')
-        .select('id, name')
+      let alertCustQuery = supabase.from('customers').select('id, name');
+      alertCustQuery = applyOrgFilter(alertCustQuery, req);
+      const { data } = await alertCustQuery
         .order('updated_at', { ascending: false })
         .limit(20);
 
