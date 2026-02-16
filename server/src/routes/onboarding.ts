@@ -9,6 +9,7 @@ import { sheetsService } from '../services/google/sheets.js';
 import { docsService } from '../services/google/docs.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -154,10 +155,10 @@ router.post('/workspace', async (req: Request, res: Response) => {
 
     if (supabase) {
       try {
-        // Check if customer with same name already exists
-        const { data: existing } = await supabase
-          .from('customers')
-          .select('id')
+        // Check if customer with same name already exists (org-filtered)
+        let existingQuery = supabase.from('customers').select('id');
+        existingQuery = applyOrgFilter(existingQuery, req);
+        const { data: existing } = await existingQuery
           .eq('name', customerName)
           .maybeSingle();
 
@@ -185,7 +186,7 @@ router.post('/workspace', async (req: Request, res: Response) => {
           // Create new customer (let Supabase generate UUID)
           const { data: customer, error: customerError } = await supabase
             .from('customers')
-            .insert({
+            .insert(withOrgId({
               name: customerName,
               arr: contractData.arr || 0,
               industry: contractData.industry || null,
@@ -194,7 +195,7 @@ router.post('/workspace', async (req: Request, res: Response) => {
               user_id: userId,
               drive_root_id: driveFolders.root,
               onboarding_sheet_id: tracker.id,
-            })
+            }, req))
             .select('id')
             .single();
 
@@ -292,9 +293,9 @@ router.get('/workspace/:customerId', async (req: Request, res: Response) => {
       return res.status(503).json({ error: 'Database not configured' });
     }
 
-    const { data: customer, error } = await supabase
-      .from('customers')
-      .select('*')
+    let customerQuery = supabase.from('customers').select('*');
+    customerQuery = applyOrgFilter(customerQuery, req);
+    const { data: customer, error } = await customerQuery
       .eq('id', customerId)
       .eq('user_id', userId)
       .single();
@@ -521,10 +522,10 @@ router.get('/tasks/:customerId', async (req: Request, res: Response) => {
       return res.json({ tasks: [], completedTaskIds: [] });
     }
 
-    // Get tasks from plan_tasks table
-    const { data: tasks, error } = await supabase
-      .from('plan_tasks')
-      .select('*')
+    // Get tasks from plan_tasks table (org-filtered)
+    let tasksQuery = supabase.from('plan_tasks').select('*');
+    tasksQuery = applyOrgFilter(tasksQuery, req);
+    const { data: tasks, error } = await tasksQuery
       .eq('customer_id', customerId)
       .order('phase_index', { ascending: true })
       .order('task_index', { ascending: true });
@@ -571,11 +572,11 @@ router.post('/tasks/:customerId', async (req: Request, res: Response) => {
       return res.json({ success: true, message: 'Database not configured' });
     }
 
-    // Upsert all tasks
+    // Upsert all tasks (with org_id)
     for (const task of tasks) {
       await supabase
         .from('plan_tasks')
-        .upsert({
+        .upsert(withOrgId({
           customer_id: customerId,
           user_id: userId,
           phase_index: task.phaseIndex,
@@ -587,7 +588,7 @@ router.post('/tasks/:customerId', async (req: Request, res: Response) => {
           status: task.status || 'pending',
           due_date: task.dueDate,
           updated_at: new Date().toISOString()
-        }, {
+        }, req), {
           onConflict: 'customer_id,phase_index,task_index'
         });
     }
@@ -633,9 +634,9 @@ router.patch('/tasks/:customerId/:phaseIndex/:taskIndex', async (req: Request, r
       updates.completed_at = null;
     }
 
-    const { error } = await supabase
-      .from('plan_tasks')
-      .update(updates)
+    let updateQuery = supabase.from('plan_tasks').update(updates);
+    updateQuery = applyOrgFilter(updateQuery, req);
+    const { error } = await updateQuery
       .eq('customer_id', customerId)
       .eq('phase_index', parseInt(phaseIndex))
       .eq('task_index', parseInt(taskIndex));
@@ -645,7 +646,7 @@ router.patch('/tasks/:customerId/:phaseIndex/:taskIndex', async (req: Request, r
       if (error.code === 'PGRST116') {
         await supabase
           .from('plan_tasks')
-          .insert({
+          .insert(withOrgId({
             customer_id: customerId,
             user_id: userId,
             phase_index: parseInt(phaseIndex),
@@ -653,7 +654,7 @@ router.patch('/tasks/:customerId/:phaseIndex/:taskIndex', async (req: Request, r
             status,
             completed_at: status === 'completed' ? new Date().toISOString() : null,
             updated_at: new Date().toISOString()
-          });
+          }, req));
       } else {
         throw error;
       }

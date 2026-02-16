@@ -14,6 +14,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -552,9 +553,11 @@ router.get('/:customerId', async (req: Request, res: Response) => {
 
     // Fetch customer from Supabase
     if (supabase) {
-      const { data, error } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('*')
+        .select('*');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data, error } = await custQuery
         .eq('id', customerId)
         .single();
 
@@ -985,9 +988,11 @@ router.get('/:customerId/value-report', async (req: Request, res: Response) => {
     let customer: any = null;
 
     if (supabase) {
-      const { data } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('*')
+        .select('*');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data } = await custQuery
         .eq('id', customerId)
         .single();
       customer = data;

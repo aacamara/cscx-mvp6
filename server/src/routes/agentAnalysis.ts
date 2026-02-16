@@ -11,6 +11,7 @@ import { driveService } from '../services/google/drive.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import Anthropic from '@anthropic-ai/sdk';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -78,8 +79,8 @@ router.post('/generate', async (req: Request, res: Response) => {
     }
 
     // 1. Fetch customer data and metrics from database
-    const customerData = await fetchCustomerData(customerId);
-    const usageMetrics = await fetchUsageMetrics(customerId);
+    const customerData = await fetchCustomerData(customerId, req);
+    const usageMetrics = await fetchUsageMetrics(customerId, req);
 
     // 2. Generate Apps Script code using Claude
     const scriptCode = await generateAnalysisScript(
@@ -222,8 +223,8 @@ router.post('/insights', async (req: Request, res: Response) => {
     }
 
     // Fetch all customer data
-    const customerData = await fetchCustomerData(customerId);
-    const usageMetrics = await fetchUsageMetrics(customerId);
+    const customerData = await fetchCustomerData(customerId, req);
+    const usageMetrics = await fetchUsageMetrics(customerId, req);
 
     // Generate insights using Claude
     const prompt = `You are a Customer Success analyst. Analyze this customer data and provide actionable insights.
@@ -355,24 +356,24 @@ Return ONLY the Apps Script code, no explanations.`;
 
 // ==================== Helper Functions ====================
 
-async function fetchCustomerData(customerId: string) {
+async function fetchCustomerData(customerId: string, req?: Request) {
   if (!supabase) return null;
 
-  const { data } = await supabase
-    .from('customers')
-    .select('*')
+  let query = supabase.from('customers').select('*');
+  if (req) query = applyOrgFilter(query, req);
+  const { data } = await query
     .eq('id', customerId)
     .single();
 
   return data;
 }
 
-async function fetchUsageMetrics(customerId: string) {
+async function fetchUsageMetrics(customerId: string, req?: Request) {
   if (!supabase) return [];
 
-  const { data } = await supabase
-    .from('usage_metrics')
-    .select('*')
+  let query = supabase.from('usage_metrics').select('*');
+  if (req) query = applyOrgFilter(query, req);
+  const { data } = await query
     .eq('customer_id', customerId)
     .order('metric_date', { ascending: false })
     .limit(90);

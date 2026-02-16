@@ -9,6 +9,7 @@ import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { randomBytes } from 'crypto';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 import {
   ingestUsageEvents,
   getUsageMetrics,
@@ -191,9 +192,11 @@ router.get('/health/:customerId', async (req: Request, res: Response) => {
     // Get current score from customer record
     let currentScore = 70; // Default
     if (supabase) {
-      const { data: customer } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('health_score')
+        .select('health_score');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customer } = await custQuery
         .eq('id', customerId)
         .single();
 

@@ -13,6 +13,8 @@ declare global {
     interface Request {
       user?: User;
       userId?: string;
+      organizationId?: string;
+      userRole?: string;
     }
   }
 }
@@ -22,6 +24,56 @@ const supabase: SupabaseClient | null =
   config.supabaseUrl && config.supabaseServiceKey
     ? createClient(config.supabaseUrl, config.supabaseServiceKey)
     : null;
+
+/**
+ * Look up the user's organization membership.
+ * Tries org_members first (Phase 2+), falls back to workspace_members (Phase 1).
+ * Non-fatal: if tables don't exist or user has no membership, continues without org context.
+ */
+async function resolveOrgMembership(req: Request): Promise<void> {
+  if (!supabase || !req.userId) return;
+
+  // Accept x-organization-id from frontend if provided (trusted via JWT auth)
+  const orgIdHeader = req.headers['x-organization-id'] as string | undefined;
+
+  try {
+    // Try org_members table first (Phase 2+)
+    const { data: orgMember, error: orgError } = await supabase
+      .from('org_members')
+      .select('organization_id, role')
+      .eq('user_id', req.userId)
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+
+    if (!orgError && orgMember) {
+      req.organizationId = orgIdHeader || orgMember.organization_id;
+      req.userRole = orgMember.role;
+      return;
+    }
+
+    // Fallback: try workspace_members (Phase 1 compatibility)
+    const { data: wsMember, error: wsError } = await supabase
+      .from('workspace_members')
+      .select('workspace_id, role')
+      .eq('user_id', req.userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (!wsError && wsMember) {
+      req.organizationId = orgIdHeader || wsMember.workspace_id;
+      req.userRole = wsMember.role;
+      return;
+    }
+
+    // If header provided but no DB membership found, trust the header
+    if (orgIdHeader) {
+      req.organizationId = orgIdHeader;
+    }
+  } catch {
+    // Tables may not exist yet — silently continue without org context
+  }
+}
 
 /**
  * Middleware to verify JWT token from Supabase
@@ -55,6 +107,8 @@ export async function authMiddleware(
 
       req.user = user;
       req.userId = user.id;
+      // Resolve org membership (non-blocking)
+      await resolveOrgMembership(req);
       next();
       return;
     } catch (error) {
@@ -80,6 +134,11 @@ export async function authMiddleware(
   // In development only: allow demo user for local testing without auth setup
   if (config.nodeEnv === 'development') {
     req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+    // In dev mode, accept org from header for testing
+    const orgIdHeader = req.headers['x-organization-id'] as string | undefined;
+    if (orgIdHeader) {
+      req.organizationId = orgIdHeader;
+    }
     next();
     return;
   }
@@ -108,18 +167,17 @@ export function optionalAuthMiddleware(
   // Try to verify token if provided
   if (token && supabase) {
     supabase.auth.getUser(token)
-      .then(({ data: { user } }) => {
+      .then(async ({ data: { user } }) => {
         if (user) {
           req.user = user;
           req.userId = user.id;
+          await resolveOrgMembership(req);
         } else if (config.nodeEnv === 'development') {
-          // Development fallback only if token verification fails
           req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
         }
         next();
       })
       .catch(() => {
-        // Token verification failed
         if (config.nodeEnv === 'development') {
           req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
         }
@@ -131,13 +189,18 @@ export function optionalAuthMiddleware(
   // No token provided - development fallback only
   if (config.nodeEnv === 'development') {
     req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
+    const orgIdHeader = req.headers['x-organization-id'] as string | undefined;
+    if (orgIdHeader) {
+      req.organizationId = orgIdHeader;
+    }
   }
 
   next();
 }
 
 /**
- * Middleware to require specific roles
+ * Middleware to require specific roles.
+ * Checks org membership role first (from resolveOrgMembership), then falls back to user_profiles.
  */
 export function requireRole(allowedRoles: string[]) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -151,6 +214,12 @@ export function requireRole(allowedRoles: string[]) {
 
     // Skip role check in development
     if (config.nodeEnv !== 'production') {
+      next();
+      return;
+    }
+
+    // Check org membership role first (set by resolveOrgMembership)
+    if (req.userRole && allowedRoles.includes(req.userRole)) {
       next();
       return;
     }
@@ -195,6 +264,32 @@ export function requireRole(allowedRoles: string[]) {
       });
     }
   };
+}
+
+/**
+ * Middleware to require organization context.
+ * Rejects requests that don't have an organizationId set.
+ */
+export function requireOrganization(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  // Skip in development
+  if (config.nodeEnv === 'development') {
+    next();
+    return;
+  }
+
+  if (!req.organizationId) {
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Organization context required'
+    });
+    return;
+  }
+
+  next();
 }
 
 export { supabase };

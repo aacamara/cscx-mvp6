@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { randomUUID } from 'crypto';
+import { applyOrgFilterInclusive, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -98,7 +99,7 @@ router.post('/sync', async (req: Request, res: Response) => {
 
             const { error } = await supabase
               .from('knowledge_chunks')
-              .upsert({
+              .upsert(withOrgId({
                 id: chunkId,
                 document_id: doc.id,
                 document_title: doc.title,
@@ -108,7 +109,7 @@ router.post('/sync', async (req: Request, res: Response) => {
                 workspace_id: workspaceId,
                 source_folder_id: folderId,
                 synced_at: new Date().toISOString()
-              }, { onConflict: 'document_id,chunk_index' });
+              }, req), { onConflict: 'document_id,chunk_index' });
 
             if (error) {
               // Table might not exist, continue with in-memory
@@ -186,9 +187,11 @@ router.get('/search', async (req: Request, res: Response) => {
     if (supabase) {
       // In production, use vector similarity search
       // For now, do a text search fallback
-      const { data, error } = await supabase
+      let searchQuery = supabase
         .from('knowledge_chunks')
-        .select('id, document_title, content')
+        .select('id, document_title, content');
+      searchQuery = applyOrgFilterInclusive(searchQuery, req);
+      const { data, error } = await searchQuery
         .ilike('content', `%${query}%`)
         .limit(maxResults);
 
@@ -254,13 +257,17 @@ router.get('/status', async (req: Request, res: Response) => {
 
     if (supabase) {
       // Get counts from database
-      const { count: chunkCount } = await supabase
+      let countQuery = supabase
         .from('knowledge_chunks')
         .select('*', { count: 'exact', head: true });
+      countQuery = applyOrgFilterInclusive(countQuery, req);
+      const { count: chunkCount } = await countQuery;
 
-      const { data: lastSync } = await supabase
+      let lastSyncQuery = supabase
         .from('knowledge_chunks')
-        .select('synced_at')
+        .select('synced_at');
+      lastSyncQuery = applyOrgFilterInclusive(lastSyncQuery, req);
+      const { data: lastSync } = await lastSyncQuery
         .order('synced_at', { ascending: false })
         .limit(1)
         .single();

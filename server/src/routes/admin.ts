@@ -6,6 +6,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -145,26 +146,24 @@ router.get('/overview', requireAdmin, async (req: Request, res: Response) => {
         metrics.errorRate = Math.round(((failedCount || 0) / metrics.actionsToday) * 100 * 100) / 100;
       }
 
-      // Get customer counts
-      const { count: totalCustomers } = await supabase
-        .from('customers')
-        .select('*', { count: 'exact', head: true });
+      // Get customer counts (org-filtered)
+      let totalCustomersQuery = supabase.from('customers').select('*', { count: 'exact', head: true });
+      totalCustomersQuery = applyOrgFilter(totalCustomersQuery, req);
+      const { count: totalCustomers } = await totalCustomersQuery;
 
       metrics.totalCustomers = totalCustomers || 0;
 
       // At-risk customers (health score < 60)
-      const { count: atRiskCount } = await supabase
-        .from('customers')
-        .select('*', { count: 'exact', head: true })
-        .lt('health_score', 60);
+      let atRiskQuery = supabase.from('customers').select('*', { count: 'exact', head: true });
+      atRiskQuery = applyOrgFilter(atRiskQuery, req);
+      const { count: atRiskCount } = await atRiskQuery.lt('health_score', 60);
 
       metrics.atRiskCustomers = atRiskCount || 0;
 
       // Healthy customers (health score >= 80)
-      const { count: healthyCount } = await supabase
-        .from('customers')
-        .select('*', { count: 'exact', head: true })
-        .gte('health_score', 80);
+      let healthyQuery = supabase.from('customers').select('*', { count: 'exact', head: true });
+      healthyQuery = applyOrgFilter(healthyQuery, req);
+      const { count: healthyCount } = await healthyQuery.gte('health_score', 80);
 
       metrics.healthyCustomers = healthyCount || 0;
 

@@ -9,6 +9,7 @@ import { Router, Request, Response } from 'express';
 import { qbrGeneratorService, type QBRGenerateRequest, type Quarter } from '../services/qbr/qbrGenerator.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -202,9 +203,11 @@ router.get('/preview/:customerId', async (req: Request, res: Response) => {
     const currentYear = year ? parseInt(year as string) : now.getFullYear();
 
     // Fetch customer
-    const { data: customer, error: customerError } = await supabase
+    let custQuery = supabase
       .from('customers')
-      .select('*')
+      .select('*');
+    custQuery = applyOrgFilter(custQuery, req);
+    const { data: customer, error: customerError } = await custQuery
       .eq('id', customerId)
       .single();
 
@@ -223,9 +226,11 @@ router.get('/preview/:customerId', async (req: Request, res: Response) => {
       .limit(10);
 
     // Fetch recent support tickets
-    const { data: tickets } = await supabase
+    let ticketsQuery = supabase
       .from('support_tickets')
-      .select('*')
+      .select('*');
+    ticketsQuery = applyOrgFilter(ticketsQuery, req);
+    const { data: tickets } = await ticketsQuery
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false })
       .limit(20);

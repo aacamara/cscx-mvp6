@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { supportService } from '../services/support/index.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey
@@ -179,10 +180,12 @@ router.post('/check-spike/all', async (req: Request, res: Response) => {
     }
 
     // Get all active customers
-    const { data: customers, error: customersError } = await supabase
+    let customersQuery = supabase
       .from('customers')
       .select('id, name')
       .eq('status', 'active');
+    customersQuery = applyOrgFilter(customersQuery, req);
+    const { data: customers, error: customersError } = await customersQuery;
 
     if (customersError) throw customersError;
 
@@ -473,6 +476,7 @@ router.get('/tickets', async (req: Request, res: Response) => {
         .from('support_tickets')
         .select('*')
         .order('created_at', { ascending: false });
+      query = applyOrgFilter(query, req);
 
       if (customerId) {
         query = query.eq('customer_id', customerId as string);
@@ -565,7 +569,7 @@ router.post('/tickets', async (req: Request, res: Response) => {
       // Store in database
       const { data, error } = await supabase
         .from('support_tickets')
-        .insert({
+        .insert(withOrgId({
           external_id: ticketId,
           customer_id: customerId,
           subject,
@@ -577,7 +581,7 @@ router.post('/tickets', async (req: Request, res: Response) => {
           reporter_name: reporterName,
           ai_suggestions: troubleshootingSuggestions,
           created_at: new Date().toISOString()
-        })
+        }, req))
         .select()
         .single();
 

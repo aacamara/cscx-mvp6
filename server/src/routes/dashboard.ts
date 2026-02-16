@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
@@ -16,10 +17,12 @@ const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
  */
 router.get('/summary', async (req: Request, res: Response) => {
   try {
-    // Get customer counts by health
-    const { data: customers, error: custError } = await supabase
+    // Get customer counts by health (org-filtered)
+    let custQuery = supabase
       .from('customers')
       .select('health_color, arr');
+    custQuery = applyOrgFilter(custQuery, req);
+    const { data: customers, error: custError } = await custQuery;
 
     if (custError) throw custError;
 
@@ -39,12 +42,14 @@ router.get('/summary', async (req: Request, res: Response) => {
     const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const today = new Date().toISOString().split('T')[0];
 
-    const { data: renewals, error: renewalError } = await supabase
+    let renewalQuery = supabase
       .from('customers')
       .select('id, name, arr, renewal_date, health_color')
       .lte('renewal_date', ninetyDaysOut)
       .gte('renewal_date', today)
       .order('renewal_date');
+    renewalQuery = applyOrgFilter(renewalQuery, req);
+    const { data: renewals, error: renewalError } = await renewalQuery;
 
     res.json({
       totalCustomers,
@@ -72,10 +77,12 @@ router.get('/summary', async (req: Request, res: Response) => {
  */
 router.get('/portfolio', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let portfolioQuery = supabase
       .from('customers')
       .select('id, name, segment, arr, health_score, health_color, renewal_date, industry')
       .order('arr', { ascending: false });
+    portfolioQuery = applyOrgFilter(portfolioQuery, req);
+    const { data, error } = await portfolioQuery;
 
     if (error) throw error;
     res.json(data);

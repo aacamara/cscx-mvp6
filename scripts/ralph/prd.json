@@ -1,104 +1,162 @@
 {
-  "name": "WorkspaceAgent V2 Dashboard",
-  "description": "Replace the Workspace tab in Agent Center with a comprehensive dashboard for WorkspaceAgent V2 features: MCP Tools, Triggers, Playbooks, Skills, Automations, and Meeting Intelligence",
-  "branchName": "feat/workspace-agent-v2-dashboard",
+  "project": "CSCX.AI",
+  "branchName": "multi-tenant/phase-1-auth",
+  "description": "Apply organization_id filtering to all remaining route files (PRD-007 Phase 4 completion)",
   "userStories": [
     {
-      "id": "WAD-001",
-      "title": "Create tabbed dashboard layout in AgentCenterView",
-      "description": "Replace the existing 'workspace' tab option with a new tabbed interface that includes: Tools, Triggers, Playbooks, Skills, Automations, Meetings. The tabs should be styled consistently with the existing CSCX design system (dark theme, cscx-accent red highlights).",
+      "id": "US-001",
+      "title": "Org filter playbooks.ts",
+      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/playbooks.ts. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply applyOrgFilter() to all .from('playbooks') SELECT queries (lines ~26, ~209, ~260, ~357, ~417). Apply withOrgId() to any INSERT operations. Do NOT change any business logic \u2014 only add org filtering.",
       "acceptanceCriteria": [
-        "activeAgentTab state updated to support new tabs: 'chat' | 'tools' | 'triggers' | 'playbooks' | 'skills' | 'automations' | 'meetings'",
-        "Tab navigation UI rendered with icons and labels",
-        "Each tab shows a placeholder component initially",
-        "Tabs are styled with the CSCX dark theme"
+        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js at top of file",
+        "All .from('playbooks') SELECT queries wrapped with applyOrgFilter(query, req)",
+        "Any INSERT operations include withOrgId(data, req)",
+        "Typecheck passes with no NEW errors (npx tsc --noEmit from server/ dir)"
       ],
       "priority": 1,
-      "passes": true
+      "passes": true,
+      "notes": "Pattern: let query = supabase.from('playbooks').select('*'); query = applyOrgFilter(query, req); \u2014 See server/src/routes/customers.ts and server/src/routes/dashboard.ts for working examples."
     },
     {
-      "id": "WAD-002",
-      "title": "Build MCP Tools Browser component",
-      "description": "Create a component that fetches and displays all 47 MCP tools from /api/mcp/tools. Show tools grouped by category (communication, scheduling, documents, meeting_intelligence) with search/filter. Each tool card shows name, description, provider, and approval requirement.",
+      "id": "US-002",
+      "title": "Org filter triggers.ts",
+      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/triggers.ts. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply to all .from('triggers') SELECT queries (lines ~28, ~63, ~478). Apply withOrgId() to INSERT at line ~116. Apply org filter to UPDATE queries at lines ~173, ~199, ~221, ~247. Do NOT change business logic.",
       "acceptanceCriteria": [
-        "Fetches tools from /api/mcp/tools endpoint",
-        "Groups tools by category with collapsible sections",
-        "Each tool shows: name, description, provider badge, approval indicator",
-        "Search input filters tools by name or description",
-        "Category filter tabs (All, Gmail, Calendar, Drive, Slack, Zoom)"
+        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js",
+        "All .from('triggers') SELECT queries wrapped with applyOrgFilter(query, req)",
+        "INSERT at line ~116 uses withOrgId(data, req) to include organization_id",
+        "Typecheck passes with no NEW errors"
       ],
       "priority": 2,
-      "passes": true
+      "passes": true,
+      "notes": "For UPDATE/DELETE operations, add .eq('organization_id', req.organizationId || null) alongside existing .eq('id', ...) to prevent cross-org mutations. If no req.organizationId, use .is('organization_id', null)."
     },
     {
-      "id": "WAD-003",
-      "title": "Build Triggers Dashboard component",
-      "description": "Create a component to view and manage triggers from /api/triggers. Show list of triggers with their conditions and actions. Include toggle to enable/disable triggers and button to create new ones.",
+      "id": "US-003",
+      "title": "Org filter tasks.ts",
+      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/tasks.ts. Table is 'plan_tasks'. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply to SELECT at lines ~227, ~334. Apply withOrgId to INSERT at ~407. Apply org scoping to UPDATE at ~496, ~601 and DELETE at ~562.",
       "acceptanceCriteria": [
-        "Fetches triggers from /api/triggers endpoint",
-        "Displays trigger cards with: name, type, condition summary, action count",
-        "Enable/disable toggle for each trigger",
-        "Shows fire count and last fired timestamp",
-        "Empty state with helpful message when no triggers exist"
+        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js",
+        "All .from('plan_tasks') SELECT queries wrapped with applyOrgFilter(query, req)",
+        "INSERT includes organization_id via withOrgId",
+        "UPDATE and DELETE queries scoped to organization_id",
+        "Typecheck passes with no NEW errors"
       ],
       "priority": 3,
-      "passes": true
+      "passes": true,
+      "notes": "Note: table is 'plan_tasks', not 'tasks'. The migration added organization_id to 'tasks' table \u2014 verify plan_tasks also has it or skip if not. If plan_tasks doesn't have organization_id column, filter through the customers join instead."
     },
     {
-      "id": "WAD-004",
-      "title": "Build Playbooks Manager component",
-      "description": "Create a component to browse playbook templates from /api/playbooks. Show playbook cards with stages visualization. Allow viewing playbook details and starting execution for a customer.",
+      "id": "US-004",
+      "title": "Org filter support.ts",
+      "description": "Add applyOrgFilter to Supabase queries in server/src/routes/support.ts. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply to .from('support_tickets') SELECT at line ~473. Apply withOrgId to INSERT at line ~567.",
       "acceptanceCriteria": [
-        "Fetches playbooks from /api/playbooks endpoint",
-        "Displays playbook cards with: name, type badge, duration, stage count",
-        "Shows stage timeline/progress visualization",
-        "Click to expand shows full stage details",
-        "Start Playbook button (disabled without customer context)"
+        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js",
+        ".from('support_tickets') SELECT wrapped with applyOrgFilter",
+        "INSERT includes organization_id via withOrgId",
+        "Typecheck passes with no NEW errors"
       ],
       "priority": 4,
-      "passes": true
+      "passes": true,
+      "notes": "support.ts also delegates to supportService \u2014 only filter the direct Supabase queries in the route file itself."
     },
     {
-      "id": "WAD-005",
-      "title": "Build Skills Library component",
-      "description": "Create a component to browse and execute skills from /api/skills. Show skill cards with inputs and estimated duration. Allow executing skills with input form.",
+      "id": "US-005",
+      "title": "Org filter kb.ts",
+      "description": "Add org filtering to server/src/routes/kb.ts. Import { applyOrgFilter, applyOrgFilterInclusive, withOrgId } from '../middleware/orgFilter.js'. Use applyOrgFilterInclusive (not applyOrgFilter) for knowledge_chunks SELECTs since KB articles may be shared globally. Apply to .from('knowledge_chunks') queries at lines ~100, ~190, ~258, ~262. Apply withOrgId to upsert at ~100.",
       "acceptanceCriteria": [
-        "Fetches skills from /api/skills endpoint",
-        "Displays skill cards with: name, description, icon, category",
-        "Shows estimated duration and cost savings percentage",
-        "Click to expand shows required variables/inputs",
-        "Execute button triggers skill (with customer context if available)"
+        "Import applyOrgFilterInclusive and withOrgId from ../middleware/orgFilter.js",
+        "All .from('knowledge_chunks') SELECT queries use applyOrgFilterInclusive (inclusive because KB can be shared)",
+        "Upsert at ~100 includes organization_id via withOrgId",
+        "Typecheck passes with no NEW errors"
       ],
       "priority": 5,
-      "passes": true
+      "passes": true,
+      "notes": "Use applyOrgFilterInclusive NOT applyOrgFilter \u2014 KB articles should show org-specific + shared (null org) articles. The kbDocuments in-memory Map doesn't need filtering since it's a write-through cache."
     },
     {
-      "id": "WAD-006",
-      "title": "Build Automations Panel component",
-      "description": "Create a component to view automations from /api/automations. Show automation cards with natural language description and schedule. Include form to create new automation via natural language.",
+      "id": "US-006",
+      "title": "Org filter health-portfolio.ts",
+      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/health-portfolio.ts. This file queries 'customers' and 'health_score_history' tables. Import { applyOrgFilter } from '../middleware/orgFilter.js'. Apply to all .from('customers') and .from('health_score_history') SELECT queries throughout the file.",
       "acceptanceCriteria": [
-        "Fetches automations from /api/automations endpoint",
-        "Displays automation cards with: name, natural language description, schedule",
-        "Shows run count, last run, next run timestamps",
-        "Enable/disable toggle for each automation",
-        "Text input to create new automation via natural language"
+        "Import applyOrgFilter from ../middleware/orgFilter.js",
+        "All .from('customers') SELECT queries wrapped with applyOrgFilter(query, req)",
+        "All .from('health_score_history') queries wrapped with applyOrgFilter",
+        "Typecheck passes with no NEW errors"
       ],
       "priority": 6,
-      "passes": true
+      "passes": true,
+      "notes": "This file is large. Pattern: for simple queries, wrap after building the initial query. For queries with .eq() chains, insert applyOrgFilter before the .eq() or after .from().select()."
     },
     {
-      "id": "WAD-007",
-      "title": "Build Meeting Intelligence Viewer component",
-      "description": "Create a component to view meeting analyses from /api/meeting-intelligence/analyses. Show meeting cards with summary, sentiment, action items. Allow filtering by customer.",
+      "id": "US-007",
+      "title": "Org filter admin.ts + onboarding.ts",
+      "description": "Add applyOrgFilter to server/src/routes/admin.ts (queries customers) and server/src/routes/onboarding.ts (queries customers + plan_tasks). Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js' in both files. Apply to all .from('customers') and .from('plan_tasks') queries.",
       "acceptanceCriteria": [
-        "Fetches analyses from /api/meeting-intelligence/analyses endpoint",
-        "Displays meeting cards with: title, date, duration, platform",
-        "Shows summary preview and sentiment indicator",
-        "Click to expand shows: key points, action items, risk indicators",
-        "Filter by customer dropdown"
+        "Both files import applyOrgFilter from ../middleware/orgFilter.js",
+        "admin.ts: all .from('customers') queries wrapped with applyOrgFilter",
+        "onboarding.ts: all .from('customers') and .from('plan_tasks') queries wrapped",
+        "Typecheck passes with no NEW errors"
       ],
       "priority": 7,
-      "passes": true
+      "passes": true,
+      "notes": "onboarding.ts has plan_tasks queries at lines ~526, ~577, ~637, ~647. For INSERT into plan_tasks, use withOrgId."
+    },
+    {
+      "id": "US-008",
+      "title": "Org filter batch 1: renewal-forecast, renewal-checklist, risk-assessment, qbr-generator",
+      "description": "Add applyOrgFilter to 4 route files that query customers table: server/src/routes/renewal-forecast.ts, renewal-checklist.ts, risk-assessment.ts, qbr-generator.ts. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each. Apply to all .from('customers') SELECT queries. qbr-generator.ts also queries .from('support_tickets') \u2014 filter that too.",
+      "acceptanceCriteria": [
+        "All 4 files import applyOrgFilter from ../middleware/orgFilter.js",
+        "All .from('customers') queries in each file wrapped with applyOrgFilter",
+        "qbr-generator.ts .from('support_tickets') query at ~line 227 also wrapped",
+        "Typecheck passes with no NEW errors"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "These files follow a similar pattern. Quick wins \u2014 mostly just wrapping SELECT queries."
+    },
+    {
+      "id": "US-009",
+      "title": "Org filter batch 2: cohort-analysis, billing, usage-ingest, success-metrics, product-adoption-report",
+      "description": "Add applyOrgFilter to 5 route files that query customers: server/src/routes/cohort-analysis.ts, billing.ts, usage-ingest.ts, success-metrics.ts, product-adoption-report.ts. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each. Apply to all .from('customers') SELECT queries.",
+      "acceptanceCriteria": [
+        "All 5 files import applyOrgFilter from ../middleware/orgFilter.js",
+        "All .from('customers') queries wrapped with applyOrgFilter",
+        "Typecheck passes with no NEW errors"
+      ],
+      "priority": 9,
+      "passes": true,
+      "notes": "Same pattern as US-008. Quick batch of SELECT-only filtering."
+    },
+    {
+      "id": "US-010",
+      "title": "Org filter batch 3: nps, feedback, surveys, support-satisfaction, email, social",
+      "description": "Add applyOrgFilter to 6 route files: server/src/routes/nps.ts, feedback.ts, surveys.ts, support-satisfaction.ts, email.ts, social.ts. All query customers table. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each. Apply to all .from('customers') SELECT queries.",
+      "acceptanceCriteria": [
+        "All 6 files import applyOrgFilter from ../middleware/orgFilter.js",
+        "All .from('customers') queries wrapped with applyOrgFilter",
+        "Typecheck passes with no NEW errors"
+      ],
+      "priority": 10,
+      "passes": true,
+      "notes": "These files may also delegate to service layers \u2014 only filter direct Supabase queries in the route files."
+    },
+    {
+      "id": "US-011",
+      "title": "Org filter batch 4: remaining routes",
+      "description": "Add applyOrgFilter to remaining route files that query customers: server/src/routes/workspace-agent.ts, thank-you.ts, pattern-recognition.ts, executive-changes.ts, onboarding-progress.ts, qbr-email.ts, agentAnalysis.ts, metrics.ts, automations.ts, email-suggestions.ts. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each.",
+      "acceptanceCriteria": [
+        "All listed files import applyOrgFilter from ../middleware/orgFilter.js",
+        "All .from('customers') queries wrapped with applyOrgFilter",
+        "workspace-agent.ts: .from('health_score_history') and .from('engagement_logs') queries also wrapped",
+        "automations.ts: .from('automations') query at ~line 349 wrapped",
+        "email-suggestions.ts: .from('tasks') query at ~line 312 wrapped",
+        "Typecheck passes with no NEW errors"
+      ],
+      "priority": 11,
+      "passes": true,
+      "notes": "Last batch. Some files are large (workspace-agent.ts is 800+ lines). Focus only on direct Supabase .from() calls."
     }
   ]
 }

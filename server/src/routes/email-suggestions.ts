@@ -18,6 +18,7 @@ import {
 import { gmailService } from '../services/google/gmail.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -141,9 +142,9 @@ router.post('/suggest-response', async (req: Request, res: Response) => {
     // Get stakeholder info if available
     let stakeholder = null;
     if (stakeholderId && supabase) {
-      const { data } = await supabase
-        .from('stakeholders')
-        .select('*')
+      let stakeQuery = supabase.from('stakeholders').select('*');
+      stakeQuery = applyOrgFilter(stakeQuery, req);
+      const { data } = await stakeQuery
         .eq('id', stakeholderId)
         .single();
       if (data) {
@@ -318,6 +319,7 @@ router.post('/send-suggestion', async (req: Request, res: Response) => {
               due_date: followUpDate.toISOString(),
               status: 'pending',
               priority: 'medium',
+              organization_id: (req as any).organizationId || null,
             })
             .select('id')
             .single();

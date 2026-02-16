@@ -1,0 +1,85 @@
+/**
+ * Organization-scoped query helpers
+ * Adds organization_id filtering to Supabase queries.
+ *
+ * The backend uses the service_role key which bypasses RLS,
+ * so we must explicitly filter by organization_id in all queries.
+ */
+
+import { Request } from 'express';
+import { SupabaseClient } from '@supabase/supabase-js';
+
+/**
+ * Get the organization_id from the request, or null if in demo/dev mode.
+ */
+export function getOrgId(req: Request): string | null {
+  return req.organizationId || null;
+}
+
+/**
+ * Apply organization_id filter to a Supabase query builder.
+ * If no org context, includes rows where organization_id IS NULL (demo data).
+ *
+ * Usage:
+ *   const query = supabase.from('customers').select('*');
+ *   const filtered = applyOrgFilter(query, req);
+ */
+export function applyOrgFilter<T>(
+  query: any, // PostgrestFilterBuilder — using any to avoid complex generic types
+  req: Request
+): T {
+  const orgId = getOrgId(req);
+
+  if (orgId) {
+    // Filter to this organization's data
+    return query.eq('organization_id', orgId) as T;
+  }
+
+  // No org context (demo mode) — show data without org_id (legacy/demo data)
+  return query.is('organization_id', null) as T;
+}
+
+/**
+ * Apply organization_id filter, but include BOTH org-specific and null (shared) data.
+ * Useful for knowledge_base and other tables that have global + org-specific entries.
+ */
+export function applyOrgFilterInclusive<T>(
+  query: any,
+  req: Request
+): T {
+  const orgId = getOrgId(req);
+
+  if (orgId) {
+    // Include org-specific data AND shared (null org) data
+    return query.or(`organization_id.eq.${orgId},organization_id.is.null`) as T;
+  }
+
+  return query.is('organization_id', null) as T;
+}
+
+/**
+ * Set organization_id on a record before insert.
+ * Returns the data object with organization_id added.
+ */
+export function withOrgId<T extends Record<string, unknown>>(
+  data: T,
+  req: Request
+): T & { organization_id: string | null } {
+  return {
+    ...data,
+    organization_id: getOrgId(req),
+  };
+}
+
+/**
+ * Filter in-memory data by organization_id (for in-memory fallback stores).
+ * When no org context, returns all data (demo mode).
+ */
+export function filterInMemoryByOrg<T extends { organization_id?: string | null }>(
+  items: T[],
+  req: Request
+): T[] {
+  const orgId = getOrgId(req);
+  if (!orgId) return items; // Demo mode — return all
+  return items.filter(item => item.organization_id === orgId || !item.organization_id);
+}

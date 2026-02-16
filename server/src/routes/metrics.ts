@@ -20,6 +20,7 @@ import { surveyService } from '../services/google/surveys.js';
 import { qbrSlidesService } from '../services/google/qbrSlides.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
@@ -96,14 +97,15 @@ router.put('/health-score/:customerId', async (req: Request, res: Response) => {
     const { customerId } = req.params;
     const { score, components, notes } = req.body;
 
-    const { data, error } = await supabase
-      .from('customers')
+    let healthUpdateQuery = supabase.from('customers')
       .update({
         health_score: score,
         health_components: components,
         health_notes: notes,
         health_updated_at: new Date().toISOString()
-      })
+      });
+    healthUpdateQuery = applyOrgFilter(healthUpdateQuery, req);
+    const { data, error } = await healthUpdateQuery
       .eq('id', customerId)
       .select()
       .single();
@@ -357,9 +359,9 @@ router.get('/qbr/:customerId', async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params;
 
-    const { data, error } = await supabase
-      .from('qbrs')
-      .select('*')
+    let qbrHistQuery = supabase.from('qbrs').select('*');
+    qbrHistQuery = applyOrgFilter(qbrHistQuery, req);
+    const { data, error } = await qbrHistQuery
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
 

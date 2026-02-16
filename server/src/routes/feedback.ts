@@ -31,6 +31,7 @@ import type {
   FeedbackCategory,
   FeedbackSentiment,
 } from '../services/feedback/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey
@@ -797,9 +798,11 @@ router.post('/webhooks/intercom', async (req: Request, res: Response) => {
       // Look up customer by email domain
       if (supabase) {
         const domain = customerEmail.split('@')[1];
-        const { data: customers } = await supabase
+        let custQuery = supabase
           .from('customers')
-          .select('id')
+          .select('id');
+        custQuery = applyOrgFilter(custQuery, req);
+        const { data: customers } = await custQuery
           .ilike('domain', `%${domain}%`)
           .limit(1);
 
@@ -851,9 +854,11 @@ router.post('/webhooks/zendesk', async (req: Request, res: Response) => {
 
     if (supabase) {
       const domain = current_user.email.split('@')[1];
-      const { data: customers } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id')
+        .select('id');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customers } = await custQuery
         .ilike('domain', `%${domain}%`)
         .limit(1);
 
@@ -921,9 +926,11 @@ router.post('/webhooks/generic', async (req: Request, res: Response) => {
 
     if (!customerId && customer_email && supabase) {
       const domain = customer_email.split('@')[1];
-      const { data: customers } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id')
+        .select('id');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customers } = await custQuery
         .ilike('domain', `%${domain}%`)
         .limit(1);
       customerId = customers?.[0]?.id;

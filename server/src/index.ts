@@ -9,6 +9,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 
 import { authRoutes } from './routes/auth.js'; // PRD-1: Gated Login + Onboarding
+import agentAuthRoutes from './routes/agent-auth.js';
 import { agentRoutes } from './routes/agents.js';
 import { contractRoutes } from './routes/contracts.js';
 import { entitlementRoutes } from './routes/entitlements.js';
@@ -110,6 +111,8 @@ import mentorshipRoutes from './routes/mentorship.js'; // PRD-255: Mentor Assign
 import readinessRoutes from './routes/readiness.js'; // PRD-085: Account Readiness Assessment
 import { quickActionsRoutes } from './routes/quick-actions.js'; // PRD-265: Quick Actions Widget
 import cadgRoutes from './routes/cadg.js'; // CADG: Context-Aware Agentic Document Generation
+import organizationRoutes from './routes/organizations.js'; // PRD-007: Multi-tenant organizations
+import teamRoutes from './routes/team.js'; // PRD-007: Team/member management
 import { config } from './config/index.js';
 import { schedulerService } from './services/scheduler.js';
 import { agentMemoryService } from './services/agentMemory.js';
@@ -285,6 +288,7 @@ app.get('/health/circuits', (req, res) => {
 
 // API Routes
 app.use('/api/auth', authRoutes); // PRD-1: Gated Login + Onboarding
+app.use('/api/auth', agentAuthRoutes);
 app.use('/api/agents', agentRoutes);
 app.use('/api/contracts', contractRoutes);
 app.use('/api/entitlements', entitlementRoutes); // PRD-0: Contract entitlements HITL review
@@ -383,6 +387,8 @@ app.use('/api/readiness', readinessRoutes); // Account readiness assessment (PRD
 app.use('/api/mentorship', mentorshipRoutes); // PRD-255: Mentor Assignment
 app.use('/api/peer-review', peerReviewRoutes); // PRD-253: Peer Review Workflow
 app.use('/api/cadg', cadgRoutes); // CADG: Context-Aware Agentic Document Generation
+app.use('/api/organizations', organizationRoutes); // PRD-007: Multi-tenant organizations
+app.use('/api/team', teamRoutes); // PRD-007: Team/member management
 app.use('/api/email', emailRoutes); // Email Integration & Summarization
 
 // Error handler

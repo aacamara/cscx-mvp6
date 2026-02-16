@@ -22,6 +22,7 @@ import {
 } from '../services/survey/index.js';
 import { triggerEngine } from '../triggers/engine.js';
 import type { CustomerEvent } from '../triggers/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey
@@ -90,9 +91,11 @@ router.post('/response', async (req: Request, res: Response) => {
     // Get customer info for context
     let customer: { id: string; name: string; arr?: number; healthScore?: number } | null = null;
     if (supabase) {
-      const { data } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id, name, arr, health_score')
+        .select('id, name, arr, health_score');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data } = await custQuery
         .eq('id', customerId)
         .single();
       if (data) {
@@ -591,9 +594,11 @@ router.post('/webhooks/delighted', async (req: Request, res: Response) => {
     let customerId: string | null = null;
     if (supabase) {
       const domain = email.split('@')[1];
-      const { data: customers } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id')
+        .select('id');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customers } = await custQuery
         .ilike('name', `%${domain.split('.')[0]}%`)
         .limit(1);
       customerId = customers?.[0]?.id || null;
@@ -660,9 +665,11 @@ router.post('/webhooks/typeform', async (req: Request, res: Response) => {
     let customerId = hidden.customer_id;
     if (!customerId && supabase) {
       const domain = email.split('@')[1];
-      const { data: customers } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id')
+        .select('id');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data: customers } = await custQuery
         .ilike('name', `%${domain.split('.')[0]}%`)
         .limit(1);
       customerId = customers?.[0]?.id || null;

@@ -24,6 +24,7 @@ import { WebSocketProvider } from './context/WebSocketContext';
 import { AgenticModeProvider } from './context/AgenticModeContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { isSupabaseConfigured } from './lib/supabase';
+import { SignupPage } from './components/Auth/SignupPage';
 import { AgenticModeToggle } from './components/AgenticModeToggle';
 import { AgentNotifications } from './components/AgentNotifications';
 import { GoogleConnect } from './components/GoogleConnect';
@@ -31,6 +32,7 @@ import { AccessibilitySettings } from './components/Settings/AccessibilitySettin
 import { HighContrastToggle } from './components/HighContrastToggle';
 import { AdminDashboard } from './components/AdminDashboard';
 import { SupportTickets } from './components/SupportTickets';
+import { OrgSettings } from './components/Admin/OrgSettings';
 import { AgentActionsView } from './components/AgentActionsView';
 import { DesignPartnerWelcome } from './components/DesignPartnerWelcome';
 
@@ -107,12 +109,92 @@ const SettingsModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
 };
 
 // ============================================
+// Admin Panel with Tabs
+// ============================================
+
+type AdminTab = 'metrics' | 'team' | 'import' | 'settings';
+
+const AdminPanel: React.FC<{
+  organizationId: string | null;
+  onClose: () => void;
+}> = ({ organizationId, onClose }) => {
+  const [tab, setTab] = useState<AdminTab>('metrics');
+
+  // Lazy-load TeamManagement and CustomerImport
+  const TeamManagement = React.lazy(() =>
+    import('./components/Admin/TeamManagement').then(m => ({ default: m.TeamManagement }))
+  );
+  const CustomerImport = React.lazy(() =>
+    import('./components/Admin/CustomerImport').then(m => ({ default: m.CustomerImport }))
+  );
+
+  const tabs: { id: AdminTab; label: string }[] = [
+    { id: 'metrics', label: 'Platform Metrics' },
+    { id: 'team', label: 'Team' },
+    { id: 'import', label: 'Import' },
+    { id: 'settings', label: 'Organization' },
+  ];
+
+  return (
+    <div className="max-w-6xl mx-auto px-4 py-6">
+      {/* Tab Bar */}
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-800">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+              tab === t.id
+                ? 'text-cscx-accent border-cscx-accent'
+                : 'text-gray-400 border-transparent hover:text-white'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <button
+          onClick={onClose}
+          className="p-2 text-gray-400 hover:text-white rounded-lg transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {tab === 'metrics' && <AdminDashboard />}
+      {tab === 'team' && organizationId && (
+        <React.Suspense fallback={<div className="text-gray-400 py-8 text-center">Loading...</div>}>
+          <TeamManagement organizationId={organizationId} />
+        </React.Suspense>
+      )}
+      {tab === 'import' && organizationId && (
+        <React.Suspense fallback={<div className="text-gray-400 py-8 text-center">Loading...</div>}>
+          <CustomerImport organizationId={organizationId} />
+        </React.Suspense>
+      )}
+      {tab === 'settings' && organizationId && (
+        <OrgSettings organizationId={organizationId} />
+      )}
+      {(tab === 'team' || tab === 'import' || tab === 'settings') && !organizationId && (
+        <div className="text-center py-12 text-gray-400">
+          <p>No organization configured. Create or join an organization first.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================
 // Main App Content
 // ============================================
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isAdmin, isDesignPartner, loading: authLoading, getAuthHeaders } = useAuth();
+  const { isAuthenticated, isAdmin, isDesignPartner, loading: authLoading, getAuthHeaders, organizationId } = useAuth();
   const [demoMode, setDemoMode] = useState(false);
+  const [needsOrgSetup, setNeedsOrgSetup] = useState(false);
 
   // View management - Observability is the default/home view
   const [view, setView] = useState<AppView>('observability');
@@ -203,6 +285,18 @@ const AppContent: React.FC = () => {
   // Show login page with invite code if not authenticated
   if (!isAuthenticated && !demoMode && isSupabaseConfigured()) {
     return <Login onDemoMode={() => setDemoMode(true)} />;
+  }
+
+  // Show org setup if authenticated but no organization (and not in demo mode)
+  if (isAuthenticated && !organizationId && !demoMode && needsOrgSetup) {
+    return (
+      <SignupPage
+        onOrgJoined={() => {
+          setNeedsOrgSetup(false);
+          window.location.reload(); // Reload to pick up org context
+        }}
+      />
+    );
   }
 
   return (
@@ -329,7 +423,18 @@ const AppContent: React.FC = () => {
                   <span>📥</span> Actions
                 </button>
 
-                {/* ARCHIVED: Support and Admin tabs
+                <button
+                  onClick={() => setView('admin')}
+                  className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                    view === 'admin'
+                      ? 'bg-cscx-accent text-white'
+                      : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+                  }`}
+                >
+                  <span>⚙️</span> Admin
+                </button>
+
+                {/* ARCHIVED: Support tab
                 <button
                   onClick={() => setView('support')}
                   className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
@@ -464,19 +569,13 @@ const AppContent: React.FC = () => {
             <KnowledgeBase />
           )}
 
-          {/* ARCHIVED: Admin and Support views
+          {/* VIEW: ADMIN - Platform metrics + Org management */}
           {view === 'admin' && (
-            <div className="max-w-6xl mx-auto px-4 py-6">
-              <AdminDashboard onClose={() => setView('observability')} />
-            </div>
+            <AdminPanel
+              organizationId={organizationId}
+              onClose={() => setView('observability')}
+            />
           )}
-
-          {view === 'support' && (
-            <div className="max-w-6xl mx-auto px-4 py-6">
-              <SupportTickets onClose={() => setView('observability')} />
-            </div>
-          )}
-          */}
 
           {/* VIEW: AGENT ACTIONS - Agent Inbox for HITL Approval (PRD-3) */}
           {view === 'agent-actions' && (

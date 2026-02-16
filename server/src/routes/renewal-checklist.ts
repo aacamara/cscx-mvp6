@@ -12,6 +12,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 import {
   renewalChecklistService,
   MilestoneType,
@@ -41,9 +42,11 @@ router.get('/customers/:customerId/renewal-checklist', async (req: Request, res:
     // Get customer data
     let customerData = null;
     if (supabase) {
-      const { data } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id, name, arr, health_score, renewal_date, segment, stage')
+        .select('id, name, arr, health_score, renewal_date, segment, stage');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data } = await custQuery
         .eq('id', customerId)
         .single();
       customerData = data;
@@ -104,9 +107,11 @@ router.post('/customers/:customerId/renewal-checklist', async (req: Request, res
     // Get customer data
     let customerData = null;
     if (supabase) {
-      const { data } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('id, name, arr, health_score, renewal_date, segment')
+        .select('id, name, arr, health_score, renewal_date, segment');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data } = await custQuery
         .eq('id', customerId)
         .single();
       customerData = data;
@@ -266,9 +271,11 @@ router.post('/customers/:customerId/renewal-docs/regenerate', async (req: Reques
     // Get customer data for document variables
     let customerData = null;
     if (supabase) {
-      const { data } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('*')
+        .select('*');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data } = await custQuery
         .eq('id', customerId)
         .single();
       customerData = data;

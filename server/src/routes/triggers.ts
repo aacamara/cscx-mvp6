@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { triggerEngine } from '../triggers/engine.js';
 import type { CustomerEvent } from '../triggers/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
@@ -28,6 +29,8 @@ router.get('/', async (req: Request, res: Response) => {
       .from('triggers')
       .select('*')
       .order('name');
+
+    query = applyOrgFilter(query, req);
 
     if (enabled !== undefined) {
       query = query.eq('enabled', enabled === 'true');
@@ -59,11 +62,14 @@ router.get('/:triggerId', async (req: Request, res: Response) => {
   try {
     const { triggerId } = req.params;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('triggers')
       .select('*')
-      .eq('id', triggerId)
-      .single();
+      .eq('id', triggerId);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Trigger not found' });
@@ -114,7 +120,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const { data, error } = await supabase
       .from('triggers')
-      .insert({
+      .insert(withOrgId({
         name,
         description,
         type,
@@ -127,7 +133,7 @@ router.post('/', async (req: Request, res: Response) => {
         enabled: true,
         created_by: userId,
         metadata: metadata ? JSON.stringify(metadata) : null,
-      })
+      }, req))
       .select()
       .single();
 
@@ -169,12 +175,14 @@ router.put('/:triggerId', async (req: Request, res: Response) => {
       }
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('triggers')
       .update(updateData)
-      .eq('id', triggerId)
-      .select()
-      .single();
+      .eq('id', triggerId);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.select().single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Trigger not found' });
@@ -195,10 +203,14 @@ router.delete('/:triggerId', async (req: Request, res: Response) => {
   try {
     const { triggerId } = req.params;
 
-    const { error } = await supabase
+    let query = supabase
       .from('triggers')
       .delete()
       .eq('id', triggerId);
+
+    query = applyOrgFilter(query, req);
+
+    const { error } = await query;
 
     if (error) throw error;
 
@@ -217,12 +229,14 @@ router.post('/:triggerId/enable', async (req: Request, res: Response) => {
   try {
     const { triggerId } = req.params;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('triggers')
       .update({ enabled: true, updated_at: new Date().toISOString() })
-      .eq('id', triggerId)
-      .select()
-      .single();
+      .eq('id', triggerId);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.select().single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Trigger not found' });
@@ -243,12 +257,14 @@ router.post('/:triggerId/disable', async (req: Request, res: Response) => {
   try {
     const { triggerId } = req.params;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('triggers')
       .update({ enabled: false, updated_at: new Date().toISOString() })
-      .eq('id', triggerId)
-      .select()
-      .single();
+      .eq('id', triggerId);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.select().single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Trigger not found' });
@@ -474,9 +490,13 @@ router.get('/stats', async (req: Request, res: Response) => {
     cutoffDate.setDate(cutoffDate.getDate() - daysNum);
 
     // Get trigger counts
-    const { data: triggers, error: triggersError } = await supabase
+    let triggersQuery = supabase
       .from('triggers')
       .select('id, enabled, type');
+
+    triggersQuery = applyOrgFilter(triggersQuery, req);
+
+    const { data: triggers, error: triggersError } = await triggersQuery;
 
     if (triggersError) throw triggersError;
 

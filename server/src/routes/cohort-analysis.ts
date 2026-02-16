@@ -12,6 +12,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -293,9 +294,11 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Fetch customers from Supabase
     if (supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('customers')
-        .select('*')
+        .select('*');
+      query = applyOrgFilter(query, req);
+      const { data, error } = await query
         .order('created_at', { ascending: true });
 
       if (error) {
