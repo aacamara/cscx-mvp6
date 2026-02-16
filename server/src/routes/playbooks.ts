@@ -10,6 +10,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { config } from '../config/index.js';
 import { playbookExecutor } from '../playbooks/executor.js';
 import type { Playbook } from '../playbooks/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
@@ -26,6 +27,8 @@ router.get('/', async (req: Request, res: Response) => {
       .from('playbooks')
       .select('*')
       .eq('is_active', true);
+
+    query = applyOrgFilter(query, req);
 
     if (type) query = query.eq('type', type as string);
 
@@ -205,11 +208,14 @@ router.post('/csm/generate-embeddings', async (req: Request, res: Response) => {
  */
 router.get('/code/:code', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('playbooks')
       .select('*')
-      .eq('code', req.params.code)
-      .single();
+      .eq('code', req.params.code);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.single();
 
     if (error) throw error;
     res.json(data);
@@ -237,6 +243,8 @@ router.get('/executions/active', async (req: Request, res: Response) => {
       `)
       .eq('status', 'active');
 
+    query = applyOrgFilter(query, req);
+
     if (customer_id) query = query.eq('customer_id', customer_id as string);
 
     const { data, error } = await query.order('started_at', { ascending: false });
@@ -256,11 +264,14 @@ router.get('/executions/active', async (req: Request, res: Response) => {
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('playbooks')
       .select('*')
-      .eq('id', req.params.id)
-      .single();
+      .eq('id', req.params.id);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.single();
 
     if (error) throw error;
     res.json(data);
@@ -284,13 +295,13 @@ router.post('/:id/execute', async (req: Request, res: Response) => {
 
     const { data, error } = await supabase
       .from('playbook_executions')
-      .insert({
+      .insert(withOrgId({
         playbook_id: req.params.id,
         customer_id,
         cta_id,
         current_phase: 1,
         status: 'active'
-      })
+      }, req))
       .select()
       .single();
 
@@ -353,12 +364,15 @@ router.post('/v2/:playbookId/start', async (req: Request, res: Response) => {
     }
 
     // Get playbook from the new playbooks table structure
-    const { data: playbookRow, error: playbookError } = await supabase
+    let playbookQuery = supabase
       .from('playbooks')
       .select('*')
       .eq('id', playbookId)
-      .eq('is_active', true)
-      .single();
+      .eq('is_active', true);
+
+    playbookQuery = applyOrgFilter(playbookQuery, req);
+
+    const { data: playbookRow, error: playbookError } = await playbookQuery.single();
 
     if (playbookError || !playbookRow) {
       return res.status(404).json({ error: 'Playbook not found or disabled' });
@@ -424,6 +438,8 @@ router.get('/v2/executions', async (req: Request, res: Response) => {
       .order('started_at', { ascending: false })
       .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
+    query = applyOrgFilter(query, req);
+
     if (customerId) query = query.eq('customer_id', customerId);
     if (status) query = query.eq('status', status);
     if (playbookId) query = query.eq('playbook_id', playbookId);
@@ -446,15 +462,18 @@ router.get('/v2/executions/:executionId', async (req: Request, res: Response) =>
   try {
     const { executionId } = req.params;
 
-    const { data, error } = await supabase
+    let execQuery = supabase
       .from('playbook_executions')
       .select(`
         *,
         playbooks (id, name, code, phases),
         customers (id, name)
       `)
-      .eq('id', executionId)
-      .single();
+      .eq('id', executionId);
+
+    execQuery = applyOrgFilter(execQuery, req);
+
+    const { data, error } = await execQuery.single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Execution not found' });
@@ -570,10 +589,14 @@ router.get('/v2/stats', async (req: Request, res: Response) => {
     cutoffDate.setDate(cutoffDate.getDate() - daysNum);
 
     // Overall stats
-    const { data: executions, error } = await supabase
+    let statsQuery = supabase
       .from('playbook_executions')
       .select('status, started_at, completed_at')
       .gte('started_at', cutoffDate.toISOString());
+
+    statsQuery = applyOrgFilter(statsQuery, req);
+
+    const { data: executions, error } = await statsQuery;
 
     if (error) throw error;
 
