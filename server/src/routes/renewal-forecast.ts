@@ -6,6 +6,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -769,9 +770,11 @@ router.post('/sync', async (req: Request, res: Response) => {
     }
 
     // Get customers with renewal dates that don't have renewal records
-    const { data: customers, error: customersError } = await supabase
+    let customersQuery = supabase
       .from('customers')
-      .select('id, name, arr, health_score, csm_id, renewal_date')
+      .select('id, name, arr, health_score, csm_id, renewal_date');
+    customersQuery = applyOrgFilter(customersQuery, req);
+    const { data: customers, error: customersError } = await customersQuery
       .not('renewal_date', 'is', null);
 
     if (customersError) throw customersError;

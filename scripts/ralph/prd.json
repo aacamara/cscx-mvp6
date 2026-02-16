@@ -113,7 +113,7 @@
         "Typecheck passes with no NEW errors"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "These files follow a similar pattern. Quick wins \u2014 mostly just wrapping SELECT queries."
     },
     {

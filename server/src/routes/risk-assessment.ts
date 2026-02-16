@@ -7,6 +7,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/index.js';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 import {
   riskAssessmentService,
   assessRisk,
@@ -37,9 +38,11 @@ router.get('/customer/:customerId', async (req: Request, res: Response) => {
     // Get customer data
     let customer = null;
     if (supabase) {
-      const { data, error } = await supabase
+      let custQuery = supabase
         .from('customers')
-        .select('*')
+        .select('*');
+      custQuery = applyOrgFilter(custQuery, req);
+      const { data, error } = await custQuery
         .eq('id', customerId)
         .single();
 
