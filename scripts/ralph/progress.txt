@@ -201,3 +201,22 @@ Started: 2026-02-15
   - No type errors introduced — verified with `npx tsc --noEmit 2>&1 | grep -E "(services/automations|routes/automations)"`
 
 ---
+
+## 2026-02-20 - US-004 (PRD-007 Service Layer)
+- **What:** Verified and completed organizationId filtering in support service layer
+- **Files changed:**
+  - server/src/services/support/index.ts — Already had organizationId: string | null parameter added to all 10+ methods (processTicketWebhook, upsertTicket, getTickets, calculateBaseline, getBaseline, detectTicketSpike, handleSpikeDetected, createRiskSignal, getRiskSignals, acknowledgeSignal, resolveSignal, getSupportSummary) in earlier commit bccee5d
+  - server/src/routes/support.ts — Updated all service method calls to pass (req as any).organizationId consistently
+  - scripts/ralph/prd.json — set US-004 passes to true
+- **Learnings for future iterations:**
+  - Support service changes were already completed in commit bccee5d (US-006) — work was done out of order
+  - Routes file needed verification to ensure all service calls pass organizationId consistently
+  - Pre-existing TS errors (~1117 server errors) are unrelated to org filtering work
+  - Service methods default organizationId to null for backward compatibility
+  - Tables affected: support_tickets, ticket_baselines, risk_signals
+  - For complex workflows like processTicketWebhook → upsertTicket → detectTicketSpike → handleSpikeDetected, organizationId must be threaded through the entire chain
+  - All SELECT queries use `if (organizationId) query = query.eq('organization_id', organizationId);`
+  - All INSERT/UPSERT queries use `...(organizationId ? { organization_id: organizationId } : {})`
+- **Commit:** 7e210f6
+
+---
