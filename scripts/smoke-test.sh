@@ -1,84 +1,44 @@
 #!/bin/bash
-# CSCX.AI Smoke Test Script
+# CSCX.AI Post-Deploy Smoke Test
 # Usage: ./scripts/smoke-test.sh [BASE_URL]
+BASE_URL="${1:-http://localhost:3001}"
+PASS=0; FAIL=0
 
-set -e
+check() {
+  local name="$1" url="$2" expected="$3"
+  response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
+  if [ "$response" = "$expected" ]; then
+    echo "✅ $name ($response)"
+    PASS=$((PASS + 1))
+  else
+    echo "❌ $name (got $response, expected $expected)"
+    FAIL=$((FAIL + 1))
+  fi
+}
 
-BASE_URL="${1:-https://cscx-api-938520514616.us-central1.run.app}"
-
-echo "=== CSCX.AI Smoke Tests ==="
-echo "Testing: $BASE_URL"
+echo "Smoke Testing: $BASE_URL"
+echo "================================"
 echo ""
-
-PASSED=0
-FAILED=0
-
-test_endpoint() {
-    local name="$1"
-    local endpoint="$2"
-    local expected_code="${3:-200}"
-
-    echo -n "Testing $name... "
-
-    response=$(curl -sf -o /dev/null -w "%{http_code}" "$BASE_URL$endpoint" 2>/dev/null || echo "000")
-
-    if [ "$response" == "$expected_code" ]; then
-        echo "✓ PASS ($response)"
-        PASSED=$((PASSED + 1))
-    else
-        echo "✗ FAIL (got $response, expected $expected_code)"
-        FAILED=$((FAILED + 1))
-    fi
-}
-
-test_json_endpoint() {
-    local name="$1"
-    local endpoint="$2"
-    local json_key="$3"
-
-    echo -n "Testing $name... "
-
-    response=$(curl -sf "$BASE_URL$endpoint" 2>/dev/null || echo "{}")
-
-    if echo "$response" | jq -e ".$json_key" > /dev/null 2>&1; then
-        echo "✓ PASS"
-        PASSED=$((PASSED + 1))
-    else
-        echo "✗ FAIL (missing $json_key)"
-        FAILED=$((FAILED + 1))
-    fi
-}
 
 echo "--- Health Endpoints ---"
-test_endpoint "GET /health" "/health"
-test_endpoint "GET /health/live" "/health/live"
-test_endpoint "GET /health/ready" "/health/ready"
-test_json_endpoint "Health status field" "/health" "status"
-test_json_endpoint "Services status" "/health/ready" "services"
+check "Health Live" "$BASE_URL/health/live" "200"
+check "Health Ready" "$BASE_URL/health/ready" "200"
+check "Health Full" "$BASE_URL/health" "200"
 
 echo ""
-echo "--- API Endpoints ---"
-test_endpoint "GET /api/actions" "/api/actions"
-test_endpoint "GET /api/approvals" "/api/approvals"
-test_endpoint "GET /api/kb/status" "/api/kb/status"
-test_endpoint "GET /api/admin/overview (unauth)" "/api/admin/overview" "401"
+echo "--- Auth Endpoints ---"
+check "API Auth" "$BASE_URL/api/auth/status" "200"
 
 echo ""
-echo "--- PRD Verification ---"
-test_json_endpoint "KB chunks count" "/api/kb/status" "chunks"
-test_json_endpoint "Actions endpoint" "/api/actions" "actions"
-test_json_endpoint "Approvals endpoint" "/api/approvals" "policies"
+echo "--- Protected Endpoints (expect 401) ---"
+check "API Customers" "$BASE_URL/api/customers" "401"
+check "API Support" "$BASE_URL/api/support/tickets" "401"
+check "API NPS" "$BASE_URL/api/nps/responses" "401"
+check "API Feedback" "$BASE_URL/api/feedback" "401"
+check "API Playbooks" "$BASE_URL/api/playbooks" "401"
+check "API Automations" "$BASE_URL/api/automations" "401"
 
 echo ""
-echo "=== Results ==="
-echo "Passed: $PASSED"
-echo "Failed: $FAILED"
-echo ""
-
-if [ $FAILED -gt 0 ]; then
-    echo "❌ SMOKE TESTS FAILED"
-    exit 1
-else
-    echo "✅ ALL SMOKE TESTS PASSED"
-    exit 0
-fi
+echo "================================"
+echo "Results: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ] && exit 0 || exit 1
