@@ -90,7 +90,7 @@
         "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "Key methods: createNpsResponse, getPreviousResponses, getNpsHistory, initiateRecovery."
     }
   ]

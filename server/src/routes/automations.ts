@@ -211,8 +211,9 @@ router.put('/:automationId', async (req: Request, res: Response) => {
 router.delete('/:automationId', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
+    const organizationId = (req as any).organizationId || null;
 
-    await automationService.deleteAutomation(automationId);
+    await automationService.deleteAutomation(automationId, organizationId);
 
     res.json({ success: true });
   } catch (error) {
@@ -228,10 +229,11 @@ router.delete('/:automationId', async (req: Request, res: Response) => {
 router.post('/:automationId/enable', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
+    const organizationId = (req as any).organizationId || null;
 
     const automation = await automationService.updateAutomation(automationId, {
       enabled: true,
-    });
+    }, organizationId);
 
     res.json({ automation });
   } catch (error) {
@@ -247,10 +249,11 @@ router.post('/:automationId/enable', async (req: Request, res: Response) => {
 router.post('/:automationId/disable', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
+    const organizationId = (req as any).organizationId || null;
 
     const automation = await automationService.updateAutomation(automationId, {
       enabled: false,
-    });
+    }, organizationId);
 
     res.json({ automation });
   } catch (error) {

@@ -142,7 +142,7 @@ router.post('/check-spike', async (req: Request, res: Response) => {
       lookbackHours: lookbackHours || 24,
       baselineDays: baselineDays || 30,
       spikeThreshold: spikeThreshold || 3.0,
-    });
+    }, (req as any).organizationId);
 
     res.json({
       isSpike: result.isSpike,
@@ -196,7 +196,7 @@ router.post('/check-spike/all', async (req: Request, res: Response) => {
         customerId: customer.id,
         lookbackHours: 24,
         spikeThreshold: 3.0,
-      });
+      }, (req as any).organizationId);
 
       if (result.isSpike) {
         spikesDetected.push({
@@ -234,7 +234,7 @@ router.get('/summary/:customerId', async (req: Request, res: Response) => {
     const { customerId } = req.params;
     const lookbackHours = parseInt(req.query.lookbackHours as string) || 24;
 
-    const summary = await supportService.getSupportSummary(customerId, lookbackHours);
+    const summary = await supportService.getSupportSummary(customerId, lookbackHours, (req as any).organizationId);
 
     res.json(summary);
   } catch (error) {
@@ -268,7 +268,7 @@ router.get('/tickets/:customerId', async (req: Request, res: Response) => {
       category: category ? (category as string).split(',') as any[] : undefined,
       severity: severity ? (severity as string).split(',') as any[] : undefined,
       limit: limit ? parseInt(limit as string) : 50,
-    });
+    }, (req as any).organizationId);
 
     res.json({ tickets });
   } catch (error) {

@@ -326,7 +326,7 @@ router.put('/:feedbackId/route', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'team is required' });
     }
 
-    const result = await rerouteFeedback(feedbackId, team, assignTo, userId);
+    const result = await rerouteFeedback(feedbackId, team, assignTo, userId, req.organizationId);
 
     if (!result.success) {
       return res.status(400).json({ error: result.message });
@@ -363,7 +363,8 @@ router.put('/:feedbackId/resolve', async (req: Request, res: Response) => {
       outcomeDetails,
       externalTicketId,
       externalTicketUrl,
-      userId
+      userId,
+      req.organizationId
     );
 
     if (!result.success) {
@@ -389,7 +390,7 @@ router.post('/:feedbackId/acknowledge/draft', async (req: Request, res: Response
   try {
     const { feedbackId } = req.params;
 
-    const result = await generateAcknowledgmentDraft(feedbackId);
+    const result = await generateAcknowledgmentDraft(feedbackId, req.organizationId);
 
     if (!result.success) {
       return res.status(400).json({ error: result.error });
@@ -431,7 +432,7 @@ router.post('/:feedbackId/acknowledge/send', async (req: Request, res: Response)
       return res.status(400).json({ error: 'approvedBy is required' });
     }
 
-    const result = await sendAcknowledgment(feedbackId, method, content, approvedBy);
+    const result = await sendAcknowledgment(feedbackId, method, content, approvedBy, req.organizationId);
 
     if (!result.success) {
       return res.status(400).json({ error: result.message });
