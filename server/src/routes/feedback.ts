@@ -480,6 +480,7 @@ router.post('/:feedbackId/comments', async (req: Request, res: Response) => {
         author_email: authorEmail,
         internal,
         created_at: new Date().toISOString(),
+        ...(req.organizationId ? { organization_id: req.organizationId } : {}),
       })
       .select()
       .single();
@@ -495,6 +496,7 @@ router.post('/:feedbackId/comments', async (req: Request, res: Response) => {
       event_data: { internal, authorEmail },
       performed_by: authorId || null,
       created_at: new Date().toISOString(),
+      ...(req.organizationId ? { organization_id: req.organizationId } : {}),
     });
 
     res.status(201).json({
@@ -525,6 +527,10 @@ router.get('/:feedbackId/comments', async (req: Request, res: Response) => {
       .select('*')
       .eq('feedback_id', feedbackId)
       .order('created_at', { ascending: true });
+
+    if (req.organizationId) {
+      query = query.eq('organization_id', req.organizationId);
+    }
 
     if (internal !== undefined) {
       query = query.eq('internal', internal === 'true');
@@ -565,7 +571,8 @@ router.get('/report/analytics', async (req: Request, res: Response) => {
 
     const analytics = await getFeedbackAnalytics(
       { startDate, endDate },
-      customerId as string | undefined
+      customerId as string | undefined,
+      req.organizationId
     );
 
     res.json({
@@ -588,7 +595,7 @@ router.get('/report/analytics', async (req: Request, res: Response) => {
  */
 router.get('/rules', async (req: Request, res: Response) => {
   try {
-    const rules = await getRoutingRules();
+    const rules = await getRoutingRules(req.organizationId);
 
     res.json({
       success: true,
@@ -648,6 +655,7 @@ router.post('/rules', async (req: Request, res: Response) => {
         auto_acknowledge: autoAcknowledge ?? false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        ...(req.organizationId ? { organization_id: req.organizationId } : {}),
       })
       .select()
       .single();
@@ -693,10 +701,16 @@ router.put('/rules/:ruleId', async (req: Request, res: Response) => {
     if (updates.notifyCSM !== undefined) updateData.notify_csm = updates.notifyCSM;
     if (updates.autoAcknowledge !== undefined) updateData.auto_acknowledge = updates.autoAcknowledge;
 
-    const { data, error } = await supabase
+    let updateQuery = supabase
       .from('feedback_routing_rules')
       .update(updateData)
-      .eq('id', ruleId)
+      .eq('id', ruleId);
+
+    if (req.organizationId) {
+      updateQuery = updateQuery.eq('organization_id', req.organizationId);
+    }
+
+    const { data, error } = await updateQuery
       .select()
       .single();
 
@@ -726,10 +740,16 @@ router.delete('/rules/:ruleId', async (req: Request, res: Response) => {
       return res.status(500).json({ error: 'Database not available' });
     }
 
-    const { error } = await supabase
+    let deleteQuery = supabase
       .from('feedback_routing_rules')
       .delete()
       .eq('id', ruleId);
+
+    if (req.organizationId) {
+      deleteQuery = deleteQuery.eq('organization_id', req.organizationId);
+    }
+
+    const { error } = await deleteQuery;
 
     if (error) {
       throw error;
@@ -764,10 +784,16 @@ router.get('/teams', async (req: Request, res: Response) => {
       });
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('feedback_teams')
       .select('*')
       .order('name');
+
+    if (req.organizationId) {
+      query = query.eq('organization_id', req.organizationId);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
       throw error;
@@ -837,7 +863,7 @@ router.post('/webhooks/intercom', async (req: Request, res: Response) => {
             platform: 'intercom',
             conversationId: data?.conversation_id,
           },
-        });
+        }, req.organizationId);
       }
 
       return res.status(200).json({ received: true, processed: true });
@@ -895,7 +921,7 @@ router.post('/webhooks/zendesk', async (req: Request, res: Response) => {
           platform: 'zendesk',
           ticketId: ticket?.id,
         },
-      });
+      }, req.organizationId);
     }
 
     res.status(200).json({ received: true, processed: true });
@@ -960,7 +986,7 @@ router.post('/webhooks/generic', async (req: Request, res: Response) => {
       },
       content,
       metadata: metadata || {},
-    });
+    }, req.organizationId);
 
     res.status(201).json({
       success: true,
@@ -1026,6 +1052,7 @@ router.post('/widget', async (req: Request, res: Response) => {
           timestamp: new Date().toISOString(),
         },
         created_at: new Date().toISOString(),
+        ...(req.organizationId ? { organization_id: req.organizationId } : {}),
       })
       .select()
       .single();

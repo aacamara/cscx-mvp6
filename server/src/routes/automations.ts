@@ -274,6 +274,7 @@ router.post('/:automationId/run', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
     const userId = (req as any).userId || 'system';
+    const organizationId = (req as any).organizationId || null;
     const { customerIds } = req.body;
 
     const context: MCPContext = {
@@ -284,7 +285,8 @@ router.post('/:automationId/run', async (req: Request, res: Response) => {
     const run = await automationService.runAutomation(
       automationId,
       context,
-      { customerIds }
+      { customerIds },
+      organizationId
     );
 
     res.json({ run });
@@ -301,6 +303,7 @@ router.post('/:automationId/run', async (req: Request, res: Response) => {
 router.get('/:automationId/runs', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
+    const organizationId = (req as any).organizationId || null;
     const { status, limit = '50', offset = '0' } = req.query;
 
     const runs = await automationService.listRuns({
@@ -308,7 +311,7 @@ router.get('/:automationId/runs', async (req: Request, res: Response) => {
       status: status as string,
       limit: parseInt(limit as string),
       offset: parseInt(offset as string),
-    });
+    }, organizationId);
 
     res.json({ runs });
   } catch (error) {
@@ -324,8 +327,9 @@ router.get('/:automationId/runs', async (req: Request, res: Response) => {
 router.get('/runs/:runId', async (req: Request, res: Response) => {
   try {
     const { runId } = req.params;
+    const organizationId = (req as any).organizationId || null;
 
-    const run = await automationService.getRun(runId);
+    const run = await automationService.getRun(runId, organizationId);
 
     if (!run) {
       return res.status(404).json({ error: 'Run not found' });

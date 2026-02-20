@@ -289,7 +289,7 @@ router.get('/baseline/:customerId', async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params;
 
-    const baseline = await supportService.getBaseline(customerId);
+    const baseline = await supportService.getBaseline(customerId, (req as any).organizationId);
 
     if (!baseline) {
       return res.status(404).json({ error: 'No baseline found for customer' });
@@ -311,7 +311,7 @@ router.post('/baseline/:customerId', async (req: Request, res: Response) => {
     const { customerId } = req.params;
     const { days } = req.body;
 
-    const baseline = await supportService.calculateBaseline(customerId, days || 30);
+    const baseline = await supportService.calculateBaseline(customerId, days || 30, (req as any).organizationId);
 
     res.json(baseline);
   } catch (error) {
@@ -335,7 +335,8 @@ router.get('/signals/:customerId', async (req: Request, res: Response) => {
 
     const signals = await supportService.getRiskSignals(
       customerId,
-      signalType as string | undefined
+      signalType as string | undefined,
+      (req as any).organizationId
     );
 
     res.json({ signals });
@@ -354,7 +355,7 @@ router.post('/signals/:signalId/acknowledge', async (req: Request, res: Response
     const { signalId } = req.params;
     const userId = (req as any).userId || 'system';
 
-    const signal = await supportService.acknowledgeSignal(signalId, userId);
+    const signal = await supportService.acknowledgeSignal(signalId, userId, (req as any).organizationId);
 
     if (!signal) {
       return res.status(404).json({ error: 'Signal not found' });
@@ -376,7 +377,7 @@ router.post('/signals/:signalId/resolve', async (req: Request, res: Response) =>
     const { signalId } = req.params;
     const { notes } = req.body;
 
-    const signal = await supportService.resolveSignal(signalId, notes);
+    const signal = await supportService.resolveSignal(signalId, notes, false, (req as any).organizationId);
 
     if (!signal) {
       return res.status(404).json({ error: 'Signal not found' });

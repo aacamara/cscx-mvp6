@@ -44,7 +44,7 @@
         "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "Key methods: fetchAndStoreEmail, updateSyncStatus, getSyncStatus, getEmails, matchByStakeholderEmail, matchByDomain, matchByNameMention, linkEmailsToCustomers, matchAndLinkEmail."
     },
     {
