@@ -36,12 +36,19 @@ import { OrgSettings } from './components/Admin/OrgSettings';
 import { AgentActionsView } from './components/AgentActionsView';
 import { DesignPartnerWelcome } from './components/DesignPartnerWelcome';
 
+// Lazy-loaded P1 feature views
+const AutomationsView = React.lazy(() => import('./components/Automations/AutomationsView').then(m => ({ default: m.AutomationsView })));
+const PlaybooksView = React.lazy(() => import('./components/Playbooks/PlaybooksView').then(m => ({ default: m.PlaybooksView })));
+const SupportTicketsView = React.lazy(() => import('./components/Support/SupportView').then(m => ({ default: m.SupportView })));
+const EmailInsightsView = React.lazy(() => import('./components/EmailInsights/EmailView').then(m => ({ default: m.EmailView })));
+const VoiceOfCustomerView = React.lazy(() => import('./components/VoiceOfCustomer/VoCView').then(m => ({ default: m.VoCView })));
+
 // ============================================
 // CSCX.AI 10X - Simplified View Model
 // ============================================
 
 // Simplified view type - Observability is now the primary view (includes customers)
-type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-center' | 'knowledge-base' | 'admin' | 'support' | 'agent-actions' | 'login' | 'auth-callback';
+type AppView = 'observability' | 'customer-detail' | 'onboarding' | 'agent-center' | 'knowledge-base' | 'admin' | 'support' | 'agent-actions' | 'login' | 'auth-callback' | 'automations' | 'playbooks' | 'support-tickets' | 'email-insights' | 'voice-of-customer';
 
 // Settings modal tabs
 type SettingsTab = 'integrations' | 'accessibility';
@@ -188,6 +195,56 @@ const AdminPanel: React.FC<{
 };
 
 // ============================================
+// Operations Hub — Sub-tab container for P1 features
+// ============================================
+
+type OpsView = 'automations' | 'playbooks' | 'support-tickets' | 'email-insights' | 'voice-of-customer';
+
+const OperationsHub: React.FC<{
+  activeView: OpsView;
+  onChangeView: (v: OpsView) => void;
+  onSelectCustomer: (customer: { id: string; name: string }) => void;
+}> = ({ activeView, onChangeView, onSelectCustomer }) => {
+  const tabs: { id: OpsView; label: string; icon: string }[] = [
+    { id: 'automations', label: 'Automations', icon: '⚡' },
+    { id: 'playbooks', label: 'Playbooks', icon: '📋' },
+    { id: 'support-tickets', label: 'Support', icon: '🎫' },
+    { id: 'email-insights', label: 'Email', icon: '📧' },
+    { id: 'voice-of-customer', label: 'VoC', icon: '📣' },
+  ];
+
+  return (
+    <div className="max-w-7xl mx-auto">
+      {/* Sub-navigation */}
+      <div className="flex items-center gap-1 mb-6 border-b border-gray-800">
+        {tabs.map(t => (
+          <button
+            key={t.id}
+            onClick={() => onChangeView(t.id)}
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 flex items-center gap-1.5 ${
+              activeView === t.id
+                ? 'text-cscx-accent border-cscx-accent'
+                : 'text-gray-400 border-transparent hover:text-white'
+            }`}
+          >
+            <span className="text-xs">{t.icon}</span> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      <React.Suspense fallback={<div className="flex items-center justify-center py-12"><div className="animate-spin rounded-full h-6 w-6 border-2 border-cscx-accent border-t-transparent" /></div>}>
+        {activeView === 'automations' && <AutomationsView />}
+        {activeView === 'playbooks' && <PlaybooksView onSelectCustomer={onSelectCustomer} />}
+        {activeView === 'support-tickets' && <SupportTicketsView onSelectCustomer={onSelectCustomer} />}
+        {activeView === 'email-insights' && <EmailInsightsView />}
+        {activeView === 'voice-of-customer' && <VoiceOfCustomerView onSelectCustomer={onSelectCustomer} />}
+      </React.Suspense>
+    </div>
+  );
+};
+
+// ============================================
 // Main App Content
 // ============================================
 
@@ -272,6 +329,16 @@ const AppContent: React.FC = () => {
         return 'Agent Center';
       case 'knowledge-base':
         return 'Knowledge Base';
+      case 'automations':
+        return 'Automations & Triggers';
+      case 'playbooks':
+        return 'Playbook Orchestrator';
+      case 'support-tickets':
+        return 'Support Ticket Manager';
+      case 'email-insights':
+        return 'Email Insights';
+      case 'voice-of-customer':
+        return 'Voice of Customer';
       default:
         return 'Customer Success Platform';
     }
@@ -339,7 +406,7 @@ const AppContent: React.FC = () => {
 
             <div className="flex items-center gap-3 mt-4 sm:mt-0">
               {/* Back button for secondary views */}
-              {(view === 'onboarding' || view === 'agent-center' || view === 'knowledge-base' || view === 'customer-detail') && (
+              {(view === 'onboarding' || view === 'agent-center' || view === 'knowledge-base' || view === 'customer-detail' || view === 'automations' || view === 'playbooks' || view === 'support-tickets' || view === 'email-insights' || view === 'voice-of-customer') && (
                 <button
                   onClick={handleBackToCustomers}
                   className="px-4 py-2 text-sm border border-cscx-gray-700 rounded-lg hover:bg-cscx-gray-800 hover:text-cscx-accent transition-colors"
@@ -416,6 +483,17 @@ const AppContent: React.FC = () => {
               }`}
             >
               <span>📚</span> Knowledge Base
+            </button>
+
+            <button
+              onClick={() => setView('automations')}
+              className={`px-4 py-2 text-sm font-medium rounded-md transition-colors flex items-center gap-2 ${
+                ['automations', 'playbooks', 'support-tickets', 'email-insights', 'voice-of-customer'].includes(view)
+                  ? 'bg-cscx-accent text-white'
+                  : 'text-cscx-gray-400 hover:text-white hover:bg-cscx-gray-800'
+              }`}
+            >
+              <span>⚡</span> Operations
             </button>
 
             {/* Admin-only navigation items */}
@@ -591,6 +669,15 @@ const AppContent: React.FC = () => {
             <div className="max-w-6xl mx-auto px-4 py-6">
               <AgentActionsView onClose={() => setView('observability')} />
             </div>
+          )}
+
+          {/* VIEW: OPERATIONS HUB - All operational tools in one place */}
+          {['automations', 'playbooks', 'support-tickets', 'email-insights', 'voice-of-customer'].includes(view) && (
+            <OperationsHub
+              activeView={view as 'automations' | 'playbooks' | 'support-tickets' | 'email-insights' | 'voice-of-customer'}
+              onChangeView={(v) => setView(v)}
+              onSelectCustomer={handleSelectCustomer}
+            />
           )}
 
         </main>
