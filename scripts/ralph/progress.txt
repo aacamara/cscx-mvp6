@@ -171,3 +171,18 @@ Started: 2026-02-15
   - TypeScript allows optional parameters with `string | null` — makes org filtering backwards compatible
 
 ---
+
+## 2026-02-19 - US-006 (PRD-007 Service Layer)
+- **What:** Added organizationId filtering to NPS service layer
+- **Files changed:**
+  - server/src/services/nps/index.ts — Added organizationId: string | null parameter to createNpsResponse(), getPreviousResponses(), getNpsHistory(), initiateRecovery(), updateRecoveryStatus(); applied org filtering to nps_responses, customers, risk_signals, and plan_tasks queries; spread organization_id into INSERT operations
+  - server/src/routes/nps.ts — Updated all 7 service method calls (POST /responses, GET /customers/:customerId/nps, POST /responses/:responseId/initiate-recovery, PATCH /responses/:responseId/recovery, POST /webhooks/delighted, POST /webhooks/typeform) to pass req.organizationId
+  - scripts/ralph/prd.json — set US-006 passes to true
+- **Learnings for future iterations:**
+  - NPS service has 5 methods with Supabase queries: createNpsResponse (INSERT nps_responses + INSERT risk_signals + INSERT plan_tasks), getPreviousResponses (SELECT nps_responses), getNpsHistory (SELECT nps_responses), initiateRecovery (SELECT + UPDATE nps_responses, SELECT customers, INSERT risk_signals, INSERT plan_tasks), updateRecoveryStatus (UPDATE nps_responses)
+  - For methods like initiateRecovery that have multiple query types (SELECT, UPDATE, INSERT), apply org filtering to each individually
+  - For UPDATE queries with org filtering, refactor from one-liner to `let query = ...update().eq('id', id); if (organizationId) query = query.eq('organization_id', organizationId);`
+  - The route file has 7 service call sites including 2 webhook endpoints — don't forget the webhook routes
+  - No type errors introduced — verified with `npx tsc --noEmit 2>&1 | grep -E "(services/nps|routes/nps)"`
+
+---
