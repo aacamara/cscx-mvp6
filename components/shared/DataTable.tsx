@@ -37,7 +37,7 @@ export function DataTable<T extends Record<string, any>>({
   const [page, setPage] = useState(0);
 
   const filtered = useMemo(() => {
-    let items = [...data];
+    let items = Array.isArray(data) ? [...data] : [];
     if (search && searchKeys.length > 0) {
       const q = search.toLowerCase();
       items = items.filter(item =>
