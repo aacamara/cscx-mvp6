@@ -6,7 +6,18 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:server": "cd server && npx eslint .",
+    "lint:all": "npm run lint && npm run lint:server",
+    "harness:risk-tier": "cat .github/risk-policy.json | node -e \"const p=JSON.parse(require('fs').readFileSync(0,'utf8'));Object.entries(p.tiers).forEach(([t,v])=>console.log(t+': '+v.paths.length+' patterns'))\"",
+    "harness:delta-ts": "bash scripts/delta-ts-check.sh server server/tsconfig.json",
+    "harness:delta-lint": "bash scripts/delta-lint-check.sh",
+    "harness:org-filter": "bash scripts/lint-org-filter.sh",
+    "harness:pre-pr": "npm run lint:all && npm run harness:delta-ts && cd server && npm test -- --run",
+    "e2e": "npx playwright test",
+    "e2e:evidence": "npx playwright test --project=evidence",
+    "e2e:report": "npx playwright show-report e2e/results/html"
   },
   "dependencies": {
     "@google/genai": "^1.0.0",
@@ -19,11 +30,16 @@
     "react-router-dom": "^7.12.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^22.14.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.56.0",
+    "@typescript-eslint/parser": "^8.56.0",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
+    "eslint": "^10.0.1",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.17",
     "typescript": "~5.8.2",

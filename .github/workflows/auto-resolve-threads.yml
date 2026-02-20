@@ -1,0 +1,156 @@
+# Auto-Resolve Bot-Only Review Threads
+# After CI passes on current HEAD, resolves review threads where
+# ALL participants are bots. Never auto-resolves human-participated threads.
+
+name: Auto-Resolve Bot Threads
+
+on:
+  check_suite:
+    types: [completed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  auto-resolve:
+    name: Resolve Fixed Review Threads
+    runs-on: ubuntu-latest
+    if: >
+      github.event.check_suite.conclusion == 'success' &&
+      github.event.check_suite.pull_requests[0]
+    steps:
+      - name: Resolve bot-only threads
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = context.payload.check_suite.pull_requests[0].number;
+            const headSha = context.payload.check_suite.head_sha;
+
+            console.log(`Checking threads on PR #${prNumber} at SHA ${headSha.substring(0, 7)}`);
+
+            // Known bot logins — add more as needed
+            const botLogins = [
+              'coderabbitai',
+              'github-actions[bot]',
+              'claude-code[bot]',
+              'dependabot[bot]',
+              'renovate[bot]',
+            ];
+
+            function isBot(login) {
+              return botLogins.some(b => login === b || login.includes(b.replace('[bot]', '')));
+            }
+
+            // Get all review threads via GraphQL
+            const query = `
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      nodes {
+                        id
+                        isResolved
+                        isOutdated
+                        comments(first: 20) {
+                          nodes {
+                            author { login }
+                            body
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `;
+
+            let result;
+            try {
+              result = await github.graphql(query, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                number: prNumber,
+              });
+            } catch (err) {
+              console.log(`GraphQL query failed: ${err.message}`);
+              console.log('This is expected if the repo has no review threads.');
+              return;
+            }
+
+            const threads = result.repository.pullRequest.reviewThreads.nodes;
+            console.log(`Found ${threads.length} total review threads`);
+
+            let resolved = 0;
+            let skippedHuman = 0;
+            let alreadyResolved = 0;
+
+            for (const thread of threads) {
+              // Skip already resolved threads
+              if (thread.isResolved) {
+                alreadyResolved++;
+                continue;
+              }
+
+              // Get all authors in this thread
+              const authors = thread.comments.nodes
+                .map(c => c.author?.login || 'unknown')
+                .filter(Boolean);
+
+              // Only auto-resolve if ALL participants are bots
+              const allBots = authors.length > 0 && authors.every(a => isBot(a));
+
+              if (!allBots) {
+                skippedHuman++;
+                const humanAuthors = authors.filter(a => !isBot(a));
+                console.log(`Skipping thread with human participants: ${humanAuthors.join(', ')}`);
+                continue;
+              }
+
+              // Resolve the thread
+              try {
+                await github.graphql(`
+                  mutation($threadId: ID!) {
+                    resolveReviewThread(input: { threadId: $threadId }) {
+                      thread { isResolved }
+                    }
+                  }
+                `, { threadId: thread.id });
+                resolved++;
+              } catch (err) {
+                console.log(`Failed to resolve thread: ${err.message}`);
+              }
+            }
+
+            console.log(`Results: ${resolved} resolved, ${skippedHuman} skipped (human), ${alreadyResolved} already resolved`);
+
+            // Post a subtle status if threads were resolved
+            if (resolved > 0) {
+              const marker = '<!-- auto-resolve-threads -->';
+              const body = `${marker}
+            Resolved ${resolved} bot-only review thread(s) after clean CI pass at \`${headSha.substring(0, 7)}\`.
+            ${skippedHuman > 0 ? `${skippedHuman} thread(s) with human comments left open.` : ''}`;
+
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+              });
+
+              const existing = comments.find(c => c.body && c.body.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  body,
+                });
+              }
+            }

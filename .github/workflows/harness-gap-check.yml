@@ -1,0 +1,163 @@
+# Harness Gap Enforcement
+# When a PR references a harness-gap issue, verifies the PR includes a test.
+# Enforces: every production bug becomes a permanent regression test.
+
+name: Harness Gap Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  harness-gap:
+    name: Regression Test Required
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for harness-gap references
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = (pr.body || '').toLowerCase();
+            const title = (pr.title || '').toLowerCase();
+
+            // Find referenced issue numbers (closes #N, fixes #N, resolves #N)
+            const refPattern = /(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)/gi;
+            const refs = [...body.matchAll(refPattern), ...title.matchAll(refPattern)];
+            const issueNumbers = refs.map(m => parseInt(m[1]));
+
+            if (issueNumbers.length === 0) {
+              console.log('No issue references found — skipping harness gap check');
+              core.setOutput('has_harness_gap', 'false');
+              return;
+            }
+
+            console.log(`Found issue references: ${issueNumbers.join(', ')}`);
+
+            // Check if any referenced issues have the harness-gap label
+            let hasHarnessGap = false;
+            for (const num of issueNumbers) {
+              try {
+                const { data: issue } = await github.rest.issues.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: num,
+                });
+                if (issue.labels.some(l => l.name === 'harness-gap')) {
+                  hasHarnessGap = true;
+                  console.log(`Issue #${num} has harness-gap label`);
+                }
+              } catch (err) {
+                console.log(`Could not fetch issue #${num}: ${err.message}`);
+              }
+            }
+
+            core.setOutput('has_harness_gap', String(hasHarnessGap));
+
+      - name: Verify test included
+        if: steps.check.outputs.has_harness_gap == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Get changed files in this PR
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+
+            const testPatterns = [
+              /\.test\./,
+              /\.spec\./,
+              /e2e\//,
+              /__tests__\//,
+            ];
+
+            const testFiles = files.filter(f =>
+              testPatterns.some(p => p.test(f.filename))
+            );
+
+            console.log(`Total files changed: ${files.length}`);
+            console.log(`Test files changed: ${testFiles.length}`);
+
+            if (testFiles.length > 0) {
+              console.log('Test files found:');
+              testFiles.forEach(f => console.log(`  - ${f.filename}`));
+
+              // Post success comment
+              const marker = '<!-- harness-gap-check -->';
+              const body = `${marker}
+              ## Harness Gap Check: PASSED
+
+              This PR references a \`harness-gap\` issue and includes ${testFiles.length} test file(s):
+              ${testFiles.map(f => `- \`${f.filename}\``).join('\n')}
+
+              The regression is now covered by a permanent test.`;
+
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+              });
+
+              const existing = comments.find(c => c.body && c.body.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  body,
+                });
+              }
+            } else {
+              // Fail — no test included
+              const marker = '<!-- harness-gap-check -->';
+              const body = `${marker}
+              ## Harness Gap Check: FAILED
+
+              This PR references a \`harness-gap\` issue but does **not** include any test files.
+
+              **Every production regression must become a permanent test.**
+
+              Please add a test file (\`.test.\`, \`.spec.\`, or in \`e2e/\`) that covers the regression described in the linked issue.
+
+              ---
+              _[How We Build](docs/HOW_WE_BUILD.md) · Harness Gap Loop_`;
+
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+              });
+
+              const existing = comments.find(c => c.body && c.body.includes(marker));
+              if (existing) {
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: context.payload.pull_request.number,
+                  body,
+                });
+              }
+
+              core.setFailed('Harness gap: PR references a harness-gap issue but includes no test files.');
+            }

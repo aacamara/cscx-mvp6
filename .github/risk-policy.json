@@ -1,0 +1,100 @@
+{
+  "version": "1.0.0",
+  "description": "CSCX.AI risk-tiered merge policy. Single source of truth for CI, code review, and remediation agents.",
+  "tiers": {
+    "critical": {
+      "paths": [
+        "server/src/middleware/auth.ts",
+        "server/src/middleware/orgFilter.ts",
+        "database/migrations/**/*.sql",
+        "server/src/migrations/**/*.sql",
+        "server/prisma/**"
+      ],
+      "require": {
+        "coderabbit_review": true,
+        "human_approval": true,
+        "tests_pass": true,
+        "delta_ts_clean": true,
+        "playwright_evidence": true,
+        "min_reviewers": 1
+      },
+      "labels": ["risk:critical"]
+    },
+    "high": {
+      "paths": [
+        "server/src/agents/**",
+        "server/src/langchain/**",
+        "server/src/services/cadg/**",
+        "server/src/services/claude.ts",
+        "server/src/services/ai/**",
+        "server/src/routes/auth.ts",
+        "server/src/routes/agent-auth.ts",
+        "server/src/routes/integrations.ts",
+        "server/src/routes/webhooks/**",
+        "server/src/middleware/**",
+        "server/src/config/**",
+        ".github/workflows/**",
+        ".github/risk-policy.json",
+        "Dockerfile",
+        "docker-compose.yml",
+        "cloudbuild*.yaml",
+        ".env*"
+      ],
+      "require": {
+        "coderabbit_review": true,
+        "human_approval": false,
+        "tests_pass": true,
+        "delta_ts_clean": true,
+        "playwright_evidence": false,
+        "min_reviewers": 0
+      },
+      "labels": ["risk:high"]
+    },
+    "low": {
+      "paths": [
+        "components/**",
+        "hooks/**",
+        "context/**",
+        "styles/**",
+        "docs/**",
+        "*.md",
+        "scripts/**",
+        "test-screenshots/**",
+        "public/**"
+      ],
+      "require": {
+        "coderabbit_review": true,
+        "human_approval": false,
+        "tests_pass": true,
+        "delta_ts_clean": true,
+        "playwright_evidence": false,
+        "min_reviewers": 0
+      },
+      "labels": ["risk:low"]
+    }
+  },
+  "defaults": {
+    "unmatched_tier": "high",
+    "require": {
+      "coderabbit_review": true,
+      "human_approval": false,
+      "tests_pass": true,
+      "delta_ts_clean": true,
+      "playwright_evidence": false,
+      "min_reviewers": 0
+    }
+  },
+  "docs_drift": {
+    "trigger_paths": [
+      "server/src/routes/**",
+      "server/src/services/**",
+      "server/src/middleware/**",
+      "server/src/agents/**"
+    ],
+    "docs_paths": [
+      "CLAUDE.md",
+      "docs/**"
+    ],
+    "rule": "warn"
+  }
+}

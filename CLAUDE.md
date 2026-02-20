@@ -1,255 +1,85 @@
-# CSCX.AI v3 - 10X Refactored Platform
+# CSCX.AI v3 — Agent Instructions
 
-## Project Overview
-CSCX.AI v3 is a **production-grade multi-agent Customer Success platform** built with the Claude Agent SDK architecture patterns. This version represents a major refactor from the MVP.
+## Overview
+AI-native Customer Success platform. React 19 + TypeScript + Vite + Tailwind (frontend), Express + TypeScript + Node.js (backend), Supabase PostgreSQL (database), Claude Agent SDK patterns (AI).
 
-## 10X Refactor Changes
+## How We Build
+Read [docs/HOW_WE_BUILD.md](docs/HOW_WE_BUILD.md) for the Code Factory methodology. All code is written by agents, reviewed by CodeRabbit, and enforced by the repo.
 
-### What Changed
-1. **Unified Navigation** - Removed standalone AI Assistant and Integrations views
-2. **Embedded AI Panel** - Context-aware assistant embedded in onboarding workflow
-3. **Simplified Views** - From 9 view types to 5 (`customers`, `customer-detail`, `onboarding`, `login`, `auth-callback`)
-4. **New Agent Architecture** - TypeScript-first agent definitions with tools and permissions
-5. **Phase-Based Workflow** - State machine for onboarding phases
-6. **Customer Workspace** - Google Workspace integration embedded in CustomerDetail
+## Risk Policy
+All changes are classified by `.github/risk-policy.json`. Critical paths (auth, org filtering, migrations) require human approval and browser evidence. See [docs/security/SECURITY.md](docs/security/SECURITY.md).
 
-### Architecture Highlights
-- **Two-column onboarding layout**: 70% main content, 30% AI panel
-- **Orchestrator pattern**: Central agent delegates to specialists
-- **HITL approval policies**: Granular control over agent actions
-- **Per-customer workspace**: Gmail/Calendar/Drive scoped to each customer
-- **SSE Streaming**: Token-by-token response streaming (~200ms first token)
-- **CADG System**: Context-Aware Document Generation with 24 card types
-
-## Tech Stack
-- **Frontend:** React 19 + TypeScript + Vite + Tailwind CSS
-- **Backend:** Express + TypeScript + Node.js
-- **AI:** Claude Agent SDK architecture patterns
-- **Database:** Supabase PostgreSQL
+## Deep Docs (read as needed)
+- [docs/architecture/CURRENT_STATE.md](docs/architecture/CURRENT_STATE.md) — Current architecture snapshot
+- [docs/architecture/agent-system.md](docs/architecture/agent-system.md) — Agent types, tools, approval matrix, SSE streaming
+- [docs/architecture/multi-tenancy.md](docs/architecture/multi-tenancy.md) — Org filtering, isolation guarantees, query helpers
+- [docs/architecture/cadg-system.md](docs/architecture/cadg-system.md) — 24 card types, task classifier, adding new cards
+- [docs/security/SECURITY.md](docs/security/SECURITY.md) — Auth flow, data isolation, prohibited actions
+- [docs/quality/QUALITY_SCORE.md](docs/quality/QUALITY_SCORE.md) — Quality grades per domain, improvement strategy
+- [docs/prd/](docs/prd/) — Product requirement documents (PRD-0 through PRD-10)
 
 ## Project Structure
 ```
-cscx-v3/
-├── App.tsx                          # Simplified 5-view navigation
-├── components/
-│   ├── AIPanel/                     # Context-aware AI assistant (NEW)
-│   ├── UnifiedOnboarding.tsx        # Two-column layout with AI (NEW)
-│   ├── WorkspacePanel.tsx           # Per-customer workspace (NEW)
-│   ├── CustomerDetail.tsx           # With embedded workspace
-│   ├── CustomerList.tsx             # Customer grid
-│   └── AgentControlCenter/          # Agent execution UI (clickable agents)
-├── types/
-│   └── workflow.ts                  # Phase state machine (NEW)
-├── server/src/
-│   ├── agents/                      # Agent architecture (NEW)
-│   │   ├── types.ts                 # Core types, permissions, context
-│   │   ├── index.ts                 # Agent registry, approval policies
-│   │   └── specialists/
-│   │       ├── orchestrator.ts      # Main coordinator
-│   │       ├── scheduler.ts         # Calendar/meetings
-│   │       ├── communicator.ts      # Email/sequences
-│   │       └── researcher.ts        # Intelligence/risk
-│   ├── routes/
-│   └── services/
-│       └── google/                  # Full Google Workspace integration
-│           ├── oauth.ts             # OAuth2 authentication
-│           ├── gmail.ts             # Email sending/drafts
-│           ├── calendar.ts          # Events/meetings
-│           ├── drive.ts             # File management
-│           ├── docs.ts              # Document templates
-│           ├── sheets.ts            # Spreadsheet templates
-│           ├── slides.ts            # Presentation templates
-│           ├── scripts.ts           # Apps Script automation
-│           ├── approval.ts          # HITL approval policies
-│           ├── workspace.ts         # Per-customer isolation
-│           ├── agentActions.ts      # Unified agent interface
-│           └── index.ts             # Service exports
-└── docs/
+App.tsx                    # 5-view navigation (customers, customer-detail, onboarding, login, auth-callback)
+components/                # React components (139 dirs, 500+ files)
+  AIPanel/                 # Context-aware AI assistant
+  AgentControlCenter/      # Main agent chat UI with SSE streaming
+  UnifiedOnboarding.tsx    # Two-column layout with AI panel
+server/src/
+  agents/                  # Agent architecture (specialists/, tools/, engine/)
+  langchain/               # LangChain/Claude integration + WorkflowAgent
+  middleware/auth.ts        # CRITICAL: JWT verification + org resolution
+  middleware/orgFilter.ts   # CRITICAL: Org-scoped query helpers
+  routes/                  # 173 API routes
+  services/cadg/           # Context-Aware Document Generation
+  services/google/         # Google Workspace integration (11 service files)
+database/migrations/       # 97 SQL migration files
 ```
+
+## Commands
+```bash
+npm run dev                    # Frontend (Vite, port 5173)
+cd server && npm run dev       # Backend (Express, port 3001)
+npm run build                  # Production build
+npm run lint                   # ESLint frontend
+npm run lint:server            # ESLint server
+cd server && npm test          # Vitest
+
+# Harness commands (Code Factory)
+npm run harness:risk-tier      # Show risk tier pattern counts
+npm run harness:delta-ts       # Delta TS check (server)
+npm run harness:delta-lint     # Delta lint check (changed files)
+npm run harness:org-filter     # Check route files for auth/org imports
+npm run harness:pre-pr         # Full pre-PR check (lint + ts + tests)
+```
+
+## Navigation
+1. **Customers** — List + 360 detail with workspace
+2. **+ New Onboarding** — Unified flow with AI panel
+3. **Mission Control** — Agent observability (modal)
 
 ## Workflow Phases
 ```
 upload → parsing → review → enriching → planning → plan_review → executing → monitoring → completed
 ```
 
-## Key Files
-- `App.tsx` - Simplified 5-view navigation
-- `components/UnifiedOnboarding.tsx` - Two-column layout with embedded AI
-- `components/AIPanel/index.tsx` - Context-aware AI assistant
-- `components/AgentControlCenter/index.tsx` - Main chat UI with SSE streaming
-- `components/WorkspacePanel.tsx` - Customer-specific Google Workspace
-- `types/workflow.ts` - Phase state machine and reducer
-- `server/src/agents/types.ts` - Agent architecture types
-- `server/src/agents/specialists/orchestrator.ts` - Main coordinator agent
-- `server/src/langchain/agents/WorkflowAgent.ts` - Claude workflow agent with streaming
-- `server/src/services/cadg/` - CADG task classifier, reasoning engine, plan service
-
-## Agent Architecture
-
-### Agents
-| Agent | Role | Tools |
-|-------|------|-------|
-| Orchestrator | Coordinate all activities | delegate_to_agent, request_human_approval, update_task_ledger |
-| Scheduler | Manage calendar/meetings | check_availability, propose_meeting, book_meeting |
-| Communicator | Draft/send emails | draft_email, send_email, create_sequence |
-| Researcher | Gather intelligence | research_company, map_stakeholders, detect_churn_signals |
-
-### Approval Policies
-- `send_email` - Always requires approval (blocking)
-- `book_meeting` - Always requires approval (important)
-- `update_crm` - Auto-approve minor changes
-- `internal_note` - Auto-approve
-- `research_action` - Auto-approve
-
-## Google Workspace Integration
-
-### Service Layer (`server/src/services/google/`)
-Full production-ready integration with all Google Workspace products:
-
-| Service | File | Purpose |
-|---------|------|---------|
-| OAuth | `oauth.ts` | OAuth2 authentication with full scopes |
-| Gmail | `gmail.ts` | Send/draft emails, manage threads |
-| Calendar | `calendar.ts` | Book meetings, check availability |
-| Drive | `drive.ts` | File management, customer folders |
-| Docs | `docs.ts` | Document templates with placeholders |
-| Sheets | `sheets.ts` | Spreadsheet templates, data tracking |
-| Slides | `slides.ts` | Presentation templates |
-| Scripts | `scripts.ts` | Apps Script automation engine |
-| Approval | `approval.ts` | HITL approval policies |
-| Workspace | `workspace.ts` | Per-customer isolation |
-| Agent Actions | `agentActions.ts` | Unified interface for agents |
-
-### Document Templates
-Pre-built templates with `{{placeholder}}` variable substitution:
-
-**Docs:** QBR Report, Meeting Notes, Onboarding Plan, Success Plan, Renewal Proposal, Value Summary, Escalation Report, Save Play, Account Plan
-
-**Sheets:** Health Score Tracker, Renewal Tracker, Onboarding Tracker, Usage Metrics, Customer Scorecard, QBR Metrics, Risk Dashboard, Adoption Tracker
-
-**Slides:** QBR Presentation, Kickoff Deck, Training Presentation, Executive Briefing, Renewal Presentation, Value Summary, Escalation Deck, Adoption Report
-
-### Apps Script Automations
-Pre-built automation scripts in `AUTOMATION_SCRIPTS`:
-- `healthScoreCalculator` - Calculate health scores from usage data
-- `renewalAlerts` - Send alerts at 90/60/30/7 days before renewal
-- `meetingPrep` - Generate pre-meeting briefs automatically
-- `weeklyDigest` - Send weekly CSM summaries
-- `usageTracker` - Track and trend usage metrics
-- `npsFollowUp` - Process NPS responses with segmented follow-ups
-
-### HITL Approval Matrix
-Policy-based approval for agent actions:
-```
-always_approve  → Research, read-only actions
-auto_approve    → Drafts, document creation
-require_approval → Send email, book meeting, share files
-never_approve   → Delete files, modify permissions
-```
-
-### Per-Customer Workspace Isolation
-Each customer gets isolated folder structure:
-```
-CSCX - {CustomerName}/
-├── 01 - Onboarding/
-├── 02 - Meetings/
-├── 03 - QBRs/
-├── 04 - Contracts/
-└── 05 - Reports/
-```
-
-### Agent → Google Product Matrix
-| Agent | Gmail | Calendar | Drive | Docs | Sheets | Slides | Scripts |
-|-------|-------|----------|-------|------|--------|--------|---------|
-| Onboarding | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Adoption | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Renewal | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Risk | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Strategic | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-
-## Commands
-```bash
-# Development
-npm run dev              # Frontend (port 5173)
-cd server && npm run dev # Backend (port 3001)
-
-# Build
-npm run build           # Production build
-
-# Type Check
-npx tsc --noEmit        # Verify TypeScript
-```
-
-## Navigation (v3)
-Only 3 navigation items:
-1. **Customers** - List + 360° detail with workspace
-2. **+ New Onboarding** - Unified flow with AI panel
-3. **Mission Control** - Agent observability (modal)
-
-## SSE Streaming Architecture
-
-The chat UI uses Server-Sent Events for real-time token streaming:
-
-```
-Frontend (AgentControlCenter)          Backend (langchain.ts)
-         │                                      │
-         │  POST /api/ai/chat/stream            │
-         │ ────────────────────────────────────>│
-         │                                      │
-         │  SSE: {type:'token', content:'Hi'}   │
-         │ <────────────────────────────────────│
-         │  SSE: {type:'token', content:' there'}│
-         │ <────────────────────────────────────│
-         │  SSE: {type:'done', content:{...}}   │
-         │ <────────────────────────────────────│
-```
-
-**Key Components:**
-- `WorkflowAgent.chatStream()` - Streams Claude responses via `anthropic.messages.stream()`
-- `POST /api/ai/chat/stream` - SSE endpoint in `langchain.ts`
-- `sendToAgentRegular()` - Frontend SSE consumer with ReadableStream
-- `parseSSEData()` - SSE chunk parser with partial line buffering
-
-**Event Types:** `token`, `tool_start`, `tool_end`, `done`, `error`
-
-**CADG Handling:** CADG plan responses are NOT streamed — they return instantly as a single `done` event with plan metadata for the CADGPlanCard.
-
-## CADG (Context-Aware Document Generation)
-
-24 document types across 5 agents + 4 General Mode cards:
-
-| Agent | Card Types |
-|-------|------------|
-| Onboarding | kickoff_plan, milestone_plan, stakeholder_map, training_schedule |
-| Adoption | usage_analysis, feature_campaign, champion_development, training_program |
-| Renewal | renewal_forecast, value_summary, expansion_proposal, negotiation_brief |
-| Risk | risk_assessment, save_play, escalation_report, resolution_plan |
-| Strategic | qbr_generation, executive_briefing, account_plan, transformation_roadmap |
-| General Mode | portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview |
-
-**Task Classifier Features:**
-- Phrase pattern matching (0.95 confidence)
-- Keyword matching with synonym expansion
-- Word-level fuzzy matching with stemming
-- LLM fallback for ambiguous queries (Haiku 4.5)
-- Contextual agent boosting (+0.15 for active agent's cards)
-
-## When Working on This Project
-1. **DO NOT** recreate standalone AI Assistant or Integrations views
-2. Use the embedded AIPanel for AI interactions
-3. WorkspacePanel should be per-customer, not global
-4. Follow the phase state machine in `types/workflow.ts`
+## Rules
+1. DO NOT recreate standalone AI Assistant or Integrations views
+2. Use embedded AIPanel for AI interactions
+3. WorkspacePanel is per-customer, not global
+4. Follow phase state machine in `types/workflow.ts`
 5. New agents go in `server/src/agents/specialists/`
-6. New CADG card types require updates to: `taskClassifier.ts`, `contextAggregator.ts`, `reasoningEngine.ts`
-7. Chat streaming goes through `/api/ai/chat/stream` — non-streaming fallback at `/api/ai/chat`
+6. New CADG cards require updates to: `taskClassifier.ts`, `contextAggregator.ts`, `reasoningEngine.ts`
+7. Chat streaming: `/api/ai/chat/stream` (SSE) — fallback: `/api/ai/chat`
+8. Every route MUST use auth middleware + org filtering
+9. Every migration table MUST include `organization_id`
+10. Never add `@ts-ignore` to auth/security code
 
 ## Brand Colors
 ```
-cscx-accent: #e63946 (red)
-cscx-black: #000000
-cscx-gray-900: #0a0a0a
-cscx-gray-800: #222222
+cscx-accent: #e63946    cscx-black: #000000
+cscx-gray-900: #0a0a0a  cscx-gray-800: #222222
 ```
 
 ## Original MVP
-The original MVP is preserved at `/Users/azizcamara/Downloads/cscx-mvp` - DO NOT MODIFY.
+Preserved at `/Users/azizcamara/Downloads/cscx-mvp` — DO NOT MODIFY.

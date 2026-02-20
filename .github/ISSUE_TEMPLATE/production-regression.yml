@@ -1,0 +1,85 @@
+name: Production Regression
+description: Report a production regression to trigger the harness gap loop
+title: "[REGRESSION] "
+labels: ["harness-gap"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Harness Gap Report
+
+        This template creates a tracked regression that enforces the **harness gap loop**:
+        every production bug must become a permanent regression test.
+
+        When a PR references this issue (`closes #N`), CI will verify the PR includes
+        a test file change (`.test.`, `.spec.`, or `e2e/`).
+
+  - type: input
+    id: endpoint
+    attributes:
+      label: Affected Endpoint / Component
+      description: Which API route, page, or component is affected?
+      placeholder: "e.g., POST /api/customers, Login page, OrgFilter middleware"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk-tier
+    attributes:
+      label: Risk Tier
+      description: What risk tier does this fall under?
+      options:
+        - critical (auth, org filter, migrations)
+        - high (agents, LLM, routes, infra)
+        - low (UI, docs, styles)
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro-steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact steps to trigger the regression.
+      placeholder: |
+        1. Navigate to /customers
+        2. Click "Add Customer"
+        3. Submit form without organization context
+        4. Observe: customer created without org_id
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-test
+    attributes:
+      label: Proposed Test Case
+      description: Describe the regression test that should prevent this from recurring.
+      placeholder: |
+        Test: "POST /api/customers without org context returns 403"
+        Location: server/src/__tests__/customers.test.ts or e2e/evidence/org-isolation.spec.ts
+        Assertion: expect(response.status).toBe(403)
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence (optional)
+      description: Screenshots, logs, or API responses documenting the regression.
+    validations:
+      required: false

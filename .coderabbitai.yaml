@@ -1,0 +1,96 @@
+# CodeRabbit Configuration for CSCX.AI
+# Docs: https://docs.coderabbit.ai/guides/configuration
+language: en
+tone_instructions: >
+  Be direct and technical. Focus on security, multi-tenancy isolation,
+  and TypeScript correctness. Flag any org_id filtering gaps as critical.
+  This is a solo-founder startup — prioritize actionable, specific feedback
+  over stylistic preferences.
+
+early_access: true
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  auto_title_placeholder: "@coderabbitai"
+  review_status: true
+  poem: false
+  collapse_walkthrough: false
+  sequence_diagrams: true
+  changed_files_summary: true
+  labeling_instructions:
+    - label: "risk:critical"
+      instructions: >
+        Apply when changes touch auth middleware (auth.ts, orgFilter.ts),
+        database migrations, or Prisma schema.
+    - label: "risk:high"
+      instructions: >
+        Apply when changes touch agents, LangChain integration,
+        CADG system, auth routes, webhook handlers, or CI/CD config.
+    - label: "security"
+      instructions: >
+        Apply when changes affect authentication, authorization,
+        JWT handling, API keys, secrets, or org isolation.
+  path_instructions:
+    - path: "server/src/middleware/auth.ts"
+      instructions: >
+        CRITICAL PATH. This file handles JWT verification and org resolution.
+        Verify: (1) every code path sets req.organizationId, (2) no bypass
+        paths exist, (3) Supabase service_role key is never exposed to clients,
+        (4) org_members + workspace_members fallback logic is intact.
+    - path: "server/src/middleware/orgFilter.ts"
+      instructions: >
+        CRITICAL PATH. All org-scoped query helpers live here.
+        Verify: (1) applyOrgFilter is used consistently — no raw queries bypass it,
+        (2) withOrgId always sets org_id on inserts, (3) filterInMemoryByOrg
+        handles null org_id safely, (4) no new query helpers bypass org filtering.
+    - path: "database/migrations/**"
+      instructions: >
+        CRITICAL PATH. Verify: (1) all new tables include organization_id column,
+        (2) RLS policies are considered, (3) migration is idempotent and safe to
+        re-run, (4) no data-destructive operations without explicit safeguards,
+        (5) foreign key constraints reference correct tables.
+    - path: "server/src/agents/**"
+      instructions: >
+        HIGH RISK. Verify: (1) agent actions respect HITL approval policies
+        defined in AGENTS.md, (2) no direct external API calls without error
+        handling, (3) tools array matches documented capabilities,
+        (4) agent context doesn't leak data across tenants.
+    - path: "server/src/langchain/**"
+      instructions: >
+        HIGH RISK. Verify: (1) LLM prompts don't include cross-tenant data,
+        (2) streaming responses handle errors gracefully, (3) token usage is
+        bounded, (4) SSE event types match the documented protocol.
+    - path: "server/src/services/cadg/**"
+      instructions: >
+        HIGH RISK. Verify: (1) context aggregation respects org boundaries,
+        (2) artifact generation is bounded (no infinite loops), (3) task
+        classifier confidence thresholds are reasonable, (4) LLM fallback
+        uses appropriate model (Haiku for classification).
+    - path: "server/src/routes/**"
+      instructions: >
+        Check: (1) auth middleware is applied to every route, (2) org filtering
+        via applyOrgFilter is used on all database queries, (3) input validation
+        exists for user-supplied parameters, (4) error responses don't leak
+        internal details or stack traces.
+    - path: "components/**"
+      instructions: >
+        LOW RISK. Check: (1) no hardcoded API keys or secrets,
+        (2) user input is sanitized, (3) accessible markup where relevant.
+    - path: ".github/**"
+      instructions: >
+        HIGH RISK. Verify: (1) no secrets are hardcoded, (2) workflow permissions
+        follow least-privilege, (3) third-party actions are pinned to specific
+        versions, (4) changes don't weaken the risk policy gate.
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: auto
+  issues:
+    scope: auto

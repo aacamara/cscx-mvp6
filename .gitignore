@@ -32,3 +32,8 @@ server/.env
 # Build outputs
 build/
 .cache/
+
+# Playwright
+e2e/results/
+playwright-report/
+test-results/

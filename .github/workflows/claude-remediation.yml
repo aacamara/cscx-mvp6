@@ -1,0 +1,294 @@
+# Claude Code Remediation Loop
+# Auto-fixes CodeRabbit findings, CI failures, and manual /fix requests.
+# Pushes fix commits to the same PR branch, re-triggering CI + review.
+
+name: Claude Code Remediation
+
+on:
+  # Trigger on CodeRabbit reviews with findings
+  pull_request_review:
+    types: [submitted]
+
+  # Trigger on manual /fix commands in PR comments
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  should-remediate:
+    name: Check Remediation Triggers
+    runs-on: ubuntu-latest
+    # Only run on PRs (not issues)
+    if: >
+      (github.event_name == 'pull_request_review') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request)
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+      trigger_type: ${{ steps.check.outputs.trigger_type }}
+      pr_number: ${{ steps.check.outputs.pr_number }}
+      pr_branch: ${{ steps.check.outputs.pr_branch }}
+    steps:
+      - name: Evaluate trigger
+        id: check
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const event = context.eventName;
+            let shouldRun = false;
+            let triggerType = 'none';
+            let prNumber = 0;
+            let prBranch = '';
+
+            if (event === 'pull_request_review') {
+              const review = context.payload.review;
+              prNumber = context.payload.pull_request.number;
+              prBranch = context.payload.pull_request.head.ref;
+
+              // Only remediate CodeRabbit reviews that request changes or have suggestions
+              const isCodeRabbit = review.user.login === 'coderabbitai' ||
+                review.user.login.includes('coderabbit');
+              const hasFindings = review.state === 'CHANGES_REQUESTED' ||
+                (review.body && (
+                  review.body.includes('suggestion') ||
+                  review.body.includes('issue') ||
+                  review.body.includes('bug') ||
+                  review.body.includes('vulnerability') ||
+                  review.body.includes('security')
+                ));
+
+              if (isCodeRabbit && hasFindings) {
+                shouldRun = true;
+                triggerType = 'coderabbit_review';
+              }
+            } else if (event === 'issue_comment') {
+              const comment = context.payload.comment;
+              const body = (comment.body || '').toLowerCase();
+              prNumber = context.payload.issue.number;
+
+              // Manual trigger: /fix or @claude fix
+              if (body.includes('/fix') || body.includes('@claude fix') || body.includes('@claude-code fix')) {
+                shouldRun = true;
+                triggerType = 'manual_fix';
+
+                // Get PR branch
+                const pr = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                });
+                prBranch = pr.data.head.ref;
+              }
+            }
+
+            core.setOutput('should_run', String(shouldRun));
+            core.setOutput('trigger_type', triggerType);
+            core.setOutput('pr_number', String(prNumber));
+            core.setOutput('pr_branch', prBranch);
+            console.log(`Event: ${event}, Run: ${shouldRun}, Type: ${triggerType}, PR: #${prNumber}`);
+
+  remediate:
+    name: Claude Code Auto-Fix
+    needs: should-remediate
+    if: needs.should-remediate.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.should-remediate.outputs.pr_branch }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci && cd server && npm ci
+
+      - name: Gather review context
+        id: context
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt('${{ needs.should-remediate.outputs.pr_number }}');
+            const triggerType = '${{ needs.should-remediate.outputs.trigger_type }}';
+            let reviewContext = '';
+
+            if (triggerType === 'coderabbit_review') {
+              // Get the latest CodeRabbit review comments
+              const reviews = await github.rest.pulls.listReviews({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              const coderabbitReviews = reviews.data
+                .filter(r => r.user.login === 'coderabbitai' || r.user.login.includes('coderabbit'))
+                .slice(-2);
+
+              for (const review of coderabbitReviews) {
+                reviewContext += `## Review (${review.state}):\n${review.body}\n\n`;
+              }
+
+              // Get review comments (inline code suggestions)
+              const comments = await github.rest.pulls.listReviewComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              const recentComments = comments.data
+                .filter(c => c.user.login === 'coderabbitai' || c.user.login.includes('coderabbit'))
+                .slice(-10);
+
+              for (const comment of recentComments) {
+                reviewContext += `## Inline comment on ${comment.path}:${comment.line || comment.original_line}:\n${comment.body}\n\n`;
+              }
+            } else if (triggerType === 'manual_fix') {
+              // Get the comment that triggered the fix
+              const comment = context.payload?.comment;
+              if (comment) {
+                reviewContext = `## Manual fix request:\n${comment.body}\n`;
+              }
+            }
+
+            // Truncate to avoid exceeding prompt limits
+            if (reviewContext.length > 8000) {
+              reviewContext = reviewContext.substring(0, 8000) + '\n\n[Truncated...]';
+            }
+
+            const fs = require('fs');
+            fs.writeFileSync('/tmp/review-context.md', reviewContext);
+            console.log(`Gathered ${reviewContext.length} chars of review context`);
+
+      - name: Run Claude Code remediation
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          REVIEW_CONTEXT=$(cat /tmp/review-context.md)
+
+          # Read the risk policy for context
+          RISK_POLICY=$(cat .github/risk-policy.json)
+
+          # Build the prompt
+          cat > /tmp/remediation-prompt.md << 'PROMPT_EOF'
+          You are the CSCX.AI remediation agent. Fix the issues identified below.
+
+          ## Rules
+          1. Only modify files that were flagged with issues
+          2. NEVER modify .github/risk-policy.json, .github/workflows/*, or .coderabbitai.yaml
+          3. For TypeScript errors: fix the actual type issue. NEVER use @ts-ignore or @ts-expect-error
+          4. For org filtering issues: ensure applyOrgFilter from middleware/orgFilter is used
+          5. For auth issues: ensure auth middleware from middleware/auth is applied
+          6. Keep changes minimal — fix only what was flagged
+          7. After fixing, verify with: npx tsc --noEmit --project server/tsconfig.json (for server files)
+
+          ## Review Findings
+          PROMPT_EOF
+
+          echo "$REVIEW_CONTEXT" >> /tmp/remediation-prompt.md
+
+          # Use Claude Code CLI if available, otherwise use the API directly
+          if command -v claude &> /dev/null; then
+            claude --print --dangerously-skip-permissions \
+              "$(cat /tmp/remediation-prompt.md)" \
+              2>&1 | tail -50 || true
+          else
+            echo "Claude Code CLI not available in CI. Skipping automated fix."
+            echo "To enable: install claude-code-action or add Claude Code to the runner."
+            exit 0
+          fi
+
+      - name: Check for changes
+        id: changes
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+            echo "Files modified:"
+            git diff --name-only
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "No changes made by remediation."
+          fi
+
+      - name: Commit and push fixes
+        if: steps.changes.outputs.has_changes == 'true'
+        run: |
+          git config user.name "claude-code[bot]"
+          git config user.email "claude-code[bot]@users.noreply.github.com"
+
+          # Stage only modified files (not new files to be safe)
+          git add -u
+
+          TRIGGER="${{ needs.should-remediate.outputs.trigger_type }}"
+          git commit -m "$(cat <<'EOF'
+          fix(auto): address review findings
+
+          Automated fix by Claude Code remediation loop.
+          Trigger: $TRIGGER
+
+          Co-Authored-By: Claude Code <noreply@anthropic.com>
+          EOF
+          )"
+
+          git push
+
+      - name: Post remediation status
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const prNumber = parseInt('${{ needs.should-remediate.outputs.pr_number }}');
+            const hasChanges = '${{ steps.changes.outputs.has_changes }}' === 'true';
+            const trigger = '${{ needs.should-remediate.outputs.trigger_type }}';
+            const icon = hasChanges ? '🔧' : '⏭️';
+            const status = hasChanges ? 'Fix committed' : 'No changes needed';
+
+            const marker = '<!-- claude-remediation -->';
+            const body = `${marker}
+            ## ${icon} Claude Code Remediation
+
+            | Property | Value |
+            |----------|-------|
+            | **Status** | ${status} |
+            | **Trigger** | ${trigger} |
+            | **Commit** | \`${context.sha?.substring(0, 7) || 'n/a'}\` |
+
+            > ${hasChanges
+              ? 'Fix committed. CI will re-run automatically.'
+              : 'No actionable fixes identified. Review findings may require human judgment.'}
+
+            ---
+            _Claude Code Remediation v1.0 · [How We Build](docs/HOW_WE_BUILD.md)_`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+            });
+
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }

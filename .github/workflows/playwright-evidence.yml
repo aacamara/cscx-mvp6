@@ -1,0 +1,140 @@
+# Playwright Evidence Capture
+# Runs ONLY on critical-tier PRs (auth, org filtering, migrations).
+# Captures browser screenshots + structured evidence manifests.
+
+name: Evidence Capture
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  evidence:
+    name: Browser Evidence
+    runs-on: ubuntu-latest
+    # Only run when PR has risk:critical label
+    if: contains(github.event.pull_request.labels.*.name, 'risk:critical')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci && cd server && npm ci
+
+      - name: Install Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Start backend
+        working-directory: server
+        run: npm run dev &
+        env:
+          NODE_ENV: test
+          PORT: 3001
+
+      - name: Start frontend
+        run: npm run dev &
+        env:
+          VITE_API_URL: http://localhost:3001
+
+      - name: Wait for servers
+        run: |
+          echo "Waiting for backend..."
+          timeout 30 bash -c 'until curl -sf http://localhost:3001/api/health 2>/dev/null; do sleep 1; done' || echo "Backend not ready (may be expected without DB)"
+
+          echo "Waiting for frontend..."
+          timeout 30 bash -c 'until curl -sf http://localhost:5173 2>/dev/null; do sleep 1; done' || echo "Frontend not ready"
+
+      - name: Run evidence capture
+        run: npx playwright test --project=evidence
+        env:
+          CI: true
+          BASE_URL: http://localhost:5173
+        continue-on-error: true
+
+      - name: Upload evidence artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evidence-${{ github.event.pull_request.head.sha }}
+          path: |
+            e2e/results/evidence/
+            e2e/results/html/
+            e2e/results/results.json
+          retention-days: 30
+
+      - name: Post evidence summary
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const sha = context.payload.pull_request.head.sha.substring(0, 7);
+            let evidenceSummary = '';
+
+            // Try to read evidence manifests
+            const manifests = ['auth-flow.json', 'org-isolation.json'];
+            for (const file of manifests) {
+              const filePath = `e2e/results/evidence/${file}`;
+              try {
+                const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                const passCount = data.steps?.length || 0;
+                evidenceSummary += `\n### ${data.flow}\n`;
+                evidenceSummary += `- Steps captured: ${passCount}\n`;
+                evidenceSummary += `- API calls logged: ${data.apiCalls?.length || 0}\n`;
+                for (const step of (data.steps || [])) {
+                  const icon = step.assertions?.some(a => a.includes('false')) ? ':x:' : ':white_check_mark:';
+                  evidenceSummary += `  - ${icon} ${step.name}\n`;
+                }
+              } catch {
+                evidenceSummary += `\n### ${file}\n- Evidence not captured (server may not be running)\n`;
+              }
+            }
+
+            const marker = '<!-- playwright-evidence -->';
+            const body = `${marker}
+            ## Browser Evidence Capture
+
+            **Commit:** \`${sha}\`
+            **Tier:** critical
+            **Artifacts:** [Download from Actions](${context.payload.pull_request.html_url}/checks)
+
+            ${evidenceSummary}
+
+            > Evidence artifacts are retained for 30 days.
+
+            ---
+            _Evidence Capture v1.0 · [How We Build](docs/HOW_WE_BUILD.md)_`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                body,
+              });
+            }
