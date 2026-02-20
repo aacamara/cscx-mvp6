@@ -15,7 +15,7 @@
         "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 1,
-      "passes": false,
+      "passes": true,
       "notes": "Key methods: createAutomation, getAutomation, listAutomations, updateAutomation, deleteAutomation, storeRun, updateRun, getRun, listRuns, getTargetCustomers. Pattern: if (organizationId) query = query.eq('organization_id', organizationId);"
     },
     {
@@ -59,7 +59,7 @@
         "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "Key methods: upsertTicket, getTickets, calculateBaseline, getBaseline, handleSpikeDetected."
     },
     {

@@ -186,3 +186,18 @@ Started: 2026-02-15
   - No type errors introduced — verified with `npx tsc --noEmit 2>&1 | grep -E "(services/nps|routes/nps)"`
 
 ---
+
+## 2026-02-19 - US-001 (PRD-007 Service Layer)
+- **What:** Added organizationId filtering to automations service layer
+- **Files changed:**
+  - server/src/services/automations/index.ts — Added organizationId: string | null parameter to 11 methods: createFromNL(), createAutomation(), getAutomation(), listAutomations(), updateAutomation(), deleteAutomation(), runAutomation(), storeRun(), updateRun(), getRun(), listRuns(), getTargetCustomers(); applied org filtering to automations, automation_runs, and customers queries; spread organization_id into INSERT operations
+  - server/src/routes/automations.ts — Updated all 13 service method calls (POST /from-nl, GET /, GET /:id, POST /, PUT /:id, DELETE /:id, POST /enable, POST /disable, POST /run, GET /runs, GET /runs/:id) to pass req.organizationId
+  - scripts/ralph/prd.json — set US-001 passes to true
+- **Learnings for future iterations:**
+  - Automations service has 11 methods with Supabase queries across 3 tables (automations, automation_runs, customers)
+  - For complex methods like runAutomation() that call other private methods, organizationId must be threaded through the entire call chain (runAutomation → storeRun, updateRun, getTargetCustomers)
+  - For getTargetCustomers(), each branch (specific_customers, customer_segment, all_customers) needs org filtering on customers table
+  - For UPDATE queries with org filtering, use pattern: `let query = ...update().eq('id', id); if (organizationId) query = query.eq('organization_id', organizationId);`
+  - No type errors introduced — verified with `npx tsc --noEmit 2>&1 | grep -E "(services/automations|routes/automations)"`
+
+---
