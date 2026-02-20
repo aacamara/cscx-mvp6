@@ -174,6 +174,8 @@ router.get('/responses', async (req: Request, res: Response) => {
       .select('*, customers(id, name)', { count: 'exact' })
       .order('submitted_at', { ascending: false });
 
+    query = applyOrgFilter(query, req);
+
     if (customerId) {
       query = query.eq('customer_id', customerId);
     }
@@ -227,11 +229,14 @@ router.get('/responses/:responseId', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'NPS response not found' });
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('nps_responses')
       .select('*, customers(id, name, arr, health_score)')
-      .eq('id', responseId)
-      .single();
+      .eq('id', responseId);
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query.single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'NPS response not found' });
