@@ -85,7 +85,7 @@ router.get('/csm/search', async (req: Request, res: Response) => {
     }
 
     const genAI = new GoogleGenerativeAI(config.geminiApiKey);
-    const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
 
     // Generate embedding for the query
     const result = await embeddingModel.embedContent(q as string);
@@ -133,7 +133,7 @@ router.post('/csm/generate-embeddings', async (req: Request, res: Response) => {
     }
 
     const genAI = new GoogleGenerativeAI(config.geminiApiKey);
-    const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
 
     // Fetch all playbooks without embeddings
     const { data: playbooks, error: fetchError } = await supabase

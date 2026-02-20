@@ -27,7 +27,7 @@ async function generatePlaybookEmbeddings() {
 
   const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
   const genAI = new GoogleGenerativeAI(config.geminiApiKey);
-  const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+  const embeddingModel = genAI.getGenerativeModel({ model: 'text-embedding-005' });
 
   try {
     // Fetch all playbooks without embeddings
