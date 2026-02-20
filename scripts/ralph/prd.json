@@ -29,7 +29,7 @@
         "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Key methods: calculateDashboardMetrics, calculateCustomerMetrics. Tables: customers, usage_metrics, qbrs."
     },
     {

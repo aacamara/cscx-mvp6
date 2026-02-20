@@ -156,3 +156,18 @@ Started: 2026-02-15
   - Some files use `let supabase` (nullable) while others use `const supabase = createClient(...)` (non-null) — same pattern works for both
 
 ---
+
+## 2026-02-19 - US-002 (PRD-007 Service Layer)
+- **What:** Added organizationId filtering to metrics service layer
+- **Files changed:**
+  - server/src/services/metrics.ts — Added organizationId: string | null parameter to calculateDashboardMetrics() and calculateCustomerMetrics(); applied org filtering to customers and usage_metrics queries
+  - server/src/routes/metrics.ts — Updated /dashboard and /customer/:customerId endpoints to pass req.organizationId to service calls
+  - scripts/ralph/prd.json — set US-002 passes to true
+- **Learnings for future iterations:**
+  - metrics.ts only has 2 async methods that query Supabase: calculateDashboardMetrics (queries customers + usage_metrics) and calculateCustomerMetrics (queries customers + usage_metrics)
+  - All other exports in metrics.ts are pure calculation functions that don't touch the database
+  - For queries that were already stored in variables (like `let customersQuery`), maintain that pattern and add org filter conditionally
+  - For queries that were one-liners (like `.from('usage_metrics').select()...`), refactor to `let query = ...` then add conditional org filter
+  - TypeScript allows optional parameters with `string | null` — makes org filtering backwards compatible
+
+---
