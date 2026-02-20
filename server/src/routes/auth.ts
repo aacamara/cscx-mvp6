@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import crypto from 'crypto';
+import { auditLog } from '../services/auditLog.js';
 
 const router = Router();
 
@@ -108,6 +109,12 @@ router.post('/validate-invite', rateLimit(10, 60000), async (req: Request, res: 
       .single();
 
     if (error || !invite) {
+      auditLog.logAuthLoginFailure(
+        'anonymous',
+        'Invalid invite code',
+        req.ip || undefined,
+        req.headers['user-agent'] || undefined
+      ).catch(() => {}); // non-blocking
       return res.status(401).json({
         error: {
           code: 'INVALID_CODE',
@@ -135,6 +142,16 @@ router.post('/validate-invite', rateLimit(10, 60000), async (req: Request, res: 
         }
       });
     }
+
+    // Log successful invite validation
+    auditLog.log({
+      userId: 'anonymous',
+      action: 'auth_invite_validated',
+      status: 'success',
+      metadata: { workspaceId: invite.workspace_id, inviteId: invite.id },
+      ipAddress: req.ip || undefined,
+      userAgent: req.headers['user-agent'] || undefined,
+    }).catch(() => {}); // non-blocking
 
     // Return workspace info (don't decrement yet - that happens on signup)
     res.json({
@@ -275,6 +292,12 @@ router.post('/provision-admin', async (req: Request, res: Response) => {
 
     // Verify email is in admin list
     if (!ADMIN_EMAILS.includes(email.toLowerCase())) {
+      auditLog.logAuthLoginFailure(
+        userId,
+        'Email not authorized for admin access',
+        req.ip || undefined,
+        req.headers['user-agent'] || undefined
+      ).catch(() => {}); // non-blocking
       return res.status(403).json({
         error: {
           code: 'FORBIDDEN',
@@ -341,6 +364,23 @@ router.post('/provision-admin', async (req: Request, res: Response) => {
         role: 'admin',
         joined_at: new Date().toISOString()
       }, { onConflict: 'workspace_id,user_id' });
+
+    // Log admin provisioning
+    auditLog.log({
+      userId,
+      action: 'auth_admin_provisioned',
+      status: 'success',
+      metadata: { email, workspaceId, profileId, role: 'admin' },
+      ipAddress: req.ip || undefined,
+      userAgent: req.headers['user-agent'] || undefined,
+    }).catch(() => {}); // non-blocking
+
+    auditLog.logAuthLoginSuccess(
+      userId,
+      email,
+      req.ip || undefined,
+      req.headers['user-agent'] || undefined
+    ).catch(() => {}); // non-blocking
 
     res.json({
       success: true,
@@ -457,6 +497,23 @@ router.post('/redeem-invite', async (req: Request, res: Response) => {
         .eq('id', inviteId);
     }
 
+    // Log successful invite redemption (login)
+    auditLog.logAuthLoginSuccess(
+      userId,
+      email || undefined,
+      req.ip || undefined,
+      req.headers['user-agent'] || undefined
+    ).catch(() => {}); // non-blocking
+
+    auditLog.log({
+      userId,
+      action: 'auth_invite_redeemed',
+      status: 'success',
+      metadata: { inviteId, workspaceId, profileId },
+      ipAddress: req.ip || undefined,
+      userAgent: req.headers['user-agent'] || undefined,
+    }).catch(() => {}); // non-blocking
+
     res.json({
       success: true,
       profileId,
@@ -505,6 +562,12 @@ router.get('/session', async (req: Request, res: Response) => {
     const { data: { user }, error } = await supabase.auth.getUser(token);
 
     if (error || !user) {
+      auditLog.logAuthLoginFailure(
+        'anonymous',
+        'Invalid or expired session token',
+        req.ip || undefined,
+        req.headers['user-agent'] || undefined
+      ).catch(() => {}); // non-blocking
       return res.status(401).json({
         error: {
           code: 'INVALID_TOKEN',
@@ -512,6 +575,13 @@ router.get('/session', async (req: Request, res: Response) => {
         }
       });
     }
+
+    // Log token refresh / session validation
+    auditLog.logAuthTokenRefresh(
+      user.id,
+      req.ip || undefined,
+      req.headers['user-agent'] || undefined
+    ).catch(() => {}); // non-blocking
 
     // Get user's workspaces
     const { data: memberships } = await supabase
@@ -554,11 +624,24 @@ router.get('/session', async (req: Request, res: Response) => {
 router.post('/logout', async (req: Request, res: Response) => {
   try {
     const authHeader = req.headers.authorization;
+    let loggedOutUserId = 'anonymous';
 
     if (authHeader && authHeader.startsWith('Bearer ') && supabase) {
       const token = authHeader.substring(7);
+      // Try to get user ID before signing out for audit logging
+      const { data: { user } } = await supabase.auth.getUser(token);
+      if (user) {
+        loggedOutUserId = user.id;
+      }
       await supabase.auth.admin.signOut(token);
     }
+
+    // Log logout event
+    auditLog.logAuthLogout(
+      loggedOutUserId,
+      req.ip || undefined,
+      req.headers['user-agent'] || undefined
+    ).catch(() => {}); // non-blocking
 
     res.json({ success: true });
   } catch (error) {

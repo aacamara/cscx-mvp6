@@ -30,7 +30,14 @@ export type AuditAction =
   | 'tool_execution'
   | 'config_change'
   | 'mode_toggle'
-  | 'schedule_update';
+  | 'schedule_update'
+  | 'auth_login_success'
+  | 'auth_login_failure'
+  | 'auth_token_refresh'
+  | 'auth_logout'
+  | 'auth_invite_validated'
+  | 'auth_invite_redeemed'
+  | 'auth_admin_provisioned';
 
 export type AuditStatus = 'success' | 'failure' | 'pending' | 'cancelled';
 
@@ -522,6 +529,82 @@ class AuditLogService {
       action: 'mode_toggle',
       status: 'success',
       metadata: { enabled },
+    });
+  }
+
+  // ============================================================================
+  // Auth Event Methods
+  // ============================================================================
+
+  /**
+   * Log successful login
+   */
+  async logAuthLoginSuccess(
+    userId: string,
+    email?: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<string> {
+    return this.log({
+      userId,
+      action: 'auth_login_success',
+      status: 'success',
+      metadata: { email },
+      ipAddress,
+      userAgent,
+    });
+  }
+
+  /**
+   * Log failed login attempt
+   */
+  async logAuthLoginFailure(
+    userId: string,
+    reason: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<string> {
+    return this.log({
+      userId,
+      action: 'auth_login_failure',
+      status: 'failure',
+      error: { message: reason },
+      ipAddress,
+      userAgent,
+    });
+  }
+
+  /**
+   * Log token refresh / session validation
+   */
+  async logAuthTokenRefresh(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<string> {
+    return this.log({
+      userId,
+      action: 'auth_token_refresh',
+      status: 'success',
+      ipAddress,
+      userAgent,
+    });
+  }
+
+  /**
+   * Log user logout
+   */
+  async logAuthLogout(
+    userId: string,
+    ipAddress?: string,
+    userAgent?: string
+  ): Promise<string> {
+    return this.log({
+      userId,
+      action: 'auth_logout',
+      status: 'success',
+      ipAddress,
+      userAgent,
     });
   }
 }
