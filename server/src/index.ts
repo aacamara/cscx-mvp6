@@ -81,6 +81,12 @@ import { activityFeedRoutes } from './routes/activity-feed.js'; // PRD-172: Acti
 import { taskRoutes } from './routes/tasks.js'; // PRD-234: Natural Language Task Creation
 import templateLibraryRoutes from './routes/template-library.js'; // PRD-256: Team Meeting Prep / Template Library
 import emailRoutes from './routes/email.js'; // PRD: Email Integration & Summarization
+import supportRoutes from './routes/support.js'; // PRD-087: Support Ticket Operations
+import npsRoutes from './routes/nps.js'; // PRD-091: NPS Recovery Workflow
+import feedbackRoutes from './routes/feedback.js'; // PRD-128: Feedback Routing
+import supportMetricsRoutes from './routes/support-metrics.js'; // PRD-087: Support Metrics
+import { supportSatisfactionRoutes } from './routes/support-satisfaction.js'; // PRD-087: CSAT
+import emailSuggestionsRoutes from './routes/email-suggestions.js'; // PRD-215: Email Suggestions
 import journeyOptimizationRoutes from './routes/journey-optimization.js'; // PRD-237: Customer Journey Optimization
 import teamPerformanceRoutes from './routes/team-performance.js'; // PRD-178: Team Performance Dashboard
 import locationRemindersRoutes from './routes/location-reminders.js'; // PRD-268: Location-Based Reminders
@@ -390,6 +396,12 @@ app.use('/api/cadg', cadgRoutes); // CADG: Context-Aware Agentic Document Genera
 app.use('/api/organizations', organizationRoutes); // PRD-007: Multi-tenant organizations
 app.use('/api/team', teamRoutes); // PRD-007: Team/member management
 app.use('/api/email', emailRoutes); // Email Integration & Summarization
+app.use('/api/support', supportRoutes); // PRD-087: Support Ticket Operations
+app.use('/api/nps', npsRoutes); // PRD-091: NPS Recovery Workflow
+app.use('/api/feedback', feedbackRoutes); // PRD-128: Feedback Routing
+app.use('/api/support-metrics', supportMetricsRoutes); // PRD-087: Support Metrics
+app.use('/api/support-satisfaction', supportSatisfactionRoutes); // PRD-087: CSAT
+app.use('/api/email-suggestions', emailSuggestionsRoutes); // PRD-215: Email Suggestions
 
 // Error handler
 app.use(errorHandler);
