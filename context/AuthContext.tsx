@@ -51,6 +51,7 @@ export interface AuthContextType {
   organizationId: string | null;
   userRole: string | null;
   orgMembership: OrgMembership | null;
+  hasCheckedOrg: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
   connectGoogleWorkspace: () => Promise<void>;
@@ -65,6 +66,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [googleTokens, setGoogleTokens] = useState<GoogleTokens | null>(null);
   const [orgMembership, setOrgMembership] = useState<OrgMembership | null>(null);
+  const [hasCheckedOrg, setHasCheckedOrg] = useState(false);
 
   // Check for Google tokens in session
   const extractGoogleTokens = useCallback((session: Session | null): GoogleTokens | null => {
@@ -101,6 +103,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch (error) {
       console.warn('Failed to fetch org membership:', error);
       // Non-fatal — org context just won't be available
+    } finally {
+      setHasCheckedOrg(true);
     }
   }, []);
 
@@ -108,6 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!supabase) {
       setLoading(false);
+      setHasCheckedOrg(true);
       return;
     }
 
@@ -119,6 +124,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Fetch org membership if we have a session
       if (session?.user && session.access_token) {
         await fetchOrgMembership(session.user.id, session.access_token);
+      } else {
+        setHasCheckedOrg(true);
       }
       setLoading(false);
     });
@@ -285,6 +292,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     organizationId: orgMembership?.organizationId ?? null,
     userRole: orgMembership?.role ?? null,
     orgMembership,
+    hasCheckedOrg,
     signInWithGoogle,
     signOut,
     connectGoogleWorkspace,

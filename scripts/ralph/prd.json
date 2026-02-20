@@ -1,162 +1,97 @@
 {
   "project": "CSCX.AI",
-  "branchName": "multi-tenant/phase-1-auth",
-  "description": "Apply organization_id filtering to all remaining route files (PRD-007 Phase 4 completion)",
+  "branchName": "main",
+  "description": "Add organization_id filtering to 6 service files that bypass route-level applyOrgFilter (PRD-007 service layer completion)",
   "userStories": [
     {
       "id": "US-001",
-      "title": "Org filter playbooks.ts",
-      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/playbooks.ts. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply applyOrgFilter() to all .from('playbooks') SELECT queries (lines ~26, ~209, ~260, ~357, ~417). Apply withOrgId() to any INSERT operations. Do NOT change any business logic \u2014 only add org filtering.",
+      "title": "Org filter automations service",
+      "description": "Add organizationId parameter to all methods in server/src/services/automations/index.ts that query Supabase. There are ~11 queries across tables: automations, automation_runs, customers. For each method that does a Supabase query: 1) Add 'organizationId: string | null' as last parameter, 2) For SELECT: add 'if (organizationId) query = query.eq(\"organization_id\", organizationId);' after the .from().select(), 3) For INSERT/UPSERT: spread '...(organizationId ? { organization_id: organizationId } : {})' into the data object, 4) For UPDATE/DELETE: add '.eq(\"organization_id\", organizationId)' when organizationId exists. Then update server/src/routes/automations.ts to pass req.organizationId to all service method calls.",
       "acceptanceCriteria": [
-        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js at top of file",
-        "All .from('playbooks') SELECT queries wrapped with applyOrgFilter(query, req)",
-        "Any INSERT operations include withOrgId(data, req)",
-        "Typecheck passes with no NEW errors (npx tsc --noEmit from server/ dir)"
+        "All methods with Supabase queries accept organizationId: string | null parameter",
+        "All SELECT queries filter by organization_id when organizationId is provided",
+        "All INSERT/UPSERT operations include organization_id when provided",
+        "Route file passes req.organizationId to all service calls",
+        "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 1,
-      "passes": true,
-      "notes": "Pattern: let query = supabase.from('playbooks').select('*'); query = applyOrgFilter(query, req); \u2014 See server/src/routes/customers.ts and server/src/routes/dashboard.ts for working examples."
+      "passes": false,
+      "notes": "Key methods: createAutomation, getAutomation, listAutomations, updateAutomation, deleteAutomation, storeRun, updateRun, getRun, listRuns, getTargetCustomers. Pattern: if (organizationId) query = query.eq('organization_id', organizationId);"
     },
     {
       "id": "US-002",
-      "title": "Org filter triggers.ts",
-      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/triggers.ts. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply to all .from('triggers') SELECT queries (lines ~28, ~63, ~478). Apply withOrgId() to INSERT at line ~116. Apply org filter to UPDATE queries at lines ~173, ~199, ~221, ~247. Do NOT change business logic.",
+      "title": "Org filter metrics service",
+      "description": "Add organizationId parameter to all methods in server/src/services/metrics.ts that query Supabase. There are ~4 queries across tables: customers, usage_metrics. For each method: 1) Add 'organizationId: string | null' as last parameter, 2) For SELECT: add 'if (organizationId) query = query.eq(\"organization_id\", organizationId);'. Then update server/src/routes/metrics.ts to pass req.organizationId to all service calls.",
       "acceptanceCriteria": [
-        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js",
-        "All .from('triggers') SELECT queries wrapped with applyOrgFilter(query, req)",
-        "INSERT at line ~116 uses withOrgId(data, req) to include organization_id",
-        "Typecheck passes with no NEW errors"
+        "All methods with Supabase queries accept organizationId: string | null parameter",
+        "All SELECT queries filter by organization_id when organizationId is provided",
+        "Route file passes req.organizationId to all service calls",
+        "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 2,
-      "passes": true,
-      "notes": "For UPDATE/DELETE operations, add .eq('organization_id', req.organizationId || null) alongside existing .eq('id', ...) to prevent cross-org mutations. If no req.organizationId, use .is('organization_id', null)."
+      "passes": false,
+      "notes": "Key methods: calculateDashboardMetrics, calculateCustomerMetrics. Tables: customers, usage_metrics, qbrs."
     },
     {
       "id": "US-003",
-      "title": "Org filter tasks.ts",
-      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/tasks.ts. Table is 'plan_tasks'. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply to SELECT at lines ~227, ~334. Apply withOrgId to INSERT at ~407. Apply org scoping to UPDATE at ~496, ~601 and DELETE at ~562.",
+      "title": "Org filter email service",
+      "description": "Add organizationId parameter to all methods in server/src/services/email/emailService.ts that query Supabase. There are ~10 queries across tables: emails, email_sync_status, stakeholders, customers. For each method: 1) Add 'organizationId: string | null' as last parameter, 2) For SELECT: add 'if (organizationId) query = query.eq(\"organization_id\", organizationId);', 3) For UPSERT: spread '...(organizationId ? { organization_id: organizationId } : {})'. Then update server/src/routes/email.ts to pass req.organizationId to all service calls.",
       "acceptanceCriteria": [
-        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js",
-        "All .from('plan_tasks') SELECT queries wrapped with applyOrgFilter(query, req)",
-        "INSERT includes organization_id via withOrgId",
-        "UPDATE and DELETE queries scoped to organization_id",
-        "Typecheck passes with no NEW errors"
+        "All methods with Supabase queries accept organizationId: string | null parameter",
+        "All SELECT queries filter by organization_id when organizationId is provided",
+        "All UPSERT operations include organization_id when provided",
+        "Route file passes req.organizationId to all service calls",
+        "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 3,
-      "passes": true,
-      "notes": "Note: table is 'plan_tasks', not 'tasks'. The migration added organization_id to 'tasks' table \u2014 verify plan_tasks also has it or skip if not. If plan_tasks doesn't have organization_id column, filter through the customers join instead."
+      "passes": false,
+      "notes": "Key methods: fetchAndStoreEmail, updateSyncStatus, getSyncStatus, getEmails, matchByStakeholderEmail, matchByDomain, matchByNameMention, linkEmailsToCustomers, matchAndLinkEmail."
     },
     {
       "id": "US-004",
-      "title": "Org filter support.ts",
-      "description": "Add applyOrgFilter to Supabase queries in server/src/routes/support.ts. Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js'. Apply to .from('support_tickets') SELECT at line ~473. Apply withOrgId to INSERT at line ~567.",
+      "title": "Org filter support service",
+      "description": "Add organizationId parameter to all methods in server/src/services/support/index.ts that query Supabase. There are ~6 queries across tables: support_tickets, ticket_baselines, risk_signals. For each method: 1) Add 'organizationId: string | null' as last parameter, 2) For SELECT: add 'if (organizationId) query = query.eq(\"organization_id\", organizationId);', 3) For INSERT/UPSERT: spread '...(organizationId ? { organization_id: organizationId } : {})'. Then update server/src/routes/support.ts to pass req.organizationId to all service calls.",
       "acceptanceCriteria": [
-        "Import applyOrgFilter and withOrgId from ../middleware/orgFilter.js",
-        ".from('support_tickets') SELECT wrapped with applyOrgFilter",
-        "INSERT includes organization_id via withOrgId",
-        "Typecheck passes with no NEW errors"
+        "All methods with Supabase queries accept organizationId: string | null parameter",
+        "All SELECT queries filter by organization_id when organizationId is provided",
+        "All INSERT/UPSERT operations include organization_id when provided",
+        "Route file passes req.organizationId to all service calls",
+        "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 4,
-      "passes": true,
-      "notes": "support.ts also delegates to supportService \u2014 only filter the direct Supabase queries in the route file itself."
+      "passes": false,
+      "notes": "Key methods: upsertTicket, getTickets, calculateBaseline, getBaseline, handleSpikeDetected."
     },
     {
       "id": "US-005",
-      "title": "Org filter kb.ts",
-      "description": "Add org filtering to server/src/routes/kb.ts. Import { applyOrgFilter, applyOrgFilterInclusive, withOrgId } from '../middleware/orgFilter.js'. Use applyOrgFilterInclusive (not applyOrgFilter) for knowledge_chunks SELECTs since KB articles may be shared globally. Apply to .from('knowledge_chunks') queries at lines ~100, ~190, ~258, ~262. Apply withOrgId to upsert at ~100.",
+      "title": "Org filter feedback service",
+      "description": "Add organizationId parameter to all methods in server/src/services/feedback/index.ts that query Supabase. There are ~4+ queries across tables: customers, stakeholders, feedback, feedback_routing_rules. For each method: 1) Add 'organizationId: string | null' as last parameter, 2) For SELECT: add 'if (organizationId) query = query.eq(\"organization_id\", organizationId);', 3) For INSERT: spread '...(organizationId ? { organization_id: organizationId } : {})'. Then update server/src/routes/feedback.ts to pass req.organizationId to all service calls (including direct Supabase queries in the route file itself).",
       "acceptanceCriteria": [
-        "Import applyOrgFilterInclusive and withOrgId from ../middleware/orgFilter.js",
-        "All .from('knowledge_chunks') SELECT queries use applyOrgFilterInclusive (inclusive because KB can be shared)",
-        "Upsert at ~100 includes organization_id via withOrgId",
-        "Typecheck passes with no NEW errors"
+        "All methods with Supabase queries accept organizationId: string | null parameter",
+        "All SELECT queries filter by organization_id when organizationId is provided",
+        "All INSERT operations include organization_id when provided",
+        "Route file passes req.organizationId to all service calls",
+        "Any direct Supabase queries in the route file also get org filtering",
+        "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 5,
-      "passes": true,
-      "notes": "Use applyOrgFilterInclusive NOT applyOrgFilter \u2014 KB articles should show org-specific + shared (null org) articles. The kbDocuments in-memory Map doesn't need filtering since it's a write-through cache."
+      "passes": false,
+      "notes": "Key methods: createFeedback, getRoutingRules. Also check route file for direct Supabase queries on feedback_events, feedback_comments, feedback_teams tables."
     },
     {
       "id": "US-006",
-      "title": "Org filter health-portfolio.ts",
-      "description": "Add applyOrgFilter to all Supabase queries in server/src/routes/health-portfolio.ts. This file queries 'customers' and 'health_score_history' tables. Import { applyOrgFilter } from '../middleware/orgFilter.js'. Apply to all .from('customers') and .from('health_score_history') SELECT queries throughout the file.",
+      "title": "Org filter NPS service",
+      "description": "Add organizationId parameter to all methods in server/src/services/nps/index.ts that query Supabase. There are ~7 queries across tables: nps_responses, customers, risk_signals. For each method: 1) Add 'organizationId: string | null' as last parameter, 2) For SELECT: add 'if (organizationId) query = query.eq(\"organization_id\", organizationId);', 3) For INSERT: spread '...(organizationId ? { organization_id: organizationId } : {})'. Then update server/src/routes/nps.ts to pass req.organizationId to all service calls.",
       "acceptanceCriteria": [
-        "Import applyOrgFilter from ../middleware/orgFilter.js",
-        "All .from('customers') SELECT queries wrapped with applyOrgFilter(query, req)",
-        "All .from('health_score_history') queries wrapped with applyOrgFilter",
-        "Typecheck passes with no NEW errors"
+        "All methods with Supabase queries accept organizationId: string | null parameter",
+        "All SELECT queries filter by organization_id when organizationId is provided",
+        "All INSERT operations include organization_id when provided",
+        "Route file passes req.organizationId to all service calls",
+        "Typecheck passes (cd server && npx tsc --noEmit)"
       ],
       "priority": 6,
-      "passes": true,
-      "notes": "This file is large. Pattern: for simple queries, wrap after building the initial query. For queries with .eq() chains, insert applyOrgFilter before the .eq() or after .from().select()."
-    },
-    {
-      "id": "US-007",
-      "title": "Org filter admin.ts + onboarding.ts",
-      "description": "Add applyOrgFilter to server/src/routes/admin.ts (queries customers) and server/src/routes/onboarding.ts (queries customers + plan_tasks). Import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js' in both files. Apply to all .from('customers') and .from('plan_tasks') queries.",
-      "acceptanceCriteria": [
-        "Both files import applyOrgFilter from ../middleware/orgFilter.js",
-        "admin.ts: all .from('customers') queries wrapped with applyOrgFilter",
-        "onboarding.ts: all .from('customers') and .from('plan_tasks') queries wrapped",
-        "Typecheck passes with no NEW errors"
-      ],
-      "priority": 7,
-      "passes": true,
-      "notes": "onboarding.ts has plan_tasks queries at lines ~526, ~577, ~637, ~647. For INSERT into plan_tasks, use withOrgId."
-    },
-    {
-      "id": "US-008",
-      "title": "Org filter batch 1: renewal-forecast, renewal-checklist, risk-assessment, qbr-generator",
-      "description": "Add applyOrgFilter to 4 route files that query customers table: server/src/routes/renewal-forecast.ts, renewal-checklist.ts, risk-assessment.ts, qbr-generator.ts. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each. Apply to all .from('customers') SELECT queries. qbr-generator.ts also queries .from('support_tickets') \u2014 filter that too.",
-      "acceptanceCriteria": [
-        "All 4 files import applyOrgFilter from ../middleware/orgFilter.js",
-        "All .from('customers') queries in each file wrapped with applyOrgFilter",
-        "qbr-generator.ts .from('support_tickets') query at ~line 227 also wrapped",
-        "Typecheck passes with no NEW errors"
-      ],
-      "priority": 8,
-      "passes": true,
-      "notes": "These files follow a similar pattern. Quick wins \u2014 mostly just wrapping SELECT queries."
-    },
-    {
-      "id": "US-009",
-      "title": "Org filter batch 2: cohort-analysis, billing, usage-ingest, success-metrics, product-adoption-report",
-      "description": "Add applyOrgFilter to 5 route files that query customers: server/src/routes/cohort-analysis.ts, billing.ts, usage-ingest.ts, success-metrics.ts, product-adoption-report.ts. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each. Apply to all .from('customers') SELECT queries.",
-      "acceptanceCriteria": [
-        "All 5 files import applyOrgFilter from ../middleware/orgFilter.js",
-        "All .from('customers') queries wrapped with applyOrgFilter",
-        "Typecheck passes with no NEW errors"
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": "Same pattern as US-008. Quick batch of SELECT-only filtering."
-    },
-    {
-      "id": "US-010",
-      "title": "Org filter batch 3: nps, feedback, surveys, support-satisfaction, email, social",
-      "description": "Add applyOrgFilter to 6 route files: server/src/routes/nps.ts, feedback.ts, surveys.ts, support-satisfaction.ts, email.ts, social.ts. All query customers table. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each. Apply to all .from('customers') SELECT queries.",
-      "acceptanceCriteria": [
-        "All 6 files import applyOrgFilter from ../middleware/orgFilter.js",
-        "All .from('customers') queries wrapped with applyOrgFilter",
-        "Typecheck passes with no NEW errors"
-      ],
-      "priority": 10,
-      "passes": true,
-      "notes": "These files may also delegate to service layers \u2014 only filter direct Supabase queries in the route files."
-    },
-    {
-      "id": "US-011",
-      "title": "Org filter batch 4: remaining routes",
-      "description": "Add applyOrgFilter to remaining route files that query customers: server/src/routes/workspace-agent.ts, thank-you.ts, pattern-recognition.ts, executive-changes.ts, onboarding-progress.ts, qbr-email.ts, agentAnalysis.ts, metrics.ts, automations.ts, email-suggestions.ts. Import { applyOrgFilter } from '../middleware/orgFilter.js' in each.",
-      "acceptanceCriteria": [
-        "All listed files import applyOrgFilter from ../middleware/orgFilter.js",
-        "All .from('customers') queries wrapped with applyOrgFilter",
-        "workspace-agent.ts: .from('health_score_history') and .from('engagement_logs') queries also wrapped",
-        "automations.ts: .from('automations') query at ~line 349 wrapped",
-        "email-suggestions.ts: .from('tasks') query at ~line 312 wrapped",
-        "Typecheck passes with no NEW errors"
-      ],
-      "priority": 11,
-      "passes": true,
-      "notes": "Last batch. Some files are large (workspace-agent.ts is 800+ lines). Focus only on direct Supabase .from() calls."
+      "passes": false,
+      "notes": "Key methods: createNpsResponse, getPreviousResponses, getNpsHistory, initiateRecovery."
     }
   ]
 }

@@ -173,7 +173,7 @@ export class SupportService {
   /**
    * Insert or update a ticket
    */
-  async upsertTicket(payload: TicketWebhookPayload): Promise<SupportTicket> {
+  async upsertTicket(payload: TicketWebhookPayload, organizationId: string | null = null): Promise<SupportTicket> {
     if (!this.supabase) {
       // Return mock ticket for testing
       return {
@@ -218,6 +218,7 @@ export class SupportService {
       external_url: payload.externalUrl,
       metadata: payload.metadata || {},
       created_at: payload.createdAt || new Date().toISOString(),
+      ...(organizationId ? { organization_id: organizationId } : {}),
     };
 
     const { data, error } = await this.supabase
@@ -247,7 +248,8 @@ export class SupportService {
       category?: TicketCategory[];
       severity?: TicketSeverity[];
       limit?: number;
-    } = {}
+    } = {},
+    organizationId: string | null = null
   ): Promise<SupportTicket[]> {
     if (!this.supabase) return [];
 
@@ -256,6 +258,10 @@ export class SupportService {
       .select('*')
       .eq('customer_id', customerId)
       .order('created_at', { ascending: false });
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
 
     if (options.lookbackHours) {
       const cutoff = new Date();
@@ -296,7 +302,7 @@ export class SupportService {
   /**
    * Calculate and store baseline for a customer
    */
-  async calculateBaseline(customerId: string, days: number = 30): Promise<TicketBaseline> {
+  async calculateBaseline(customerId: string, days: number = 30, organizationId: string | null = null): Promise<TicketBaseline> {
     if (!this.supabase) {
       return {
         customerId,
@@ -313,11 +319,17 @@ export class SupportService {
     cutoff.setDate(cutoff.getDate() - days);
 
     // Get ticket counts
-    const { data: tickets, error } = await this.supabase
+    let query = this.supabase
       .from('support_tickets')
       .select('category, severity, created_at')
       .eq('customer_id', customerId)
       .gte('created_at', cutoff.toISOString());
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data: tickets, error } = await query;
 
     if (error) {
       console.error('[SupportService] Error calculating baseline:', error);
@@ -345,6 +357,7 @@ export class SupportService {
       total_tickets_in_period: totalTickets,
       category_breakdown: categoryBreakdown,
       severity_breakdown: severityBreakdown,
+      ...(organizationId ? { organization_id: organizationId } : {}),
     };
 
     await this.supabase
@@ -365,14 +378,19 @@ export class SupportService {
   /**
    * Get stored baseline for a customer
    */
-  async getBaseline(customerId: string): Promise<TicketBaseline | null> {
+  async getBaseline(customerId: string, organizationId: string | null = null): Promise<TicketBaseline | null> {
     if (!this.supabase) return null;
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('ticket_baselines')
       .select('*')
-      .eq('customer_id', customerId)
-      .single();
+      .eq('customer_id', customerId);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error || !data) return null;
 

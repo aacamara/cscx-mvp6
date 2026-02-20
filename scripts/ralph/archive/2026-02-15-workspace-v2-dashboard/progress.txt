@@ -1,0 +1,32 @@
+# Ralph Progress Log
+Started: Wed  4 Feb 2026 00:26:53 EST
+---
+
+## Codebase Patterns
+- CADG task types are defined in `server/src/services/cadg/types.ts` as a TypeScript union type
+- Task classification uses two pattern types: KEYWORD_PATTERNS (string arrays) and PHRASE_PATTERNS (regex arrays)
+- LLM fallback classification uses Claude Haiku for ambiguous queries
+- Pre-existing TypeScript errors in the codebase are unrelated to CADG work - focus on CADG-specific file compilation
+- Use `npx esbuild` with `--external` flags to verify module builds without full tsc compilation
+
+---
+
+## 2026-02-04 - US-001
+- What was implemented: All 24 CADG task types already added to types.ts (commit 8dd85f6)
+- Files changed: server/src/services/cadg/types.ts
+- **Learnings for future iterations:**
+  - Task types are organized by agent category: Onboarding (4), Adoption (4), Renewal (4), Risk (4), Strategic (4), General Mode (4)
+  - The types.ts file also contains related types like PlanStatus, ArtifactType, and CapabilityCategory
+---
+
+## 2026-02-04 - US-002
+- What was implemented: Comprehensive trigger patterns for all 24 CADG task types
+- Files changed: server/src/services/cadg/taskClassifier.ts
+- **Learnings for future iterations:**
+  - Each task type needs 20+ keyword patterns in KEYWORD_PATTERNS
+  - PHRASE_PATTERNS use regex for more specific matching (higher confidence)
+  - getMethodologyForTask() maps task types to methodology IDs
+  - getRequiredSources() maps task types to required data sources for context aggregation
+  - LLM classifier prompt must include all task types with descriptions
+  - General Mode tasks (portfolio_dashboard, team_metrics, renewal_pipeline, at_risk_overview) don't require customer context
+---

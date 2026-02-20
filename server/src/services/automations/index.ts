@@ -324,7 +324,8 @@ export class AutomationService {
     options?: {
       name?: string;
       enabled?: boolean;
-    }
+    },
+    organizationId: string | null = null
   ): Promise<Automation> {
     // Get available skills for context
     const skills = await skillsService.listSkills({ enabled: true });
@@ -351,14 +352,15 @@ export class AutomationService {
       scope: parsed.scope,
       enabled: options?.enabled ?? false,
       createdBy: userId,
-    });
+    }, organizationId);
   }
 
   /**
    * Create an automation
    */
   async createAutomation(
-    automation: Omit<Automation, 'id' | 'lastRunAt' | 'nextRunAt' | 'runCount' | 'createdAt' | 'updatedAt'>
+    automation: Omit<Automation, 'id' | 'lastRunAt' | 'nextRunAt' | 'runCount' | 'createdAt' | 'updatedAt'>,
+    organizationId: string | null = null
   ): Promise<Automation> {
     // Calculate next run time for scheduled automations
     let nextRunAt: Date | undefined;
@@ -381,6 +383,7 @@ export class AutomationService {
         created_by: automation.createdBy,
         next_run_at: nextRunAt?.toISOString(),
         run_count: 0,
+        ...(organizationId ? { organization_id: organizationId } : {}),
       })
       .select()
       .single();
@@ -395,12 +398,15 @@ export class AutomationService {
   /**
    * Get automation by ID
    */
-  async getAutomation(automationId: string): Promise<Automation | null> {
-    const { data, error } = await supabase
+  async getAutomation(automationId: string, organizationId: string | null = null): Promise<Automation | null> {
+    let query = supabase
       .from('automations')
       .select('*')
-      .eq('id', automationId)
-      .single();
+      .eq('id', automationId);
+
+    if (organizationId) query = query.eq('organization_id', organizationId);
+
+    const { data, error } = await query.single();
 
     if (error || !data) return null;
 
@@ -416,7 +422,7 @@ export class AutomationService {
     createdBy?: string;
     limit?: number;
     offset?: number;
-  }): Promise<Automation[]> {
+  }, organizationId: string | null = null): Promise<Automation[]> {
     let query = supabase
       .from('automations')
       .select('*')
@@ -425,6 +431,7 @@ export class AutomationService {
     if (options?.type) query = query.eq('type', options.type);
     if (options?.enabled !== undefined) query = query.eq('enabled', options.enabled);
     if (options?.createdBy) query = query.eq('created_by', options.createdBy);
+    if (organizationId) query = query.eq('organization_id', organizationId);
 
     query = query.range(
       options?.offset || 0,
@@ -442,7 +449,8 @@ export class AutomationService {
    */
   async updateAutomation(
     automationId: string,
-    updates: Partial<Automation>
+    updates: Partial<Automation>,
+    organizationId: string | null = null
   ): Promise<Automation> {
     const updateData: Record<string, any> = {
       updated_at: new Date().toISOString(),
@@ -459,7 +467,7 @@ export class AutomationService {
 
     // Recalculate next run time if schedule or enabled changed
     if (updates.schedule || updates.enabled !== undefined) {
-      const current = await this.getAutomation(automationId);
+      const current = await this.getAutomation(automationId, organizationId);
       if (current) {
         const schedule = updates.schedule || current.schedule;
         const enabled = updates.enabled !== undefined ? updates.enabled : current.enabled;
@@ -472,10 +480,14 @@ export class AutomationService {
       }
     }
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('automations')
       .update(updateData)
-      .eq('id', automationId)
+      .eq('id', automationId);
+
+    if (organizationId) query = query.eq('organization_id', organizationId);
+
+    const { data, error } = await query
       .select()
       .single();
 
@@ -489,11 +501,15 @@ export class AutomationService {
   /**
    * Delete automation
    */
-  async deleteAutomation(automationId: string): Promise<void> {
-    const { error } = await supabase
+  async deleteAutomation(automationId: string, organizationId: string | null = null): Promise<void> {
+    let query = supabase
       .from('automations')
       .delete()
       .eq('id', automationId);
+
+    if (organizationId) query = query.eq('organization_id', organizationId);
+
+    const { error } = await query;
 
     if (error) {
       throw new Error(`Failed to delete automation: ${error.message}`);
@@ -508,9 +524,10 @@ export class AutomationService {
     context: MCPContext,
     options?: {
       customerIds?: string[];
-    }
+    },
+    organizationId: string | null = null
   ): Promise<AutomationRun> {
-    const automation = await this.getAutomation(automationId);
+    const automation = await this.getAutomation(automationId, organizationId);
     if (!automation) {
       throw new Error(`Automation not found: ${automationId}`);
     }
@@ -530,7 +547,7 @@ export class AutomationService {
     };
 
     // Store run
-    await this.storeRun(run);
+    await this.storeRun(run, organizationId);
 
     try {
       // Get target customers

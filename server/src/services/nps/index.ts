@@ -130,7 +130,8 @@ export function calculateNpsScore(responses: NpsResponse[]): number | null {
  * Create a new NPS response and process for drops
  */
 export async function createNpsResponse(
-  input: CreateNpsResponseInput
+  input: CreateNpsResponseInput,
+  organizationId: string | null = null
 ): Promise<{ response: NpsResponse; dropResult: NpsDropResult | null }> {
   const id = uuidv4();
   const score = input.score;
@@ -138,7 +139,7 @@ export async function createNpsResponse(
   const submittedAt = new Date(input.submittedAt);
 
   // Get previous responses for comparison
-  const previousResponses = await getPreviousResponses(input.customerId);
+  const previousResponses = await getPreviousResponses(input.customerId, organizationId);
 
   // Detect NPS drop
   const dropResult = await detectNpsDrop({
@@ -191,6 +192,7 @@ export async function createNpsResponse(
       processed_at: npsResponse.processedAt?.toISOString(),
       recovery_initiated: npsResponse.recoveryInitiated,
       created_at: npsResponse.createdAt.toISOString(),
+      ...(organizationId ? { organization_id: organizationId } : {}),
     });
   }
 
@@ -200,15 +202,21 @@ export async function createNpsResponse(
 /**
  * Get previous NPS responses for a customer
  */
-async function getPreviousResponses(customerId: string): Promise<NpsResponse[]> {
+async function getPreviousResponses(customerId: string, organizationId: string | null = null): Promise<NpsResponse[]> {
   if (!supabase) return [];
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('nps_responses')
     .select('*')
     .eq('customer_id', customerId)
     .order('submitted_at', { ascending: false })
     .limit(10);
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) return [];
 
@@ -364,7 +372,7 @@ Return ONLY valid JSON, no markdown.`
 /**
  * Get NPS history for a customer
  */
-export async function getNpsHistory(customerId: string): Promise<NpsHistory> {
+export async function getNpsHistory(customerId: string, organizationId: string | null = null): Promise<NpsHistory> {
   if (!supabase) {
     return {
       currentScore: null,
@@ -377,11 +385,17 @@ export async function getNpsHistory(customerId: string): Promise<NpsHistory> {
     };
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('nps_responses')
     .select('*')
     .eq('customer_id', customerId)
     .order('submitted_at', { ascending: false });
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data || data.length === 0) {
     return {

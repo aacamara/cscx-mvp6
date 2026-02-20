@@ -72,8 +72,9 @@ export class EmailService {
    * Fetch recent emails from Gmail and store in database
    * @param userId - User ID
    * @param days - Number of days back to fetch (default: 30)
+   * @param organizationId - Organization ID for filtering
    */
-  async fetchRecentEmails(userId: string, days: number = 30): Promise<SyncResult> {
+  async fetchRecentEmails(userId: string, days: number = 30, organizationId: string | null = null): Promise<SyncResult> {
     const errors: string[] = [];
     let syncedCount = 0;
     const startTime = new Date();
@@ -112,7 +113,7 @@ export class EmailService {
         if (!msgRef.id) continue;
 
         try {
-          const email = await this.fetchAndStoreEmail(gmail, userId, msgRef.id);
+          const email = await this.fetchAndStoreEmail(gmail, userId, msgRef.id, organizationId);
           if (email) {
             syncedCount++;
           }
@@ -129,7 +130,7 @@ export class EmailService {
         lastSyncSuccess: errors.length === 0,
         lastSyncError: errors.length > 0 ? errors.slice(0, 5).join('; ') : undefined,
         emailsSynced: syncedCount,
-      });
+      }, organizationId);
 
       console.log(`[EmailService] Sync complete: ${syncedCount} emails synced, ${errors.length} errors`);
 
@@ -149,7 +150,7 @@ export class EmailService {
         lastSyncSuccess: false,
         lastSyncError: errMsg,
         emailsSynced: syncedCount,
-      });
+      }, organizationId);
 
       return {
         success: false,
@@ -166,7 +167,8 @@ export class EmailService {
   private async fetchAndStoreEmail(
     gmail: gmail_v1.Gmail,
     userId: string,
-    messageId: string
+    messageId: string,
+    organizationId: string | null = null
   ): Promise<SyncedEmail | null> {
     if (!this.supabase) return null;
 
@@ -254,6 +256,7 @@ export class EmailService {
         is_starred: email.isStarred,
         has_attachments: email.hasAttachments,
         synced_at: new Date().toISOString(),
+        ...(organizationId ? { organization_id: organizationId } : {}),
       }, {
         onConflict: 'user_id,gmail_id',
       })
@@ -275,7 +278,8 @@ export class EmailService {
         email.fromEmail,
         email.toEmails,
         email.subject,
-        email.bodyText
+        email.bodyText,
+        organizationId
       );
     }
 
@@ -401,7 +405,8 @@ export class EmailService {
    */
   private async updateSyncStatus(
     userId: string,
-    status: Partial<SyncStatus> & { emailsSynced?: number }
+    status: Partial<SyncStatus> & { emailsSynced?: number },
+    organizationId: string | null = null
   ): Promise<void> {
     if (!this.supabase) return;
 
@@ -415,6 +420,7 @@ export class EmailService {
         last_sync_error: status.lastSyncError,
         emails_synced: status.emailsSynced,
         updated_at: new Date().toISOString(),
+        ...(organizationId ? { organization_id: organizationId } : {}),
       }, {
         onConflict: 'user_id',
       });
@@ -423,14 +429,19 @@ export class EmailService {
   /**
    * Get sync status for a user
    */
-  async getSyncStatus(userId: string): Promise<SyncStatus | null> {
+  async getSyncStatus(userId: string, organizationId: string | null = null): Promise<SyncStatus | null> {
     if (!this.supabase) return null;
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('email_sync_status')
       .select('*')
-      .eq('user_id', userId)
-      .single();
+      .eq('user_id', userId);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error || !data) return null;
 
@@ -455,7 +466,8 @@ export class EmailService {
       query?: string;
       unreadOnly?: boolean;
       importantOnly?: boolean;
-    } = {}
+    } = {},
+    organizationId: string | null = null
   ): Promise<SyncedEmail[]> {
     if (!this.supabase) return [];
 
@@ -464,6 +476,10 @@ export class EmailService {
       .select('*')
       .eq('user_id', userId)
       .order('date', { ascending: false });
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
 
     if (options.customerId) {
       query = query.eq('customer_id', options.customerId);
@@ -529,7 +545,8 @@ export class EmailService {
    */
   private async matchEmailToCustomer(
     userId: string,
-    email: { fromEmail: string; toEmails: string[]; subject: string; bodyText: string }
+    email: { fromEmail: string; toEmails: string[]; subject: string; bodyText: string },
+    organizationId: string | null = null
   ): Promise<{ customerId: string; matchedBy: string; confidence: number } | null> {
     if (!this.supabase) return null;
 
@@ -537,7 +554,7 @@ export class EmailService {
     const allEmails = [email.fromEmail, ...email.toEmails].filter(Boolean);
 
     // Strategy 1: Match by stakeholder email (highest confidence)
-    const stakeholderMatch = await this.matchByStakeholderEmail(userId, allEmails);
+    const stakeholderMatch = await this.matchByStakeholderEmail(userId, allEmails, organizationId);
     if (stakeholderMatch) {
       return { customerId: stakeholderMatch, matchedBy: 'stakeholder', confidence: 1.0 };
     }
@@ -545,14 +562,14 @@ export class EmailService {
     // Strategy 2: Match by domain (high confidence)
     const senderDomain = this.extractDomain(email.fromEmail);
     if (senderDomain) {
-      const domainMatch = await this.matchByDomain(userId, senderDomain);
+      const domainMatch = await this.matchByDomain(userId, senderDomain, organizationId);
       if (domainMatch) {
         return { customerId: domainMatch, matchedBy: 'domain', confidence: 0.9 };
       }
     }
 
     // Strategy 3: Match by customer name mention (lower confidence)
-    const mentionMatch = await this.matchByNameMention(userId, email.subject, email.bodyText);
+    const mentionMatch = await this.matchByNameMention(userId, email.subject, email.bodyText, organizationId);
     if (mentionMatch) {
       return { customerId: mentionMatch.customerId, matchedBy: 'mention', confidence: mentionMatch.confidence };
     }
@@ -563,15 +580,20 @@ export class EmailService {
   /**
    * Match by stakeholder email address
    */
-  private async matchByStakeholderEmail(userId: string, emails: string[]): Promise<string | null> {
+  private async matchByStakeholderEmail(userId: string, emails: string[], organizationId: string | null = null): Promise<string | null> {
     if (!this.supabase || emails.length === 0) return null;
 
     // Look up stakeholders with these email addresses
-    const { data: stakeholders, error } = await this.supabase
+    let query = this.supabase
       .from('stakeholders')
       .select('customer_id, customers!inner(csm_id)')
-      .in('email', emails.map(e => e.toLowerCase()))
-      .limit(1);
+      .in('email', emails.map(e => e.toLowerCase()));
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data: stakeholders, error } = await query.limit(1);
 
     if (error || !stakeholders || stakeholders.length === 0) return null;
 

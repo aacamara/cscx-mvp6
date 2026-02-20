@@ -1,0 +1,36 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "ralph/agent-bypass-auth",
+  "description": "Add agent bypass authentication route for OpenClaw Scout CSM agent testing",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Create agent-auth bypass route",
+      "description": "As a developer, I need an agent login endpoint that bypasses invite codes for automated testing.",
+      "acceptanceCriteria": [
+        "New file server/src/routes/agent-auth.ts with POST /agent-login endpoint",
+        "Returns 404 when NODE_ENV=production",
+        "Validates AGENT_BYPASS_TOKEN from .env",
+        "Returns workspace and user JSON matching validate-invite shape",
+        "Typecheck passes"
+      ],
+      "priority": 1,
+      "passes": false,
+      "notes": "Model after existing auth.ts pattern. Keep minimal — no rate limiting needed for agent access."
+    },
+    {
+      "id": "US-002",
+      "title": "Wire agent-auth route into Express server",
+      "description": "As a developer, the agent-auth route needs to be mounted in the Express app.",
+      "acceptanceCriteria": [
+        "Import agentAuthRoutes in server/src/index.ts",
+        "Mount at app.use('/api/auth', agentAuthRoutes) alongside existing authRoutes",
+        "Add AGENT_BYPASS_TOKEN=openclaw-scout-2026 to .env",
+        "Typecheck passes"
+      ],
+      "priority": 2,
+      "passes": false,
+      "notes": "Add import near line 11 (after authRoutes import). Mount near line 195 (after existing auth mount)."
+    }
+  ]
+}

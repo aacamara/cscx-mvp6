@@ -192,9 +192,18 @@ const AdminPanel: React.FC<{
 // ============================================
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isAdmin, isDesignPartner, loading: authLoading, getAuthHeaders, organizationId } = useAuth();
+  const { isAuthenticated, isAdmin, isDesignPartner, loading: authLoading, getAuthHeaders, organizationId, hasCheckedOrg } = useAuth();
   const [demoMode, setDemoMode] = useState(false);
   const [needsOrgSetup, setNeedsOrgSetup] = useState(false);
+
+  // Detect "authenticated but no org" and show SignupPage
+  useEffect(() => {
+    if (isAuthenticated && !organizationId && !authLoading && !demoMode && hasCheckedOrg) {
+      setNeedsOrgSetup(true);
+    } else if (organizationId) {
+      setNeedsOrgSetup(false);
+    }
+  }, [isAuthenticated, organizationId, authLoading, demoMode, hasCheckedOrg]);
 
   // View management - Observability is the default/home view
   const [view, setView] = useState<AppView>('observability');

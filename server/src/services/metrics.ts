@@ -619,7 +619,8 @@ export function evaluateDAUMAUBenchmark(ratio: number): BenchmarkRating {
 export async function calculateDashboardMetrics(
   startDate: Date,
   endDate: Date,
-  userId?: string
+  userId?: string,
+  organizationId?: string | null
 ): Promise<DashboardMetrics> {
   // Fetch customers data
   let customersQuery = supabase
@@ -630,14 +631,24 @@ export async function calculateDashboardMetrics(
     customersQuery = customersQuery.eq('user_id', userId);
   }
 
+  if (organizationId) {
+    customersQuery = customersQuery.eq('organization_id', organizationId);
+  }
+
   const { data: customers } = await customersQuery;
 
   // Fetch usage metrics
-  const { data: usageMetrics } = await supabase
+  let usageQuery = supabase
     .from('usage_metrics')
     .select('*')
     .gte('metric_date', startDate.toISOString())
     .lte('metric_date', endDate.toISOString());
+
+  if (organizationId) {
+    usageQuery = usageQuery.eq('organization_id', organizationId);
+  }
+
+  const { data: usageMetrics } = await usageQuery;
 
   // Calculate revenue metrics
   const activeCustomers = customers?.filter(c => c.status === 'active') || [];
@@ -740,26 +751,37 @@ export async function calculateDashboardMetrics(
 // CUSTOMER-SPECIFIC METRICS
 // ============================================
 
-export async function calculateCustomerMetrics(customerId: string): Promise<{
+export async function calculateCustomerMetrics(customerId: string, organizationId?: string | null): Promise<{
   revenue: { mrr: number; arr: number };
   health: HealthScoreResult;
   retention: { daysSinceStart: number; renewalDate?: string };
   adoption: AdoptionMetrics;
 }> {
   // Fetch customer
-  const { data: customer } = await supabase
+  let customerQuery = supabase
     .from('customers')
     .select('*')
-    .eq('id', customerId)
-    .single();
+    .eq('id', customerId);
+
+  if (organizationId) {
+    customerQuery = customerQuery.eq('organization_id', organizationId);
+  }
+
+  const { data: customer } = await customerQuery.single();
 
   // Fetch latest usage metrics
-  const { data: usageMetrics } = await supabase
+  let usageQuery = supabase
     .from('usage_metrics')
     .select('*')
     .eq('customer_id', customerId)
     .order('metric_date', { ascending: false })
     .limit(30);
+
+  if (organizationId) {
+    usageQuery = usageQuery.eq('organization_id', organizationId);
+  }
+
+  const { data: usageMetrics } = await usageQuery;
 
   const latestUsage = usageMetrics?.[0];
   const mrr = (customer?.arr || 0) / 12;

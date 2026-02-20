@@ -1,0 +1,158 @@
+## Codebase Patterns
+- Express SSE requires res.flushHeaders() before streaming
+- WorkflowAgent.chatStream() bypasses LangGraph and calls Anthropic directly
+- CADG plans are NOT streamed — sent as single done event
+- Codebase has ~161 pre-existing frontend type errors and ~1117 server type errors — focus on not introducing NEW ones
+- DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131'
+- Agent routing: frontend reads data.agentType (specialist name), NOT data.routing.agentType (always 'claude_langgraph')
+- CADG document mapping: use switch on finalPlan.taskType, NOT if-else with query substring matching
+- Customer context: when customerId provided, always fetch from DB (SupabaseService.getCustomer)
+- isGenerativeRequest() should only match explicit generative verbs (create, build, generate, etc.)
+- isConversationalQuestion() detects interrogative queries that bypass CADG
+- Demo Mode fallback: simulate AI analysis with 2-3s delay and pre-built data when Google OAuth unavailable
+- CADGPlanCard handles its own approve API call — not re-submitted as chat message
+
+## Org Filtering Patterns (PRD-007 Phase 4)
+- Import from '../middleware/orgFilter.js' (NOT .ts — compiled import)
+- applyOrgFilter(query, req) for strict org isolation (returns only org's data or NULL-org demo data)
+- applyOrgFilterInclusive(query, req) for shared+org data (KB articles, templates)
+- withOrgId(data, req) wraps INSERT/UPSERT data with organization_id
+- Pattern for SELECT: `let query = supabase.from('table').select('*'); query = applyOrgFilter(query, req);`
+- Pattern for INSERT: `await supabase.from('table').insert(withOrgId({ ...data }, req))`
+- For UPDATE/DELETE by ID, add org scoping: `.eq('id', id)` — no extra org filter needed since IDs are globally unique
+- See server/src/routes/customers.ts and dashboard.ts for working examples
+- req.organizationId comes from auth middleware (resolveOrgMembership)
+- When no org context (demo mode), applyOrgFilter uses .is('organization_id', null)
+
+---
+
+# QA Bug Fixes Progress Log
+
+Branch: ralph/qa-bug-fixes
+Started: 2026-02-15
+
+---
+
+## 2026-02-15 - US-001
+- **What:** Fixed recursive requireAuth bug in agentic-agents.ts
+- **Files:** server/src/routes/agentic-agents.ts
+- **Fix:** Changed line 106 from `requireAuth(req, res)` to `getUserId(req)`, removed duplicate guard
+- **Commit:** 4dacb3e
+
+---
+
+## 2026-02-15 - US-002
+- **What:** Fixed agent routing to respect manual specialist selection
+- **Files:** components/AgentControlCenter/index.tsx
+- **Fix:** Frontend was reading `data.routing.agentType` (always 'claude_langgraph') instead of `data.agentType` (actual specialist). Fixed in both streaming and non-streaming handlers.
+- **Commit:** e20a677
+- **Learning:** Backend was correct all along — the bug was frontend-only, reading the wrong field
+
+---
+
+## 2026-02-15 - US-003
+- **What:** Fixed CADG document type mapping — stop defaulting to Stakeholder Map
+- **Files:** server/src/routes/cadg.ts, server/src/services/cadg/artifactGenerator.ts
+- **Fix:** Replaced ~1300-line if-else chain (that matched on taskType AND query substrings causing collisions) with clean switch on finalPlan.taskType. Added all 24 card type titles to formatTaskTitle().
+- **Commit:** c46352b
+- **Learning:** The task classifier was fine — the bug was in the approval route's dispatch logic
+
+---
+
+## 2026-02-15 - US-004
+- **What:** Fixed customer context injection in Demo Mode
+- **Files:** server/src/routes/langchain.ts
+- **Fix:** When customerContext not provided but customerId IS provided, fetch real customer data from DB via SupabaseService.getCustomer(). Applied to all 3 chat endpoints (/chat/stream, /chat, /chat/:agentType).
+- **Commit:** d308fa9
+
+---
+
+## 2026-02-15 - US-005
+- **What:** Populated all customers in Agent Center dropdown
+- **Files:** components/AgentCenterView.tsx
+- **Fix:** Added limit=100 to /api/customers fetch. Replaced native <select> with custom searchable dropdown for 33+ items.
+- **Commit:** 46665c9
+
+---
+
+## 2026-02-15 - US-006
+- **What:** Fixed conversational response mode in Demo Mode
+- **Files:** server/src/services/cadg/taskClassifier.ts, server/src/services/cadg/index.ts
+- **Fix:** Tightened isGenerativeRequest() to only match explicit generative verbs (removed "help me", "show me", "analyze"). Added isConversationalQuestion() to detect interrogative queries that bypass CADG.
+- **Commit:** 5a136dc
+
+---
+
+## 2026-02-15 - US-007
+- **What:** Fixed Generate/Approve button in Demo Mode
+- **Files:** components/AIPanel/CADGPlanCard.tsx
+- **Fix:** Approve button now calls POST /api/cadg/plan/:planId/approve instead of re-submitting as chat message. Added loading state and disabled button after click.
+- **Commit:** 7994885
+
+---
+
+## 2026-02-15 - US-008
+- **What:** Fixed Onboarding Wizard hang at Analysis step in Demo Mode
+- **Files:** components/AgentStudio/OnboardingFlow.tsx, components/UnifiedOnboarding.tsx
+- **Fix:** Added Demo Mode detection — when Google OAuth unavailable, simulate contract analysis with 2-3s delay and pre-built mock data (customer info, stakeholders, entitlements, recommendations).
+- **Commit:** 6f8f2e9
+
+---
+
+## 2026-02-15 - US-009
+- **What:** Fixed CSV export with Demo Mode fallback
+- **Files:** components/AIPanel/CADGPlanCard.tsx
+- **Fix:** Added local CSV generation from plan structure data when Google Docs export fails. Generates columns: Step, Description, Status, Assignee.
+- **Commit:** b3bf8eb
+
+---
+
+## 2026-02-15 - US-010
+- **What:** Integration verification — end-to-end retest
+- **Verification:**
+  - All 9 story commits landed on ralph/qa-bug-fixes branch
+  - TypeScript: 161 frontend errors (all pre-existing), 0 new errors
+  - 11 files changed, 808 insertions, 1099 deletions (net cleanup)
+  - Server compiles clean (all errors pre-existing)
+  - All 24 CADG card types have explicit dispatch paths
+  - Agent routing reads correct field (data.agentType)
+  - Customer context fetches from DB when customerId provided
+  - Conversational queries bypass CADG
+  - Demo Mode: onboarding wizard, CSV export, approve button all have fallbacks
+
+---
+
+## 2026-02-16 - US-007 (PRD-007 Phase 4)
+- **What:** Added org filtering to admin.ts and onboarding.ts
+- **Files changed:**
+  - server/src/routes/admin.ts — imported applyOrgFilter, wrapped 3 `.from('customers')` SELECT queries (totalCustomers, atRisk, healthy) with applyOrgFilter
+  - server/src/routes/onboarding.ts — imported applyOrgFilter + withOrgId, wrapped `.from('customers')` SELECT (existence check + GET workspace), `.from('customers')` INSERT with withOrgId, `.from('plan_tasks')` SELECT with applyOrgFilter, `.from('plan_tasks')` UPSERT/INSERT with withOrgId, `.from('plan_tasks')` UPDATE with applyOrgFilter
+  - scripts/ralph/prd.json — set US-007 passes to true
+- **Learnings for future iterations:**
+  - admin.ts only has SELECT queries on customers (count queries) — no INSERTs, so only applyOrgFilter needed
+  - onboarding.ts has both SELECT and INSERT on customers AND plan_tasks — needs both applyOrgFilter and withOrgId
+  - For chained queries like `.update(updates).eq('customer_id', x).eq('phase_index', y)`, insert applyOrgFilter before the `.eq()` chains
+
+---
+
+## 2026-02-16 - US-011 (PRD-007 Phase 4)
+- **What:** Added org filtering to final batch of 10 route files
+- **Files changed:**
+  - server/src/routes/workspace-agent.ts — imported applyOrgFilter, threaded `req` through executeHealthScoreAction (customers, health_score_history), executeRenewalAction (customers), executeKnowledgeAction (customers), executeMeetingIntelligenceAction (meeting_analyses x3)
+  - server/src/routes/thank-you.ts — wrapped customers queries in preview, send, and occasions endpoints; wrapped thank_you_log query in history endpoint
+  - server/src/routes/pattern-recognition.ts — wrapped customers queries in /portfolio and /alerts endpoints
+  - server/src/routes/executive-changes.ts — wrapped customers query in /research endpoint; wrapped executive_change_tasks query in /tasks endpoint
+  - server/src/routes/onboarding-progress.ts — wrapped customer_onboarding_progress query in main GET; wrapped customers and customer_onboarding_progress queries in /:customerId detail endpoint
+  - server/src/routes/qbr-email.ts — wrapped customers, stakeholders, usage_metrics queries in both preview (GET) and send (POST) endpoints
+  - server/src/routes/agentAnalysis.ts — added req param to fetchCustomerData and fetchUsageMetrics helper functions; applied applyOrgFilter inside them
+  - server/src/routes/metrics.ts — wrapped customers UPDATE query in health-score PUT; wrapped qbrs SELECT in QBR history GET
+  - server/src/routes/automations.ts — wrapped customers segment query in /parse; wrapped automations and automation_runs queries in /stats
+  - server/src/routes/email-suggestions.ts — wrapped stakeholders query in /suggest-response; added organization_id to tasks INSERT
+  - scripts/ralph/prd.json — set US-011 passes to true
+- **Learnings for future iterations:**
+  - workspace-agent.ts has helper functions (executeHealthScoreAction, etc.) that don't receive `req` — must thread `req` as a new param through the call chain
+  - agentAnalysis.ts similarly has helper functions (fetchCustomerData, fetchUsageMetrics) — made `req` optional param to maintain backwards compatibility
+  - For INSERT statements that don't use withOrgId() helper, add organization_id directly from req.organizationId
+  - Some files use `let supabase` (nullable) while others use `const supabase = createClient(...)` (non-null) — same pattern works for both
+
+---

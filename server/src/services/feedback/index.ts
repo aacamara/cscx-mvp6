@@ -273,14 +273,20 @@ Return ONLY valid JSON, no markdown.`
 /**
  * Get applicable routing rules sorted by priority
  */
-export async function getRoutingRules(): Promise<RoutingRule[]> {
+export async function getRoutingRules(organizationId: string | null = null): Promise<RoutingRule[]> {
   if (!supabase) return getDefaultRoutingRules();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('feedback_routing_rules')
     .select('*')
     .eq('enabled', true)
     .order('priority', { ascending: true });
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) {
     console.error('[FeedbackService] Error fetching routing rules:', error);
@@ -425,18 +431,24 @@ function getDefaultTeamForType(type: FeedbackType): string {
  * Create new feedback with classification and routing
  */
 export async function createFeedback(
-  input: CreateFeedbackInput
+  input: CreateFeedbackInput,
+  organizationId: string | null = null
 ): Promise<{ feedback: CustomerFeedback; shouldNotifyCSM: boolean }> {
   const id = uuidv4();
 
   // Get customer context for better classification
   let customerContext: { name?: string; industry?: string; arr?: number } | undefined;
   if (supabase) {
-    const { data: customer } = await supabase
+    let customerQuery = supabase
       .from('customers')
       .select('name, industry, arr')
-      .eq('id', input.customerId)
-      .single();
+      .eq('id', input.customerId);
+
+    if (organizationId) {
+      customerQuery = customerQuery.eq('organization_id', organizationId);
+    }
+
+    const { data: customer } = await customerQuery.single();
     if (customer) {
       customerContext = customer;
     }
@@ -445,12 +457,17 @@ export async function createFeedback(
   // Check if submitter is a key stakeholder
   let isKeyStakeholder = false;
   if (supabase && input.submittedBy.email) {
-    const { data: stakeholder } = await supabase
+    let stakeholderQuery = supabase
       .from('stakeholders')
       .select('id')
       .eq('customer_id', input.customerId)
-      .ilike('email', input.submittedBy.email)
-      .single();
+      .ilike('email', input.submittedBy.email);
+
+    if (organizationId) {
+      stakeholderQuery = stakeholderQuery.eq('organization_id', organizationId);
+    }
+
+    const { data: stakeholder } = await stakeholderQuery.single();
     isKeyStakeholder = !!stakeholder;
   }
 
@@ -545,6 +562,7 @@ export async function createFeedback(
       metadata: feedback.metadata,
       created_at: feedback.createdAt.toISOString(),
       updated_at: feedback.updatedAt.toISOString(),
+      ...(organizationId ? { organization_id: organizationId } : {}),
     });
 
     // Log creation event
@@ -562,14 +580,19 @@ export async function createFeedback(
 /**
  * Get feedback by ID
  */
-export async function getFeedbackById(feedbackId: string): Promise<CustomerFeedback | null> {
+export async function getFeedbackById(feedbackId: string, organizationId: string | null = null): Promise<CustomerFeedback | null> {
   if (!supabase) return null;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from('customer_feedback')
     .select('*, customers(name)')
-    .eq('id', feedbackId)
-    .single();
+    .eq('id', feedbackId);
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { data, error } = await query.single();
 
   if (error || !data) return null;
 
@@ -579,7 +602,7 @@ export async function getFeedbackById(feedbackId: string): Promise<CustomerFeedb
 /**
  * List feedback with filters
  */
-export async function listFeedback(query: FeedbackListQuery): Promise<{
+export async function listFeedback(query: FeedbackListQuery, organizationId: string | null = null): Promise<{
   feedback: CustomerFeedback[];
   total: number;
 }> {
@@ -588,6 +611,10 @@ export async function listFeedback(query: FeedbackListQuery): Promise<{
   let dbQuery = supabase
     .from('customer_feedback')
     .select('*, customers(name)', { count: 'exact' });
+
+  if (organizationId) {
+    dbQuery = dbQuery.eq('organization_id', organizationId);
+  }
 
   // Apply filters
   if (query.customerId) {
@@ -680,11 +707,12 @@ export async function listFeedback(query: FeedbackListQuery): Promise<{
 export async function updateFeedbackStatus(
   feedbackId: string,
   status: FeedbackStatus,
-  userId?: string
+  userId?: string,
+  organizationId: string | null = null
 ): Promise<{ success: boolean; message: string }> {
   if (!supabase) return { success: false, message: 'Database not available' };
 
-  const { error } = await supabase
+  let updateQuery = supabase
     .from('customer_feedback')
     .update({
       status,
@@ -692,11 +720,17 @@ export async function updateFeedbackStatus(
     })
     .eq('id', feedbackId);
 
+  if (organizationId) {
+    updateQuery = updateQuery.eq('organization_id', organizationId);
+  }
+
+  const { error } = await updateQuery;
+
   if (error) {
     return { success: false, message: 'Failed to update status' };
   }
 
-  await logFeedbackEvent(feedbackId, 'status_changed', { status }, userId);
+  await logFeedbackEvent(feedbackId, 'status_changed', { status }, userId, organizationId);
 
   return { success: true, message: `Status updated to ${status}` };
 }
@@ -708,11 +742,12 @@ export async function rerouteFeedback(
   feedbackId: string,
   newTeam: string,
   assignTo?: string,
-  userId?: string
+  userId?: string,
+  organizationId: string | null = null
 ): Promise<{ success: boolean; message: string }> {
   if (!supabase) return { success: false, message: 'Database not available' };
 
-  const { error } = await supabase
+  let updateQuery = supabase
     .from('customer_feedback')
     .update({
       routing_primary_team: newTeam,
@@ -724,11 +759,17 @@ export async function rerouteFeedback(
     })
     .eq('id', feedbackId);
 
+  if (organizationId) {
+    updateQuery = updateQuery.eq('organization_id', organizationId);
+  }
+
+  const { error } = await updateQuery;
+
   if (error) {
     return { success: false, message: 'Failed to re-route feedback' };
   }
 
-  await logFeedbackEvent(feedbackId, 'routed', { team: newTeam, assignTo, manual: true }, userId);
+  await logFeedbackEvent(feedbackId, 'routed', { team: newTeam, assignTo, manual: true }, userId, organizationId);
 
   return { success: true, message: `Feedback re-routed to ${newTeam}` };
 }

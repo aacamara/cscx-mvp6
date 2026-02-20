@@ -1,0 +1,168 @@
+{
+  "project": "CSCX.AI",
+  "branchName": "ralph/streaming-v2",
+  "description": "SSE streaming for the main AgentControlCenter chat — stream Claude WorkflowAgent responses token-by-token via Server-Sent Events. CADG plan responses remain non-streamed (instant). Reduces perceived latency from 3-8s to ~200ms first token.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Add chatStream() method to WorkflowAgent",
+      "description": "As a system, the WorkflowAgent should support streaming Claude responses token-by-token via callbacks.",
+      "acceptanceCriteria": [
+        "Add chatStream() method to the WorkflowAgent class in server/src/langchain/agents/WorkflowAgent.ts",
+        "chatStream() has same parameters as chat() PLUS: onToken: (text: string) => void, onToolEvent?: (event: { type: 'tool_start' | 'tool_end'; name: string; params?: any; result?: any; duration?: number }) => void, abortSignal?: AbortSignal",
+        "chatStream() returns the same Promise shape as chat(): { response, requiresApproval, pendingActions, toolsUsed, toolResults, specialistUsed }",
+        "Use anthropic.messages.stream() instead of anthropic.messages.create() — pass same model, max_tokens, system, tools, tool_choice, messages",
+        "Listen for 'text' events on the stream and call onToken(text) for each delta",
+        "After stream completes, extract full text from stream.finalMessage()",
+        "Process tool_use blocks the same way as chat() — check APPROVAL_REQUIRED_TOOLS, execute read-only tools, create pendingActions",
+        "Call onToolEvent with type:'tool_start' before executing each tool and type:'tool_end' after with result and duration",
+        "If abortSignal is aborted, call stream.abort() to stop generation",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "The Anthropic SDK supports streaming via anthropic.messages.stream({...}) which returns a Stream object. Use stream.on('text', (text) => {}) for token events. Use stream.finalMessage() to get the complete response. The existing chat() method at line 2724 has the exact parameters and logic to mirror. The anthropic instance is already imported at line 985-987."
+    },
+    {
+      "id": "US-002",
+      "title": "Add POST /api/ai/chat/stream SSE endpoint",
+      "description": "As a system, there should be a streaming variant of the /api/ai/chat endpoint that uses Server-Sent Events.",
+      "acceptanceCriteria": [
+        "Add POST /api/ai/chat/stream route in server/src/routes/langchain.ts, BEFORE the existing POST /chat route",
+        "Set SSE headers: Content-Type: text/event-stream, Cache-Control: no-cache, Connection: keep-alive, X-Accel-Buffering: no",
+        "Call res.flushHeaders() immediately after setting headers",
+        "Track client disconnect via req.on('close') and req.on('aborted')",
+        "Create helper function sendSSE(res, event) that writes data: JSON.stringify(event)\\n\\n",
+        "Accept same request body as /chat: message, customerId, customerContext, forceAgent, activeAgent, sessionId, useWorkflow, model, useKnowledgeBase",
+        "Read x-user-id header same as /chat route",
+        "CADG handling: Run cadgService.classify() — if isGenerative && confidence >= 0.7, create plan, send single done event with full plan metadata (same JSON shape as /chat response) then res.end(). Do NOT stream CADG.",
+        "Session handling: getOrCreateSession(), addMessage() for user message, getConversationHistory() — same as /chat",
+        "WorkflowAgent streaming: Call workflowAgent.chatStream() with onToken callback that sends {type:'token', content} SSE events, and onToolEvent callback that sends {type:'tool_start'|'tool_end', name, params, result, duration} events",
+        "After chatStream() resolves, send done event: {type:'done', content: JSON.stringify({response, agentType, model, routing, toolsUsed, toolResults, requiresApproval, pendingActions, sessionId})}",
+        "Save assistant response to session via sessionService.addMessage() after stream completes",
+        "Wrap everything in try/catch — on error send {type:'error', error: message} then res.end()",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Reference the existing SSE patterns in server/src/routes/agents.ts lines 219-468 for sendSSEEvent helper and headers. The /chat handler starts at line 446 of langchain.ts. Mirror its CADG detection (lines 479-543), session management (lines 546-562), and WorkflowAgent call (lines 567-614) but use streaming variants. For non-Claude fallbacks (action handler, Google query, orchestrator) — just run them normally and send response as a single token + done event since they don't support streaming."
+    },
+    {
+      "id": "US-003",
+      "title": "Add parseSSEData helper and streaming state to AgentControlCenter",
+      "description": "As a frontend developer, the AgentControlCenter needs SSE parsing utilities and streaming state management.",
+      "acceptanceCriteria": [
+        "Add parseSSEData function to components/AgentControlCenter/index.tsx (or a utils file imported by it)",
+        "parseSSEData takes a string chunk and returns array of parsed event objects: { type: string; content?: string; name?: string; params?: any; result?: any; duration?: number; error?: string }",
+        "Handle SSE format: split on \\n, find lines starting with 'data: ', parse JSON",
+        "Handle partial/split chunks: buffer incomplete lines across calls",
+        "Add isStreaming state: const [isStreaming, setIsStreaming] = useState(false)",
+        "Add abortControllerRef: const abortControllerRef = useRef<AbortController | null>(null)",
+        "Add streamingMessageId ref to track which message is being streamed into",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Reference the existing parseSSEData implementation in components/AIPanel/index.tsx at line 226. The AgentControlCenter already has isProcessing state — isStreaming is a sub-state during processing. The streaming message ID is needed to update the correct message as tokens arrive."
+    },
+    {
+      "id": "US-004",
+      "title": "Update sendToAgentRegular to use SSE streaming",
+      "description": "As a user, chat responses should stream token-by-token instead of appearing all at once after a long wait.",
+      "acceptanceCriteria": [
+        "Modify sendToAgentRegular() in components/AgentControlCenter/index.tsx to use the new /api/ai/chat/stream endpoint",
+        "Create AbortController and store in abortControllerRef",
+        "Use fetch() with POST to /api/ai/chat/stream with same body as before",
+        "Pass signal: abortController.signal to fetch",
+        "Get ReadableStream reader from response.body.getReader()",
+        "Create TextDecoder for decoding chunks",
+        "Set isStreaming = true before starting",
+        "Create initial empty streaming message in setMessages with isStreaming: true flag",
+        "Read chunks in a while loop: const { done, value } = await reader.read()",
+        "Parse each chunk through parseSSEData()",
+        "For 'token' events: accumulate content, update the streaming message via setMessages",
+        "For 'tool_start' events: optionally show tool indicator in UI",
+        "For 'tool_end' events: accumulate tool results",
+        "For 'done' event: parse the JSON content, extract routing/toolResults/requiresApproval/pendingActions, finalize the message (remove isStreaming flag), update activeAgent from routing, process tool results, save to database",
+        "For 'error' event: show error message",
+        "Set isStreaming = false and isProcessing = false in finally block",
+        "CADG handling: The done event may contain isGenerative+plan — handle it same as before (setPendingCadgPlan, show CADGPlanCard)",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "The current sendToAgentRegular is at line 885. It currently does: fetch → await response.json() → process. The new version replaces the response.json() with ReadableStream reading. The CADG check (line 914) needs to happen when processing the 'done' event metadata, not inline. Keep the existing message structure: { agent, message, isApproval, routing, toolResults }. The streaming message should start with content: '' and update as tokens arrive. Reference AIPanel/index.tsx lines 355-390 for the reader pattern."
+    },
+    {
+      "id": "US-005",
+      "title": "Add streaming cursor and typing indicator",
+      "description": "As a user, I want visual feedback that the AI is generating a response with a blinking cursor.",
+      "acceptanceCriteria": [
+        "When isStreaming is true and a message has isStreaming: true flag, show a blinking cursor character (▊ or |) at the end of the message content",
+        "Add CSS animation for cursor blink: @keyframes blink { 0%,100% { opacity: 1 } 50% { opacity: 0 } }",
+        "The cursor should be a span after the message text with the blink animation",
+        "When the stream completes (isStreaming set to false), remove the cursor",
+        "During streaming, the message area should auto-scroll to keep the latest content visible",
+        "Use a ref on the messages container and scrollIntoView or scrollTop manipulation",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "The messages are rendered in the AgentControlCenter's JSX. Look for where messages are mapped and rendered. The auto-scroll should use useEffect watching messages changes. Add the cursor inline with the message text, not as a separate element. The existing message rendering likely uses markdown — put the cursor span after the markdown output."
+    },
+    {
+      "id": "US-006",
+      "title": "Add stop generation button",
+      "description": "As a user, I want to stop a streaming response if I don't need the full answer.",
+      "acceptanceCriteria": [
+        "Show a 'Stop generating' button when isStreaming is true",
+        "Button appears below the streaming message or in the input area (replacing the send button)",
+        "Clicking the button calls abortControllerRef.current?.abort()",
+        "After abort: set isStreaming to false, finalize the current message content as-is (don't add error text)",
+        "The backend detects the client disconnect and stops Claude generation",
+        "Style: simple text button or icon button, subtle but visible, matches existing design system",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "The input area in AgentControlCenter already has conditional UI. Look for the send button and conditionally show stop button instead. The AbortController signal propagates to both the fetch request and the server's req.close event."
+    },
+    {
+      "id": "US-007",
+      "title": "Handle streaming errors and non-streaming fallback",
+      "description": "As a system, streaming errors should be handled gracefully with fallback to non-streaming.",
+      "acceptanceCriteria": [
+        "If fetch to /api/ai/chat/stream fails (network error, 500, etc.), catch the error",
+        "On error, automatically retry with the non-streaming /api/ai/chat endpoint as fallback",
+        "Show a brief status message like 'Streaming unavailable, loading response...' during fallback",
+        "If the non-streaming fallback also fails, show the error message to the user",
+        "Handle AbortError separately — don't treat user-initiated abort as an error",
+        "If reader.read() throws mid-stream, show partial content accumulated so far + error notice",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "The fallback should call the existing /api/ai/chat endpoint (the original non-streaming one) which remains intact. Catch fetch errors and AbortError separately. AbortError = user clicked stop = not an error. Other errors = try fallback."
+    },
+    {
+      "id": "US-008",
+      "title": "Integration verification — end-to-end streaming flow",
+      "description": "As a developer, verify the complete streaming flow works end-to-end.",
+      "acceptanceCriteria": [
+        "The backend /api/ai/chat/stream endpoint responds with SSE Content-Type header",
+        "Token events are sent as the Claude API streams them (not buffered)",
+        "The done event contains all required metadata: response, agentType, routing, toolResults, requiresApproval, pendingActions, sessionId",
+        "CADG requests through the stream endpoint correctly detect generative requests and return plan in done event",
+        "The frontend accumulates tokens and displays them progressively",
+        "Tool execution events (tool_start, tool_end) are forwarded from backend to frontend",
+        "Message is saved to database after stream completes",
+        "Stop button aborts the stream and shows partial content",
+        "Fallback to non-streaming works when stream endpoint fails",
+        "Run npx tsc --noEmit from project root — no NEW type errors introduced"
+      ],
+      "priority": 8,
+      "passes": true,
+      "notes": "This is a verification story. Check that all pieces connect: frontend sends to /stream endpoint, backend streams from Claude, frontend renders tokens progressively. Verify CADG cards still work. Fix any integration issues found. If tests exist, run them."
+    }
+  ]
+}

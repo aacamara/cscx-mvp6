@@ -36,12 +36,13 @@ const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);
 router.get('/dashboard', async (req: Request, res: Response) => {
   try {
     const userId = req.headers['x-user-id'] as string;
+    const organizationId = (req as any).organizationId;
     const { startDate, endDate } = req.query;
 
     const start = startDate ? new Date(startDate as string) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const end = endDate ? new Date(endDate as string) : new Date();
 
-    const metrics = await calculateDashboardMetrics(start, end, userId);
+    const metrics = await calculateDashboardMetrics(start, end, userId, organizationId);
     res.json(metrics);
   } catch (error) {
     console.error('Dashboard metrics error:', error);
@@ -56,7 +57,8 @@ router.get('/dashboard', async (req: Request, res: Response) => {
 router.get('/customer/:customerId', async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params;
-    const metrics = await calculateCustomerMetrics(customerId);
+    const organizationId = (req as any).organizationId;
+    const metrics = await calculateCustomerMetrics(customerId, organizationId);
     res.json(metrics);
   } catch (error) {
     console.error('Customer metrics error:', error);

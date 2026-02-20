@@ -1,0 +1,26 @@
+## Codebase Patterns
+- Express SSE requires res.flushHeaders() before streaming
+- Use res.write() not res.send() for streaming
+- WorkflowAgent.chatStream() bypasses LangGraph and calls Anthropic directly
+- SSE streaming route at /api/ai/chat/stream added BEFORE /chat route
+- CADG plans are NOT streamed — sent as single done event
+- parseSSEData() handles partial chunk buffering across calls
+- sendToAgentRegular() uses ReadableStream reader for SSE consumption
+- Codebase has ~80 pre-existing frontend type errors and ~30 server type errors — focus on not introducing NEW ones
+- DEMO_USER_ID = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131' — used for Demo Mode fallback
+- getUserId() at agentic-agents.ts:86-99 falls back to DEMO_USER_ID in dev mode
+- buildContext() at agentic-agents.ts:119-162 properly fetches customer data from DB
+- Agent routing: AgentControlCenter sends forceAgent → langchain.ts → WorkflowAgent._specialistPersona
+- CADG taskClassifier has 24 card types with phrase patterns (0.95), keyword matching, fuzzy matching, LLM fallback
+- Customer context built at langchain.ts:478-488 — falls back to 'Unknown Customer' in Demo Mode
+- CADG confidence threshold at langchain.ts:505 — >= 0.7 triggers execution plan
+- Brand colors: cscx-accent (#e63946 red), cscx-black (#000000), cscx-gray-900 (#0a0a0a)
+
+---
+
+# QA Bug Fixes Progress Log
+
+Initialized: Ready to start US-001 (Fix recursive requireAuth bug)
+Started: 2026-02-15
+
+---

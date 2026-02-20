@@ -14,7 +14,7 @@
         "Typecheck passes"
       ],
       "priority": 1,
-      "passes": true,
+      "passes": false,
       "notes": "Critical bug at server/src/routes/agentic-agents.ts lines 105-116. The function requireAuth() calls itself on line 106 instead of calling getUserId(). This causes infinite recursion for any authenticated endpoint. Fix: change line 106 to 'const userId = getUserId(req);' and remove the duplicate guard on line 107."
     },
     {
@@ -31,7 +31,7 @@
         "Typecheck passes"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": "Trace the full path: AgentControlCenter (line 969: forceAgent: selectedAgent !== 'auto' ? selectedAgent : undefined) → POST /api/ai/chat/stream (langchain.ts:466) → WorkflowAgent.chatStream(). The forceAgent parameter must propagate to the specialist persona selection in WorkflowAgent.ts at lines 2232-2266 where it reads customerContext._specialistPersona. Check if _specialistPersona is being set from forceAgent in langchain.ts before passing to WorkflowAgent. Also check orchestrator.ts:298-316 orchestrator.chatWithSpecialist() which should be called when forceAgent is provided."
     },
     {
@@ -48,7 +48,7 @@
         "Typecheck passes"
       ],
       "priority": 3,
-      "passes": true,
+      "passes": false,
       "notes": "The taskClassifier.ts at lines 142-425 has all 24 card types defined. The issue is likely in artifactGenerator.ts which may only implement stakeholder_map template and fall through to it for unimplemented types. Check the generate*Preview() methods in artifactGenerator.ts. Each task type needs its own generation path. Also check cadg.ts POST /api/cadg/plan/:planId/approve — verify taskType is preserved from plan creation through to artifact generation."
     },
     {
@@ -65,7 +65,7 @@
         "Typecheck passes"
       ],
       "priority": 4,
-      "passes": true,
+      "passes": false,
       "notes": "The root issue is in langchain.ts lines 478-488 where context is built. When customerContext is not passed from frontend (which may happen in Demo Mode), it falls back to {name: 'Unknown Customer', ...}. Fix: if customerId is in the request, fetch the real customer data from the database before building context. Reference how agentic-agents.ts does it at lines 119-162 with buildContext(). The frontend AgentControlCenter does send customerId when a customer is selected — it's the backend that doesn't fetch data from it."
     },
     {
@@ -82,7 +82,7 @@
         "Typecheck passes"
       ],
       "priority": 5,
-      "passes": true,
+      "passes": false,
       "notes": "The Dashboard shows all 33 customers but Agent Center only shows 3. The customer selector in AgentControlCenter may have a hardcoded list or a different API endpoint. Check if it fetches from /api/customers with any limiting params. The customers route is at server/src/routes/customers.ts. Compare how Dashboard fetches customers vs how Agent Center does it."
     },
     {
@@ -99,7 +99,7 @@
         "Typecheck passes"
       ],
       "priority": 6,
-      "passes": true,
+      "passes": false,
       "notes": "In authenticated mode, conversational responses work because the WorkflowAgent handles the query directly when CADG classification confidence is below 0.7. In Demo Mode, the issue might be that CADG always returns high confidence. Check taskClassifier.ts — the classify() method may be too aggressive with matching. Also check if Demo Mode sends different parameters that affect classification. The fix should ensure that non-generative queries (questions, advice-seeking) bypass CADG and go straight to WorkflowAgent for a conversational response."
     },
     {
@@ -118,7 +118,7 @@
         "Typecheck passes"
       ],
       "priority": 7,
-      "passes": true,
+      "passes": false,
       "notes": "In authenticated mode, this works — the Save Play card generates correctly. The issue in Demo Mode is likely that the approve button's click handler sends a new chat message instead of calling the CADG approve API. Search for the CADGPlanCard or ExecutionPlanCard component. Check if the approve handler distinguishes between 'new message' and 'approve plan'. The approve endpoint is POST /api/cadg/plan/:planId/approve in server/src/routes/cadg.ts."
     },
     {
@@ -136,7 +136,7 @@
         "Typecheck passes"
       ],
       "priority": 8,
-      "passes": true,
+      "passes": false,
       "notes": "The onboarding wizard Step 3 likely calls a contract analysis endpoint that requires Google OAuth tokens to access Google Drive/Docs. In Demo Mode without Google auth, this times out. Fix: check for auth before making the API call, and if unavailable, return mock analysis data. Look for the component that handles the Analysis phase — it may be in components/UnifiedOnboarding.tsx or a step component. The backend endpoint might be in server/src/services/contractParser.ts or server/src/routes/contracts.ts."
     },
     {
@@ -152,7 +152,7 @@
         "Typecheck passes"
       ],
       "priority": 9,
-      "passes": true,
+      "passes": false,
       "notes": "Every export attempt in Demo Mode shows 'Export failed'. The export may try to fetch from Google Docs URLs that aren't accessible. Fix: generate CSV directly from the execution plan's structure data stored in the plan object, without requiring Google integration. The plan object from CADG contains structure with steps that can be exported as CSV."
     },
     {
@@ -171,7 +171,7 @@
         "Typecheck passes"
       ],
       "priority": 10,
-      "passes": true,
+      "passes": false,
       "notes": "This is a verification story. Check that all previous fixes work together. Run through the full QA checklist from the mega prompt. If any integration issues are found, fix them. Focus on the critical path: select customer → select agent → ask question → get correct response."
     }
   ]
