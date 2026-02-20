@@ -24,6 +24,20 @@
 - req.organizationId comes from auth middleware (resolveOrgMembership)
 - When no org context (demo mode), applyOrgFilter uses .is('organization_id', null)
 
+## Service Layer Org Filtering (PRD-007 Phase 5)
+- For service methods: add `organizationId: string | null = null` as last parameter
+- SELECT pattern in services: `if (organizationId) query = query.eq('organization_id', organizationId);`
+- INSERT pattern in services: `...(organizationId ? { organization_id: organizationId } : {})`
+- Route callers pass `req.organizationId` to all service method calls
+- For methods that call other methods, thread organizationId through entire call chain
+- Some route files have direct Supabase queries bypassing service layer — check for `.from()` in routes too
+
+## Auth Flow Patterns
+- needsOrgSetup detection requires hasCheckedOrg companion flag (AuthContext)
+- hasCheckedOrg distinguishes "still loading org membership" from "checked and no org found"
+- Auth state machine: loading → checked-no-org → has-org → fully-authenticated
+- Login.tsx has two paths: invite code flow and create-org flow (Google OAuth)
+
 ---
 
 # QA Bug Fixes Progress Log
@@ -218,5 +232,42 @@ Started: 2026-02-15
   - All SELECT queries use `if (organizationId) query = query.eq('organization_id', organizationId);`
   - All INSERT/UPSERT queries use `...(organizationId ? { organization_id: organizationId } : {})`
 - **Commit:** 7e210f6
+
+---
+
+## 2026-02-20 - US-003 (PRD-007 Service Layer)
+- **What:** Added organizationId filtering to email service layer
+- **Files changed:**
+  - server/src/services/email/emailService.ts — Added organizationId parameter to fetchAndStoreEmail(), updateSyncStatus(), getSyncStatus(), getEmails(), matchByStakeholderEmail(), matchByDomain(), matchByNameMention(), linkEmailsToCustomers(), matchAndLinkEmail()
+  - server/src/routes/email.ts — Updated all service method calls to pass req.organizationId
+- **Learnings:**
+  - Email service has ~10 methods across 4 tables (emails, email_sync_status, stakeholders, customers)
+  - matchAndLinkEmail() orchestrates sub-methods — organizationId threaded through entire chain
+- **Commit:** ec60e18
+
+---
+
+## 2026-02-20 - US-005 (PRD-007 Service Layer)
+- **What:** Added organizationId filtering to feedback service layer
+- **Files changed:**
+  - server/src/services/feedback/index.ts — Added organizationId parameter to createFeedback(), getRoutingRules()
+  - server/src/routes/feedback.ts — Updated service calls + direct Supabase queries on feedback_events, feedback_comments, feedback_teams
+- **Learnings:**
+  - Feedback route file has DIRECT Supabase queries bypassing service layer — these also need org filtering
+  - Always check route files for direct .from() calls
+- **Commit:** a4bc9d1
+
+---
+
+## 2026-02-20 - Auth Flow Fix (Production Readiness)
+- **What:** Fixed critical needsOrgSetup bug — new users couldn't reach SignupPage after Google OAuth
+- **Files changed:**
+  - context/AuthContext.tsx — Added hasCheckedOrg flag to distinguish "still loading" from "no org found"
+  - App.tsx — Added useEffect to detect "authenticated but no org" → sets needsOrgSetup=true
+  - components/Login.tsx — Added "Create Organization" guidance with Google sign-in for users without invite codes
+- **Learnings:**
+  - Boolean states starting as false that depend on async data need a "has checked" companion flag
+  - Auth state machines: loading → checked-no-org → has-org → fully-authenticated
+- **Part of:** multi-tenant merge commit 4260cb8
 
 ---
