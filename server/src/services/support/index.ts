@@ -143,24 +143,24 @@ export class SupportService {
   /**
    * Process incoming ticket webhook
    */
-  async processTicketWebhook(payload: TicketWebhookPayload): Promise<{
+  async processTicketWebhook(payload: TicketWebhookPayload, organizationId: string | null = null): Promise<{
     ticket: SupportTicket;
     spikeDetected: boolean;
     spikeResult?: SpikeResult;
   }> {
     // Create or update ticket
-    const ticket = await this.upsertTicket(payload);
+    const ticket = await this.upsertTicket(payload, organizationId);
 
     // Check for spike
     const spikeResult = await this.detectTicketSpike({
       customerId: payload.customerId,
       lookbackHours: 24,
       spikeThreshold: 3.0,
-    });
+    }, organizationId);
 
     // If spike detected, fire trigger event
     if (spikeResult.isSpike) {
-      await this.handleSpikeDetected(ticket.customerId, spikeResult);
+      await this.handleSpikeDetected(ticket.customerId, spikeResult, organizationId);
     }
 
     return {
@@ -412,7 +412,7 @@ export class SupportService {
   /**
    * Detect ticket spike for a customer
    */
-  async detectTicketSpike(params: SpikeDetectionParams): Promise<SpikeResult> {
+  async detectTicketSpike(params: SpikeDetectionParams, organizationId: string | null = null): Promise<SpikeResult> {
     const {
       customerId,
       lookbackHours = 24,
@@ -421,12 +421,12 @@ export class SupportService {
     } = params;
 
     // Get recent tickets
-    const recentTickets = await this.getTickets(customerId, { lookbackHours });
+    const recentTickets = await this.getTickets(customerId, { lookbackHours }, organizationId);
 
     // Get or calculate baseline
-    let baseline = await this.getBaseline(customerId);
+    let baseline = await this.getBaseline(customerId, organizationId);
     if (!baseline) {
-      baseline = await this.calculateBaseline(customerId, baselineDays);
+      baseline = await this.calculateBaseline(customerId, baselineDays, organizationId);
     }
 
     // Normalize current count to daily rate
@@ -515,7 +515,7 @@ export class SupportService {
   /**
    * Handle detected spike - create risk signal and fire trigger
    */
-  async handleSpikeDetected(customerId: string, spikeResult: SpikeResult): Promise<RiskSignal> {
+  async handleSpikeDetected(customerId: string, spikeResult: SpikeResult, organizationId: string | null = null): Promise<RiskSignal> {
     // Create risk signal
     const signal = await this.createRiskSignal({
       customerId,
@@ -534,7 +534,7 @@ export class SupportService {
         common_themes: spikeResult.themes,
         ticket_ids: spikeResult.tickets.map(t => t.externalId),
       },
-    });
+    }, organizationId);
 
     // Get customer info for event
     const customerInfo = await this.getCustomerInfo(customerId);
@@ -577,7 +577,7 @@ export class SupportService {
     scoreImpact?: number;
     metadata?: Record<string, any>;
     triggerId?: string;
-  }): Promise<RiskSignal> {
+  }, organizationId: string | null = null): Promise<RiskSignal> {
     const signalId = uuidv4();
 
     if (!this.supabase) {
@@ -613,6 +613,7 @@ export class SupportService {
         status: 'active',
         source: 'system',
         trigger_id: params.triggerId,
+        ...(organizationId ? { organization_id: organizationId } : {}),
       })
       .select()
       .single();
@@ -628,7 +629,7 @@ export class SupportService {
   /**
    * Get active risk signals for a customer
    */
-  async getRiskSignals(customerId: string, signalType?: string): Promise<RiskSignal[]> {
+  async getRiskSignals(customerId: string, signalType?: string, organizationId: string | null = null): Promise<RiskSignal[]> {
     if (!this.supabase) return [];
 
     let query = this.supabase
@@ -637,6 +638,10 @@ export class SupportService {
       .eq('customer_id', customerId)
       .eq('status', 'active')
       .order('created_at', { ascending: false });
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
 
     if (signalType) {
       query = query.eq('signal_type', signalType);
@@ -655,19 +660,23 @@ export class SupportService {
   /**
    * Acknowledge a risk signal
    */
-  async acknowledgeSignal(signalId: string, userId: string): Promise<RiskSignal | null> {
+  async acknowledgeSignal(signalId: string, userId: string, organizationId: string | null = null): Promise<RiskSignal | null> {
     if (!this.supabase) return null;
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('risk_signals')
       .update({
         status: 'acknowledged',
         acknowledged_by: userId,
         acknowledged_at: new Date().toISOString(),
       })
-      .eq('id', signalId)
-      .select()
-      .single();
+      .eq('id', signalId);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) {
       console.error('[SupportService] Error acknowledging signal:', error);
@@ -680,10 +689,10 @@ export class SupportService {
   /**
    * Resolve a risk signal
    */
-  async resolveSignal(signalId: string, notes?: string, autoResolved: boolean = false): Promise<RiskSignal | null> {
+  async resolveSignal(signalId: string, notes?: string, autoResolved: boolean = false, organizationId: string | null = null): Promise<RiskSignal | null> {
     if (!this.supabase) return null;
 
-    const { data, error } = await this.supabase
+    let query = this.supabase
       .from('risk_signals')
       .update({
         status: 'resolved',
@@ -691,9 +700,13 @@ export class SupportService {
         resolution_notes: notes,
         auto_resolved: autoResolved,
       })
-      .eq('id', signalId)
-      .select()
-      .single();
+      .eq('id', signalId);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data, error } = await query.select().single();
 
     if (error) {
       console.error('[SupportService] Error resolving signal:', error);
@@ -710,16 +723,16 @@ export class SupportService {
   /**
    * Get comprehensive support summary for a customer
    */
-  async getSupportSummary(customerId: string, lookbackHours: number = 24): Promise<SupportSummary> {
-    const spikeResult = await this.detectTicketSpike({ customerId, lookbackHours });
+  async getSupportSummary(customerId: string, lookbackHours: number = 24, organizationId: string | null = null): Promise<SupportSummary> {
+    const spikeResult = await this.detectTicketSpike({ customerId, lookbackHours }, organizationId);
 
     // Get open ticket count
     const openTickets = await this.getTickets(customerId, {
       status: ['open', 'pending'],
-    });
+    }, organizationId);
 
     // Get escalated tickets
-    const allRecentTickets = await this.getTickets(customerId, { lookbackHours: 168 }); // Last week
+    const allRecentTickets = await this.getTickets(customerId, { lookbackHours: 168 }, organizationId); // Last week
     const escalatedCount = allRecentTickets.filter(t => t.isEscalated).length;
 
     // Calculate average resolution time

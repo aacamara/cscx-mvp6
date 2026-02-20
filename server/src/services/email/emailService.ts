@@ -609,7 +609,7 @@ export class EmailService {
   /**
    * Match by sender domain against customer domain
    */
-  private async matchByDomain(userId: string, senderDomain: string): Promise<string | null> {
+  private async matchByDomain(userId: string, senderDomain: string, organizationId: string | null = null): Promise<string | null> {
     if (!this.supabase || !senderDomain) return null;
 
     // Skip common email providers
@@ -619,12 +619,17 @@ export class EmailService {
     }
 
     // Look up customers with this domain
-    const { data: customers, error } = await this.supabase
+    let query = this.supabase
       .from('customers')
       .select('id')
       .eq('csm_id', userId)
-      .eq('domain', senderDomain.toLowerCase())
-      .limit(1);
+      .eq('domain', senderDomain.toLowerCase());
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data: customers, error } = await query.limit(1);
 
     if (error || !customers || customers.length === 0) return null;
 
@@ -637,15 +642,22 @@ export class EmailService {
   private async matchByNameMention(
     userId: string,
     subject: string,
-    bodyText: string
+    bodyText: string,
+    organizationId: string | null = null
   ): Promise<{ customerId: string; confidence: number } | null> {
     if (!this.supabase) return null;
 
     // Get all customer names for this user
-    const { data: customers, error } = await this.supabase
+    let query = this.supabase
       .from('customers')
       .select('id, name')
       .eq('csm_id', userId);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data: customers, error } = await query;
 
     if (error || !customers || customers.length === 0) return null;
 
@@ -688,7 +700,7 @@ export class EmailService {
    * Link unmatched emails to customers
    * Processes emails without customer_id and tries to match them
    */
-  async linkEmailsToCustomers(userId: string): Promise<{
+  async linkEmailsToCustomers(userId: string, organizationId: string | null = null): Promise<{
     processed: number;
     matched: number;
     errors: string[];
@@ -702,12 +714,17 @@ export class EmailService {
     let matched = 0;
 
     // Get unlinked emails for this user
-    const { data: emails, error } = await this.supabase
+    let query = this.supabase
       .from('emails')
       .select('id, from_email, to_emails, subject, body_text')
       .eq('user_id', userId)
-      .is('customer_id', null)
-      .limit(500);
+      .is('customer_id', null);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data: emails, error } = await query.limit(500);
 
     if (error) {
       return { processed: 0, matched: 0, errors: [error.message] };
@@ -724,10 +741,10 @@ export class EmailService {
           toEmails: email.to_emails || [],
           subject: email.subject || '',
           bodyText: email.body_text || '',
-        });
+        }, organizationId);
 
         if (match) {
-          const { error: updateError } = await this.supabase
+          let updateQuery = this.supabase
             .from('emails')
             .update({
               customer_id: match.customerId,
@@ -735,6 +752,12 @@ export class EmailService {
               match_confidence: match.confidence,
             })
             .eq('id', email.id);
+
+          if (organizationId) {
+            updateQuery = updateQuery.eq('organization_id', organizationId);
+          }
+
+          const { error: updateError } = await updateQuery;
 
           if (updateError) {
             errors.push(`Email ${email.id}: ${updateError.message}`);
@@ -762,7 +785,8 @@ export class EmailService {
     fromEmail: string,
     toEmails: string[],
     subject: string,
-    bodyText: string
+    bodyText: string,
+    organizationId: string | null = null
   ): Promise<boolean> {
     if (!this.supabase) return false;
 
@@ -771,10 +795,10 @@ export class EmailService {
       toEmails,
       subject,
       bodyText,
-    });
+    }, organizationId);
 
     if (match) {
-      const { error } = await this.supabase
+      let updateQuery = this.supabase
         .from('emails')
         .update({
           customer_id: match.customerId,
@@ -782,6 +806,12 @@ export class EmailService {
           match_confidence: match.confidence,
         })
         .eq('id', emailId);
+
+      if (organizationId) {
+        updateQuery = updateQuery.eq('organization_id', organizationId);
+      }
+
+      const { error } = await updateQuery;
 
       return !error;
     }

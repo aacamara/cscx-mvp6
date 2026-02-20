@@ -312,7 +312,7 @@ router.post('/sync', async (req: Request, res: Response) => {
 
     const { days = 30 } = req.body;
 
-    const result = await emailService.fetchRecentEmails(userId, days);
+    const result = await emailService.fetchRecentEmails(userId, days, (req as any).organizationId);
 
     res.json({
       success: result.success,
@@ -340,7 +340,7 @@ router.get('/status', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User ID required' });
     }
 
-    const status = await emailService.getSyncStatus(userId);
+    const status = await emailService.getSyncStatus(userId, (req as any).organizationId);
 
     res.json(status || { connected: false, emailsSynced: 0 });
   } catch (error) {
@@ -377,7 +377,7 @@ router.get('/list', async (req: Request, res: Response) => {
       customerId: customerId as string,
       unreadOnly: unreadOnly === 'true',
       importantOnly: importantOnly === 'true',
-    });
+    }, (req as any).organizationId);
 
     res.json({
       emails,
@@ -403,7 +403,7 @@ router.post('/link-customers', async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'User ID required' });
     }
 
-    const result = await emailService.linkEmailsToCustomers(userId);
+    const result = await emailService.linkEmailsToCustomers(userId, (req as any).organizationId);
 
     res.json(result);
   } catch (error) {

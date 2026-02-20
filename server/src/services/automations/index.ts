@@ -551,7 +551,7 @@ export class AutomationService {
 
     try {
       // Get target customers
-      const customerIds = options?.customerIds || await this.getTargetCustomers(automation.scope);
+      const customerIds = options?.customerIds || await this.getTargetCustomers(automation.scope, organizationId);
 
       // Process each customer
       for (const customerId of customerIds) {
@@ -580,7 +580,7 @@ export class AutomationService {
     }
 
     run.completedAt = new Date();
-    await this.updateRun(run);
+    await this.updateRun(run, organizationId);
 
     // Update automation last run time and count
     await supabase
@@ -650,21 +650,25 @@ export class AutomationService {
   /**
    * Get target customers based on scope
    */
-  private async getTargetCustomers(scope: Automation['scope']): Promise<string[]> {
+  private async getTargetCustomers(scope: Automation['scope'], organizationId: string | null = null): Promise<string[]> {
     switch (scope.type) {
       case 'specific_customers':
         return scope.customerIds || [];
 
       case 'customer_segment':
-        const { data: segmentCustomers } = await supabase
+        let segQuery = supabase
           .from('customers')
           .select('id')
           .eq('segment', scope.segment);
+        if (organizationId) segQuery = segQuery.eq('organization_id', organizationId);
+        const { data: segmentCustomers } = await segQuery;
         return segmentCustomers?.map(c => c.id) || [];
 
       case 'all_customers':
       default:
         let query = supabase.from('customers').select('id');
+
+        if (organizationId) query = query.eq('organization_id', organizationId);
 
         if (scope.filter) {
           for (const [field, value] of Object.entries(scope.filter)) {
@@ -754,7 +758,7 @@ export class AutomationService {
   /**
    * Store run record
    */
-  private async storeRun(run: AutomationRun): Promise<void> {
+  private async storeRun(run: AutomationRun, organizationId: string | null = null): Promise<void> {
     await supabase.from('automation_runs').insert({
       id: run.id,
       automation_id: run.automationId,
@@ -766,14 +770,15 @@ export class AutomationService {
       customers_failed: run.customersFailed,
       errors: JSON.stringify(run.errors),
       started_at: run.startedAt.toISOString(),
+      ...(organizationId ? { organization_id: organizationId } : {}),
     });
   }
 
   /**
    * Update run record
    */
-  private async updateRun(run: AutomationRun): Promise<void> {
-    await supabase
+  private async updateRun(run: AutomationRun, organizationId: string | null = null): Promise<void> {
+    let query = supabase
       .from('automation_runs')
       .update({
         status: run.status,
@@ -784,17 +789,24 @@ export class AutomationService {
         completed_at: run.completedAt?.toISOString(),
       })
       .eq('id', run.id);
+
+    if (organizationId) query = query.eq('organization_id', organizationId);
+
+    await query;
   }
 
   /**
    * Get run by ID
    */
-  async getRun(runId: string): Promise<AutomationRun | null> {
-    const { data, error } = await supabase
+  async getRun(runId: string, organizationId: string | null = null): Promise<AutomationRun | null> {
+    let query = supabase
       .from('automation_runs')
       .select('*')
-      .eq('id', runId)
-      .single();
+      .eq('id', runId);
+
+    if (organizationId) query = query.eq('organization_id', organizationId);
+
+    const { data, error } = await query.single();
 
     if (error || !data) return null;
 
@@ -821,7 +833,7 @@ export class AutomationService {
     status?: string;
     limit?: number;
     offset?: number;
-  }): Promise<AutomationRun[]> {
+  }, organizationId: string | null = null): Promise<AutomationRun[]> {
     let query = supabase
       .from('automation_runs')
       .select('*')
@@ -829,6 +841,7 @@ export class AutomationService {
 
     if (options?.automationId) query = query.eq('automation_id', options.automationId);
     if (options?.status) query = query.eq('status', options.status);
+    if (organizationId) query = query.eq('organization_id', organizationId);
 
     query = query.range(
       options?.offset || 0,

@@ -566,9 +566,9 @@ export async function createFeedback(
     });
 
     // Log creation event
-    await logFeedbackEvent(feedback.id, 'created', { source: feedback.source });
-    await logFeedbackEvent(feedback.id, 'classified', { classification: feedback.classification });
-    await logFeedbackEvent(feedback.id, 'routed', { routing: feedback.routing });
+    await logFeedbackEvent(feedback.id, 'created', { source: feedback.source }, null, organizationId);
+    await logFeedbackEvent(feedback.id, 'classified', { classification: feedback.classification }, null, organizationId);
+    await logFeedbackEvent(feedback.id, 'routed', { routing: feedback.routing }, null, organizationId);
   }
 
   // Fire trigger event
@@ -783,11 +783,12 @@ export async function resolveFeedback(
   outcomeDetails?: string,
   externalTicketId?: string,
   externalTicketUrl?: string,
-  userId?: string
+  userId?: string,
+  organizationId: string | null = null
 ): Promise<{ success: boolean; message: string }> {
   if (!supabase) return { success: false, message: 'Database not available' };
 
-  const { error } = await supabase
+  let updateQuery = supabase
     .from('customer_feedback')
     .update({
       status: 'resolved',
@@ -800,11 +801,17 @@ export async function resolveFeedback(
     })
     .eq('id', feedbackId);
 
+  if (organizationId) {
+    updateQuery = updateQuery.eq('organization_id', organizationId);
+  }
+
+  const { error } = await updateQuery;
+
   if (error) {
     return { success: false, message: 'Failed to resolve feedback' };
   }
 
-  await logFeedbackEvent(feedbackId, 'resolved', { outcome, outcomeDetails, externalTicketId }, userId);
+  await logFeedbackEvent(feedbackId, 'resolved', { outcome, outcomeDetails, externalTicketId }, userId, organizationId);
 
   return { success: true, message: `Feedback resolved: ${outcome}` };
 }
@@ -817,9 +824,10 @@ export async function resolveFeedback(
  * Generate acknowledgment draft
  */
 export async function generateAcknowledgmentDraft(
-  feedbackId: string
+  feedbackId: string,
+  organizationId: string | null = null
 ): Promise<{ success: boolean; draft: string | null; error?: string }> {
-  const feedback = await getFeedbackById(feedbackId);
+  const feedback = await getFeedbackById(feedbackId, organizationId);
   if (!feedback) {
     return { success: false, draft: null, error: 'Feedback not found' };
   }
@@ -858,10 +866,16 @@ Write ONLY the acknowledgment message, no explanation.`
 
     // Save draft to database
     if (supabase) {
-      await supabase
+      let updateQuery = supabase
         .from('customer_feedback')
         .update({ ack_draft_content: draft })
         .eq('id', feedbackId);
+
+      if (organizationId) {
+        updateQuery = updateQuery.eq('organization_id', organizationId);
+      }
+
+      await updateQuery;
     }
 
     return { success: true, draft };
@@ -886,12 +900,13 @@ export async function sendAcknowledgment(
   feedbackId: string,
   method: 'email' | 'slack' | 'in_app',
   content: string,
-  approvedBy: string
+  approvedBy: string,
+  organizationId: string | null = null
 ): Promise<{ success: boolean; message: string }> {
   if (!supabase) return { success: false, message: 'Database not available' };
 
   // Update acknowledgment status
-  const { error } = await supabase
+  let updateQuery = supabase
     .from('customer_feedback')
     .update({
       ack_sent: true,
@@ -906,11 +921,17 @@ export async function sendAcknowledgment(
     })
     .eq('id', feedbackId);
 
+  if (organizationId) {
+    updateQuery = updateQuery.eq('organization_id', organizationId);
+  }
+
+  const { error } = await updateQuery;
+
   if (error) {
     return { success: false, message: 'Failed to update acknowledgment status' };
   }
 
-  await logFeedbackEvent(feedbackId, 'acknowledged', { method, approvedBy }, approvedBy);
+  await logFeedbackEvent(feedbackId, 'acknowledged', { method, approvedBy }, approvedBy, organizationId);
 
   return { success: true, message: `Acknowledgment sent via ${method}` };
 }
@@ -924,7 +945,8 @@ export async function sendAcknowledgment(
  */
 export async function getFeedbackAnalytics(
   period: { startDate: Date; endDate: Date },
-  customerId?: string
+  customerId?: string,
+  organizationId: string | null = null
 ): Promise<Record<string, unknown>> {
   if (!supabase) {
     return {
@@ -942,6 +964,10 @@ export async function getFeedbackAnalytics(
     .select('*')
     .gte('created_at', period.startDate.toISOString())
     .lte('created_at', period.endDate.toISOString());
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
 
   if (customerId) {
     query = query.eq('customer_id', customerId);
@@ -1073,7 +1099,8 @@ async function logFeedbackEvent(
   feedbackId: string,
   eventType: string,
   eventData: Record<string, unknown>,
-  performedBy?: string | null
+  performedBy?: string | null,
+  organizationId: string | null = null
 ): Promise<void> {
   if (!supabase) return;
 
@@ -1084,6 +1111,7 @@ async function logFeedbackEvent(
     event_data: eventData,
     performed_by: performedBy || null,
     created_at: new Date().toISOString(),
+    ...(organizationId ? { organization_id: organizationId } : {}),
   });
 }
 
@@ -1125,18 +1153,25 @@ async function fireFeedbackTrigger(feedback: CustomerFeedback): Promise<void> {
  */
 export async function notifyCSMOfFeedback(
   feedback: CustomerFeedback,
-  slackWebhook?: string
+  slackWebhook?: string,
+  organizationId: string | null = null
 ): Promise<boolean> {
   if (!supabase) return false;
 
   // Update notification status
-  await supabase
+  let updateQuery = supabase
     .from('customer_feedback')
     .update({
       csm_notified: true,
       csm_notified_at: new Date().toISOString(),
     })
     .eq('id', feedback.id);
+
+  if (organizationId) {
+    updateQuery = updateQuery.eq('organization_id', organizationId);
+  }
+
+  await updateQuery;
 
   // Send Slack notification if webhook available
   if (slackWebhook) {

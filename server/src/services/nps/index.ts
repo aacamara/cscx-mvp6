@@ -451,18 +451,24 @@ export async function getNpsHistory(customerId: string, organizationId: string |
  */
 export async function initiateRecovery(
   responseId: string,
-  priority?: 'normal' | 'high' | 'critical'
+  priority?: 'normal' | 'high' | 'critical',
+  organizationId: string | null = null
 ): Promise<{ success: boolean; message: string }> {
   if (!supabase) {
     return { success: false, message: 'Database not available' };
   }
 
   // Get the response
-  const { data: response, error: fetchError } = await supabase
+  let responseQuery = supabase
     .from('nps_responses')
     .select('*')
-    .eq('id', responseId)
-    .single();
+    .eq('id', responseId);
+
+  if (organizationId) {
+    responseQuery = responseQuery.eq('organization_id', organizationId);
+  }
+
+  const { data: response, error: fetchError } = await responseQuery.single();
 
   if (fetchError || !response) {
     return { success: false, message: 'NPS response not found' };
@@ -473,7 +479,7 @@ export async function initiateRecovery(
   }
 
   // Update the response
-  await supabase
+  let updateQuery = supabase
     .from('nps_responses')
     .update({
       recovery_initiated: true,
@@ -481,12 +487,23 @@ export async function initiateRecovery(
     })
     .eq('id', responseId);
 
+  if (organizationId) {
+    updateQuery = updateQuery.eq('organization_id', organizationId);
+  }
+
+  await updateQuery;
+
   // Get customer for context
-  const { data: customer } = await supabase
+  let customerQuery = supabase
     .from('customers')
     .select('*')
-    .eq('id', response.customer_id)
-    .single();
+    .eq('id', response.customer_id);
+
+  if (organizationId) {
+    customerQuery = customerQuery.eq('organization_id', organizationId);
+  }
+
+  const { data: customer } = await customerQuery.single();
 
   // Create a risk signal
   await supabase.from('risk_signals').insert({
@@ -518,6 +535,7 @@ export async function initiateRecovery(
     },
     status: 'open',
     created_at: new Date().toISOString(),
+    ...(organizationId ? { organization_id: organizationId } : {}),
   });
 
   // Update health score with NPS impact
@@ -536,6 +554,7 @@ export async function initiateRecovery(
     priority: priority || 'critical',
     due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(), // 24 hours
     created_at: new Date().toISOString(),
+    ...(organizationId ? { organization_id: organizationId } : {}),
   });
 
   return { success: true, message: 'Recovery workflow initiated' };
@@ -547,13 +566,14 @@ export async function initiateRecovery(
 export async function updateRecoveryStatus(
   responseId: string,
   status: RecoveryStatus,
-  notes?: string
+  notes?: string,
+  organizationId: string | null = null
 ): Promise<{ success: boolean; message: string }> {
   if (!supabase) {
     return { success: false, message: 'Database not available' };
   }
 
-  const { error } = await supabase
+  let query = supabase
     .from('nps_responses')
     .update({
       recovery_status: status,
@@ -561,6 +581,12 @@ export async function updateRecoveryStatus(
       updated_at: new Date().toISOString(),
     })
     .eq('id', responseId);
+
+  if (organizationId) {
+    query = query.eq('organization_id', organizationId);
+  }
+
+  const { error } = await query;
 
   if (error) {
     return { success: false, message: 'Failed to update recovery status' };

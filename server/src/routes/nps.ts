@@ -76,7 +76,7 @@ router.post('/responses', async (req: Request, res: Response) => {
       surveyId,
       surveyCampaign,
       submittedAt: submittedAt || new Date().toISOString(),
-    });
+    }, req.organizationId);
 
     // Get customer info for context
     let customer: { id: string; name: string; arr?: number; healthScore?: number } | null = null;
@@ -128,7 +128,7 @@ router.post('/responses', async (req: Request, res: Response) => {
 
       // Auto-initiate recovery for critical/high severity
       if (dropResult.severity === 'critical' || dropResult.severity === 'high') {
-        await initiateRecovery(npsResponse.id, dropResult.severity);
+        await initiateRecovery(npsResponse.id, dropResult.severity, req.organizationId);
 
         // Send Slack notification if webhook configured
         const slackWebhook = process.env.SLACK_NPS_WEBHOOK_URL || process.env.SLACK_ALERTS_WEBHOOK_URL;
@@ -256,7 +256,7 @@ router.get('/customers/:customerId/nps', async (req: Request, res: Response) => 
   try {
     const { customerId } = req.params;
 
-    const history = await getNpsHistory(customerId);
+    const history = await getNpsHistory(customerId, req.organizationId);
 
     res.json(history);
   } catch (error) {
@@ -278,7 +278,7 @@ router.post('/responses/:responseId/initiate-recovery', async (req: Request, res
     const { responseId } = req.params;
     const { priority } = req.body;
 
-    const result = await initiateRecovery(responseId, priority);
+    const result = await initiateRecovery(responseId, priority, req.organizationId);
 
     if (!result.success) {
       return res.status(400).json({ error: result.message });
@@ -308,7 +308,7 @@ router.patch('/responses/:responseId/recovery', async (req: Request, res: Respon
       return res.status(400).json({ error: 'Invalid status' });
     }
 
-    const result = await updateRecoveryStatus(responseId, status, notes);
+    const result = await updateRecoveryStatus(responseId, status, notes, req.organizationId);
 
     if (!result.success) {
       return res.status(400).json({ error: result.message });
@@ -524,7 +524,7 @@ router.post('/webhooks/delighted', async (req: Request, res: Response) => {
       surveyId: survey_response?.id,
       surveyCampaign: 'delighted',
       submittedAt: survey_response?.created_at || new Date().toISOString(),
-    });
+    }, req.organizationId);
 
     res.json({ success: true, responseId: npsResponse.id, dropDetected: dropResult?.shouldAlert });
   } catch (error) {
@@ -589,7 +589,7 @@ router.post('/webhooks/typeform', async (req: Request, res: Response) => {
       surveyId: form_response?.token,
       surveyCampaign: 'typeform',
       submittedAt: form_response?.submitted_at || new Date().toISOString(),
-    });
+    }, req.organizationId);
 
     res.json({ success: true, responseId: npsResponse.id, dropDetected: dropResult?.shouldAlert });
   } catch (error) {

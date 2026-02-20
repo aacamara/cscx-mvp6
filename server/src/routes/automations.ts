@@ -68,6 +68,7 @@ router.post('/parse', async (req: Request, res: Response) => {
 router.post('/from-nl', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId || 'system';
+    const organizationId = (req as any).organizationId || null;
     const { description, name, enabled } = req.body;
 
     if (!description) {
@@ -77,7 +78,8 @@ router.post('/from-nl', async (req: Request, res: Response) => {
     const automation = await automationService.createFromNL(
       description,
       userId,
-      { name, enabled }
+      { name, enabled },
+      organizationId
     );
 
     res.status(201).json({ automation });
@@ -98,6 +100,7 @@ router.post('/from-nl', async (req: Request, res: Response) => {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId;
+    const organizationId = (req as any).organizationId || null;
     const { type, enabled, limit = '50', offset = '0' } = req.query;
 
     const automations = await automationService.listAutomations({
@@ -105,7 +108,7 @@ router.get('/', async (req: Request, res: Response) => {
       enabled: enabled === 'true' ? true : enabled === 'false' ? false : undefined,
       limit: parseInt(limit as string),
       offset: parseInt(offset as string),
-    });
+    }, organizationId);
 
     res.json({ automations });
   } catch (error) {
@@ -121,8 +124,9 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/:automationId', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
+    const organizationId = (req as any).organizationId || null;
 
-    const automation = await automationService.getAutomation(automationId);
+    const automation = await automationService.getAutomation(automationId, organizationId);
 
     if (!automation) {
       return res.status(404).json({ error: 'Automation not found' });
@@ -142,6 +146,7 @@ router.get('/:automationId', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const userId = (req as any).userId || 'system';
+    const organizationId = (req as any).organizationId || null;
     const {
       name,
       description,
@@ -171,7 +176,7 @@ router.post('/', async (req: Request, res: Response) => {
       scope,
       enabled: enabled ?? false,
       createdBy: userId,
-    });
+    }, organizationId);
 
     res.status(201).json({ automation });
   } catch (error) {
@@ -187,9 +192,10 @@ router.post('/', async (req: Request, res: Response) => {
 router.put('/:automationId', async (req: Request, res: Response) => {
   try {
     const { automationId } = req.params;
+    const organizationId = (req as any).organizationId || null;
     const updates = req.body;
 
-    const automation = await automationService.updateAutomation(automationId, updates);
+    const automation = await automationService.updateAutomation(automationId, updates, organizationId);
 
     res.json({ automation });
   } catch (error) {

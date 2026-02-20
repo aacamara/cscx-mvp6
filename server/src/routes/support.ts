@@ -51,7 +51,7 @@ router.post('/webhook', async (req: Request, res: Response) => {
       isEscalation: payload.isEscalation,
       escalationLevel: payload.escalationLevel,
       metadata: payload.metadata,
-    });
+    }, (req as any).organizationId);
 
     res.json({
       success: true,
@@ -102,7 +102,7 @@ router.post('/webhook/batch', async (req: Request, res: Response) => {
         createdAt: payload.createdAt,
         isEscalation: payload.isEscalation,
         metadata: payload.metadata,
-      });
+      }, (req as any).organizationId);
 
       results.push({
         ticketId: result.ticket.externalId,

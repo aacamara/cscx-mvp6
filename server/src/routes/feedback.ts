@@ -91,13 +91,13 @@ router.post('/', async (req: Request, res: Response) => {
       content,
       rawContent,
       metadata,
-    });
+    }, req.organizationId);
 
     // Send CSM notification if needed
     if (shouldNotifyCSM) {
       const slackWebhook = process.env.SLACK_FEEDBACK_WEBHOOK_URL || process.env.SLACK_ALERTS_WEBHOOK_URL;
       if (slackWebhook) {
-        await notifyCSMOfFeedback(feedback, slackWebhook);
+        await notifyCSMOfFeedback(feedback, slackWebhook, req.organizationId);
       }
     }
 
@@ -180,7 +180,7 @@ router.get('/', async (req: Request, res: Response) => {
       offset: offset ? parseInt(offset as string) : undefined,
       sortBy: sortBy as string | undefined,
       sortOrder: sortOrder as 'asc' | 'desc' | undefined,
-    });
+    }, req.organizationId);
 
     res.json({
       success: true,
@@ -202,7 +202,7 @@ router.get('/:feedbackId', async (req: Request, res: Response) => {
   try {
     const { feedbackId } = req.params;
 
-    const feedback = await getFeedbackById(feedbackId);
+    const feedback = await getFeedbackById(feedbackId, req.organizationId);
 
     if (!feedback) {
       return res.status(404).json({ error: 'Feedback not found' });
@@ -213,17 +213,26 @@ router.get('/:feedbackId', async (req: Request, res: Response) => {
     let comments: unknown[] = [];
 
     if (supabase) {
+      let eventsQuery = supabase
+        .from('feedback_events')
+        .select('*')
+        .eq('feedback_id', feedbackId)
+        .order('created_at', { ascending: false });
+
+      let commentsQuery = supabase
+        .from('feedback_comments')
+        .select('*')
+        .eq('feedback_id', feedbackId)
+        .order('created_at', { ascending: true });
+
+      if (req.organizationId) {
+        eventsQuery = eventsQuery.eq('organization_id', req.organizationId);
+        commentsQuery = commentsQuery.eq('organization_id', req.organizationId);
+      }
+
       const [eventsResult, commentsResult] = await Promise.all([
-        supabase
-          .from('feedback_events')
-          .select('*')
-          .eq('feedback_id', feedbackId)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('feedback_comments')
-          .select('*')
-          .eq('feedback_id', feedbackId)
-          .order('created_at', { ascending: true }),
+        eventsQuery,
+        commentsQuery,
       ]);
 
       events = eventsResult.data || [];
@@ -257,7 +266,7 @@ router.get('/customer/:customerId', async (req: Request, res: Response) => {
       offset: offset ? parseInt(offset as string) : 0,
       sortBy: 'createdAt',
       sortOrder: 'desc',
-    });
+    }, req.organizationId);
 
     res.json({
       success: true,
@@ -291,7 +300,7 @@ router.put('/:feedbackId/status', async (req: Request, res: Response) => {
       return res.status(400).json({ error: `status must be one of: ${validStatuses.join(', ')}` });
     }
 
-    const result = await updateFeedbackStatus(feedbackId, status, userId);
+    const result = await updateFeedbackStatus(feedbackId, status, userId, req.organizationId);
 
     if (!result.success) {
       return res.status(400).json({ error: result.message });
