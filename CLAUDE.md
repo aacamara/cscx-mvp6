@@ -3,11 +3,48 @@
 ## Overview
 AI-native Customer Success platform. React 19 + TypeScript + Vite + Tailwind (frontend), Express + TypeScript + Node.js (backend), Supabase PostgreSQL (database), Claude Agent SDK patterns (AI).
 
-## How We Build
-Read [docs/HOW_WE_BUILD.md](docs/HOW_WE_BUILD.md) for the Code Factory methodology. All code is written by agents, reviewed by CodeRabbit, and enforced by the repo.
+## How We Build — Code Factory Process
 
-## Risk Policy
-All changes are classified by `.github/risk-policy.json`. Critical paths (auth, org filtering, migrations) require human approval and browser evidence. See [docs/security/SECURITY.md](docs/security/SECURITY.md).
+**IMPORTANT: Follow this process for ALL code changes.**
+
+Read [docs/HOW_WE_BUILD.md](docs/HOW_WE_BUILD.md) for the full methodology.
+
+### Before Writing Code
+1. Create a feature branch: `git checkout -b feat/description` or `fix/description`
+2. Never commit directly to `main` — branch protection enforces PRs
+
+### While Writing Code
+- Every route MUST use auth middleware + org filtering (rule 8)
+- Every migration table MUST include `organization_id` (rule 9)
+- Never add `@ts-ignore` or `@ts-expect-error` to auth/security code
+- Run `npm run harness:org-filter` if you touch any route file
+
+### Before Opening a PR
+Run the preflight checks:
+```bash
+npm run harness:pre-pr    # Full check: lint + delta TS + tests
+```
+Or individually:
+```bash
+npm run harness:delta-ts      # Ensure zero NEW TypeScript errors
+npm run harness:delta-lint    # Ensure zero NEW lint errors
+npm run harness:org-filter    # Verify auth/org imports on routes
+cd server && npm test -- --run  # Run tests
+```
+
+### After Opening a PR
+The repo enforces automatically:
+1. **Risk classification** — labels PR as `risk:critical`, `risk:high`, or `risk:low`
+2. **Delta TS/lint** — fails if your changes introduce new errors
+3. **CodeRabbit review** — AI review with risk-aware path instructions
+4. **Harness gap check** — if PR references a `harness-gap` issue, test file required
+5. **Playwright evidence** — browser capture runs on `risk:critical` PRs
+6. **Claude remediation** — auto-fixes CodeRabbit findings (or use `/fix` in PR comments)
+
+### Risk Tiers (from `.github/risk-policy.json`)
+- **critical**: auth middleware, org filter, migrations — requires human approval + evidence
+- **high**: agents, LLM, routes, infra — requires review + tests
+- **low**: UI components, docs, styles — review only
 
 ## Deep Docs (read as needed)
 - [docs/architecture/CURRENT_STATE.md](docs/architecture/CURRENT_STATE.md) — Current architecture snapshot
