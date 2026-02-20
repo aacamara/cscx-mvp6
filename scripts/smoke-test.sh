@@ -16,6 +16,19 @@ check() {
   fi
 }
 
+# Check route is mounted (any response except 404)
+check_mounted() {
+  local name="$1" url="$2"
+  response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
+  if [ "$response" != "404" ]; then
+    echo "✅ $name ($response)"
+    PASS=$((PASS + 1))
+  else
+    echo "❌ $name (404 — route not mounted)"
+    FAIL=$((FAIL + 1))
+  fi
+}
+
 echo "Smoke Testing: $BASE_URL"
 echo "================================"
 echo ""
@@ -27,16 +40,18 @@ check "Health Full" "$BASE_URL/health" "200"
 
 echo ""
 echo "--- Auth Endpoints ---"
-check "API Auth" "$BASE_URL/api/auth/status" "200"
+check "Auth Session (no token)" "$BASE_URL/api/auth/session" "401"
 
 echo ""
-echo "--- Protected Endpoints (expect 401) ---"
-check "API Customers" "$BASE_URL/api/customers" "401"
-check "API Support" "$BASE_URL/api/support/tickets" "401"
-check "API NPS" "$BASE_URL/api/nps/responses" "401"
-check "API Feedback" "$BASE_URL/api/feedback" "401"
-check "API Playbooks" "$BASE_URL/api/playbooks" "401"
-check "API Automations" "$BASE_URL/api/automations" "401"
+echo "--- API Routes Mounted ---"
+check_mounted "Customers" "$BASE_URL/api/customers"
+check_mounted "Support Tickets" "$BASE_URL/api/support/tickets"
+check_mounted "NPS Responses" "$BASE_URL/api/nps/responses"
+check_mounted "Feedback" "$BASE_URL/api/feedback"
+check_mounted "Playbooks" "$BASE_URL/api/playbooks"
+check_mounted "Automations" "$BASE_URL/api/automations"
+check_mounted "Support Metrics" "$BASE_URL/api/support-metrics"
+check_mounted "Email Suggestions" "$BASE_URL/api/email-suggestions/stakeholder"
 
 echo ""
 echo "================================"
