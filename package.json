@@ -20,7 +20,7 @@
     "e2e:report": "npx playwright show-report e2e/results/html"
   },
   "dependencies": {
-    "@google/genai": "^1.0.0",
+    "@google/genai": "^1.42.0",
     "@supabase/supabase-js": "^2.90.1",
     "@tanstack/react-virtual": "^3.13.18",
     "@xyflow/react": "^12.10.0",
