@@ -10,6 +10,7 @@ import { Router, Request, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter, withOrgId, getOrgId } from '../middleware/orgFilter.js';
 import {
   parseNaturalLanguageTask,
   createTaskFromNaturalLanguage,
@@ -225,6 +226,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     if (supabase) {
       let query = supabase.from('plan_tasks').select('*, customers(name)', { count: 'exact' });
+      query = applyOrgFilter(query, req);
 
       // Apply filters
       if (customer_id) {
@@ -330,11 +332,9 @@ router.get('/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     if (supabase) {
-      const { data, error } = await supabase
-        .from('plan_tasks')
-        .select('*, customers(name)')
-        .eq('id', id)
-        .single();
+      let query = supabase.from('plan_tasks').select('*, customers(name)').eq('id', id);
+      query = applyOrgFilter(query, req);
+      const { data, error } = await query.single();
 
       if (error) {
         if (error.code === 'PGRST116') {
@@ -405,7 +405,7 @@ router.post('/', async (req: Request, res: Response) => {
     if (supabase) {
       const { data, error } = await supabase
         .from('plan_tasks')
-        .insert({
+        .insert(withOrgId({
           title,
           description,
           customer_id,
@@ -415,7 +415,7 @@ router.post('/', async (req: Request, res: Response) => {
           status: 'pending',
           source: 'manual',
           assignee_id: assignee_id || userId,
-        })
+        }, req))
         .select('*, customers(name)')
         .single();
 
@@ -492,13 +492,20 @@ router.patch('/:id', async (req: Request, res: Response) => {
     delete updates.parse_confidence;
 
     if (supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('plan_tasks')
         .update({
           ...updates,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', id)
+        .eq('id', id);
+      const orgId = getOrgId(req);
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      } else {
+        query = query.is('organization_id', null);
+      }
+      const { data, error } = await query
         .select('*, customers(name)')
         .single();
 
@@ -559,7 +566,14 @@ router.delete('/:id', async (req: Request, res: Response) => {
     const { id } = req.params;
 
     if (supabase) {
-      const { error } = await supabase.from('plan_tasks').delete().eq('id', id);
+      let deleteQuery = supabase.from('plan_tasks').delete().eq('id', id);
+      const deleteOrgId = getOrgId(req);
+      if (deleteOrgId) {
+        deleteQuery = deleteQuery.eq('organization_id', deleteOrgId);
+      } else {
+        deleteQuery = deleteQuery.is('organization_id', null);
+      }
+      const { error } = await deleteQuery;
 
       if (error) {
         throw error;
@@ -597,7 +611,7 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
     const { notes } = req.body;
 
     if (supabase) {
-      const { data, error } = await supabase
+      let completeQuery = supabase
         .from('plan_tasks')
         .update({
           status: 'completed',
@@ -605,7 +619,14 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
           completion_notes: notes,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', id)
+        .eq('id', id);
+      const completeOrgId = getOrgId(req);
+      if (completeOrgId) {
+        completeQuery = completeQuery.eq('organization_id', completeOrgId);
+      } else {
+        completeQuery = completeQuery.is('organization_id', null);
+      }
+      const { data, error } = await completeQuery
         .select('*, customers(name)')
         .single();
 

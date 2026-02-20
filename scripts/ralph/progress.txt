@@ -134,3 +134,25 @@ Started: 2026-02-15
   - For chained queries like `.update(updates).eq('customer_id', x).eq('phase_index', y)`, insert applyOrgFilter before the `.eq()` chains
 
 ---
+
+## 2026-02-16 - US-011 (PRD-007 Phase 4)
+- **What:** Added org filtering to final batch of 10 route files
+- **Files changed:**
+  - server/src/routes/workspace-agent.ts — imported applyOrgFilter, threaded `req` through executeHealthScoreAction (customers, health_score_history), executeRenewalAction (customers), executeKnowledgeAction (customers), executeMeetingIntelligenceAction (meeting_analyses x3)
+  - server/src/routes/thank-you.ts — wrapped customers queries in preview, send, and occasions endpoints; wrapped thank_you_log query in history endpoint
+  - server/src/routes/pattern-recognition.ts — wrapped customers queries in /portfolio and /alerts endpoints
+  - server/src/routes/executive-changes.ts — wrapped customers query in /research endpoint; wrapped executive_change_tasks query in /tasks endpoint
+  - server/src/routes/onboarding-progress.ts — wrapped customer_onboarding_progress query in main GET; wrapped customers and customer_onboarding_progress queries in /:customerId detail endpoint
+  - server/src/routes/qbr-email.ts — wrapped customers, stakeholders, usage_metrics queries in both preview (GET) and send (POST) endpoints
+  - server/src/routes/agentAnalysis.ts — added req param to fetchCustomerData and fetchUsageMetrics helper functions; applied applyOrgFilter inside them
+  - server/src/routes/metrics.ts — wrapped customers UPDATE query in health-score PUT; wrapped qbrs SELECT in QBR history GET
+  - server/src/routes/automations.ts — wrapped customers segment query in /parse; wrapped automations and automation_runs queries in /stats
+  - server/src/routes/email-suggestions.ts — wrapped stakeholders query in /suggest-response; added organization_id to tasks INSERT
+  - scripts/ralph/prd.json — set US-011 passes to true
+- **Learnings for future iterations:**
+  - workspace-agent.ts has helper functions (executeHealthScoreAction, etc.) that don't receive `req` — must thread `req` as a new param through the call chain
+  - agentAnalysis.ts similarly has helper functions (fetchCustomerData, fetchUsageMetrics) — made `req` optional param to maintain backwards compatibility
+  - For INSERT statements that don't use withOrgId() helper, add organization_id directly from req.organizationId
+  - Some files use `let supabase` (nullable) while others use `const supabase = createClient(...)` (non-null) — same pattern works for both
+
+---
