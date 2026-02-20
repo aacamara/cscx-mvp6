@@ -377,17 +377,11 @@ router.get('/:customerId', async (req: Request, res: Response) => {
       customer = data;
     }
 
-    // Mock customer data if not found
+    // Return 404 if customer not found (or not in user's org)
     if (!customer) {
-      customer = {
-        id: customerId,
-        name: 'Acme Corporation',
-        arr: 120000,
-        health_score: 57,
-        industry: 'Technology',
-        renewal_date: '2026-06-15',
-        stage: 'active'
-      };
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Customer not found' }
+      });
     }
 
     const score = customer.health_score || 70;

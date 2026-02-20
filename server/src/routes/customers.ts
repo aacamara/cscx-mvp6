@@ -716,6 +716,7 @@ router.get('/', async (req: Request, res: Response) => {
           tags: [],
           is_demo: c.is_demo || false,
           owner_id: c.owner_id || null,
+          organization_id: c.organization_id || null,
           created_at: c.created_at,
           updated_at: c.updated_at
         }));
@@ -748,12 +749,19 @@ router.get('/', async (req: Request, res: Response) => {
           }
         });
       } catch (supabaseError) {
-        console.error('Supabase error, falling back to in-memory:', supabaseError);
-        // Fall through to in-memory
+        console.error('Supabase query error:', supabaseError);
+
+        // If user has an org, don't fall back to in-memory — that would leak demo data
+        if (req.organizationId) {
+          return res.status(500).json({
+            error: { code: 'INTERNAL_ERROR', message: 'Failed to fetch customers' }
+          });
+        }
+        // Fall through to in-memory only for demo/dev mode
       }
     }
 
-    // Fallback to in-memory store
+    // Fallback to in-memory store (only when Supabase not configured or demo mode error)
     let results = Array.from(customers.values());
 
     // Apply filters
@@ -890,11 +898,15 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     // Try Supabase first
     if (supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('customers')
         .select('*')
-        .eq('id', id)
-        .single();
+        .eq('id', id);
+
+      // Multi-tenant: scope to user's org (or demo data)
+      query = applyOrgFilter(query, req);
+
+      const { data, error } = await query.single();
 
       if (!error && data) {
         return res.json({
@@ -904,13 +916,19 @@ router.get('/:id', async (req: Request, res: Response) => {
           arr: data.arr || 0,
           health_score: data.health_score || 70,
           status: data.stage || 'active',
+          organization_id: data.organization_id || null,
           created_at: data.created_at,
           updated_at: data.updated_at
         });
       }
+
+      // Supabase configured but customer not found (or not in user's org)
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Customer not found' }
+      });
     }
 
-    // Fallback to in-memory
+    // Fallback to in-memory only when Supabase is not configured
     const customer = customers.get(id);
 
     if (!customer) {
@@ -952,13 +970,13 @@ router.post('/', async (req: Request, res: Response) => {
     if (supabase) {
       const { data, error } = await supabase
         .from('customers')
-        .insert({
+        .insert(withOrgId({
           name,
           industry,
           arr: arr || 0,
           health_score: 70,
           stage: status
-        })
+        }, req))
         .select()
         .single();
 
@@ -970,6 +988,7 @@ router.post('/', async (req: Request, res: Response) => {
           arr: data.arr,
           health_score: data.health_score,
           status: data.stage,
+          organization_id: data.organization_id || null,
           created_at: data.created_at,
           updated_at: data.updated_at
         });
@@ -1011,15 +1030,18 @@ router.patch('/:id', async (req: Request, res: Response) => {
 
     // Try Supabase first
     if (supabase) {
-      const { data, error } = await supabase
+      let query = supabase
         .from('customers')
         .update({
           ...updates,
           stage: updates.status || undefined
         })
-        .eq('id', id)
-        .select()
-        .single();
+        .eq('id', id);
+
+      // Multi-tenant: scope update to user's org
+      query = applyOrgFilter(query, req);
+
+      const { data, error } = await query.select().single();
 
       if (!error && data) {
         return res.json({
@@ -1029,6 +1051,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
           arr: data.arr,
           health_score: data.health_score,
           status: data.stage,
+          organization_id: data.organization_id || null,
           created_at: data.created_at,
           updated_at: data.updated_at
         });
@@ -1069,10 +1092,15 @@ router.delete('/:id', async (req: Request, res: Response) => {
 
     // Try Supabase first
     if (supabase) {
-      const { error } = await supabase
+      let query = supabase
         .from('customers')
         .delete()
         .eq('id', id);
+
+      // Multi-tenant: scope delete to user's org
+      query = applyOrgFilter(query, req);
+
+      const { error } = await query;
 
       if (!error) {
         return res.json({ message: 'Customer deleted successfully' });
@@ -1342,13 +1370,13 @@ router.post('/from-contract', async (req: Request, res: Response) => {
     if (supabase) {
       const { data, error } = await supabase
         .from('customers')
-        .insert({
+        .insert(withOrgId({
           name: contractData.company_name,
           industry: contractData.industry,
           arr: contractData.arr || 0,
           health_score: 70,
           stage: 'onboarding'
-        })
+        }, req))
         .select()
         .single();
 
@@ -1360,6 +1388,7 @@ router.post('/from-contract', async (req: Request, res: Response) => {
           arr: data.arr,
           health_score: data.health_score,
           status: data.stage,
+          organization_id: data.organization_id || null,
           primary_contact: primaryStakeholder ? {
             name: primaryStakeholder.name,
             email: primaryStakeholder.contact || '',

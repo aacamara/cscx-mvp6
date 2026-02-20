@@ -18,7 +18,11 @@ export function getOrgId(req: Request): string | null {
 
 /**
  * Apply organization_id filter to a Supabase query builder.
- * If no org context, includes rows where organization_id IS NULL (demo data).
+ * - With org context: returns only that org's data
+ * - Without org context: returns only shared/demo data (organization_id IS NULL)
+ *
+ * SECURITY: Never returns unfiltered data. This prevents cross-org data leaks
+ * when a user is authenticated but hasn't joined an organization yet.
  *
  * Usage:
  *   const query = supabase.from('customers').select('*');
@@ -35,9 +39,9 @@ export function applyOrgFilter<T>(
     return query.eq('organization_id', orgId) as T;
   }
 
-  // No org context (demo mode) — return unfiltered query.
-  // This works before migration (column doesn't exist yet) and after (shows all data).
-  return query as T;
+  // No org context (demo/unauthenticated) — restrict to shared/demo data only.
+  // This prevents unauthenticated or org-less users from seeing any org's data.
+  return query.is('organization_id', null) as T;
 }
 
 /**
@@ -55,8 +59,8 @@ export function applyOrgFilterInclusive<T>(
     return query.or(`organization_id.eq.${orgId},organization_id.is.null`) as T;
   }
 
-  // No org context — return unfiltered query (safe before migration)
-  return query as T;
+  // No org context — restrict to shared/demo data only
+  return query.is('organization_id', null) as T;
 }
 
 /**

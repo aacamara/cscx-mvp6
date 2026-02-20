@@ -32,11 +32,13 @@ router.get('/summary', async (req: Request, res: Response) => {
     const yellowCount = customers?.filter(c => c.health_color === 'yellow').length || 0;
     const redCount = customers?.filter(c => c.health_color === 'red').length || 0;
 
-    // Get open CTAs count
-    const { count: openCTAs, error: ctaError } = await supabase
+    // Get open CTAs count (org-filtered)
+    let ctaQuery = supabase
       .from('ctas')
       .select('*', { count: 'exact', head: true })
       .in('status', ['open', 'in_progress']);
+    ctaQuery = applyOrgFilter(ctaQuery, req);
+    const { count: openCTAs, error: ctaError } = await ctaQuery;
 
     // Get renewals in next 90 days
     const ninetyDaysOut = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -98,7 +100,7 @@ router.get('/portfolio', async (req: Request, res: Response) => {
  */
 router.get('/ctas', async (req: Request, res: Response) => {
   try {
-    const { data, error } = await supabase
+    let ctaListQuery = supabase
       .from('ctas')
       .select(`
         *,
@@ -106,6 +108,8 @@ router.get('/ctas', async (req: Request, res: Response) => {
       `)
       .in('status', ['open', 'in_progress'])
       .order('due_date');
+    ctaListQuery = applyOrgFilter(ctaListQuery, req);
+    const { data, error } = await ctaListQuery;
 
     if (error) throw error;
     res.json(data);
