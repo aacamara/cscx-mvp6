@@ -176,7 +176,7 @@ export async function createNpsResponse(
 
   // Save to database
   if (supabase) {
-    await supabase.from('nps_responses').insert({
+    const { error } = await supabase.from('nps_responses').insert({
       id: npsResponse.id,
       customer_id: npsResponse.customerId,
       respondent_email: npsResponse.respondentEmail,
@@ -194,6 +194,11 @@ export async function createNpsResponse(
       created_at: npsResponse.createdAt.toISOString(),
       ...(organizationId ? { organization_id: organizationId } : {}),
     });
+
+    if (error) {
+      console.error('[NPS] Failed to insert NPS response:', error);
+      throw new Error(`Failed to save NPS response to database: ${error.message}`);
+    }
   }
 
   return { response: npsResponse, dropResult };
