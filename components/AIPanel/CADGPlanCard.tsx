@@ -3116,6 +3116,7 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
 
   // Helper to format duration
   const formatDuration = (ms: number) => {
+    if (!ms || ms <= 0) return 'just now';
     if (ms < 1000) return `${ms}ms`;
     const seconds = (ms / 1000).toFixed(1);
     return `${seconds}s`;
@@ -3538,6 +3539,26 @@ export const CADGPlanCard: React.FC<CADGPlanCardProps> = ({
                   <span className="text-cscx-gray-500 text-xs">↗</span>
                 </a>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* PRD-004: Inline preview when Google Docs aren't accessible */}
+        {!artifact.storage.driveUrl && artifact.preview && (
+          <div className="p-4 border-b border-cscx-gray-700/50">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs font-medium text-cscx-gray-400 uppercase tracking-wider">
+                Document Preview
+              </h4>
+              <span className="text-xs text-yellow-500/80 bg-yellow-500/10 px-2 py-0.5 rounded">
+                Demo Mode — connect Google to save as Doc
+              </span>
+            </div>
+            <div
+              className="bg-white/5 border border-cscx-gray-700/50 rounded-lg p-4 max-h-[400px] overflow-y-auto text-sm text-cscx-gray-300 leading-relaxed whitespace-pre-wrap"
+              style={{ fontFamily: 'system-ui, -apple-system, sans-serif' }}
+            >
+              {artifact.preview}
             </div>
           </div>
         )}

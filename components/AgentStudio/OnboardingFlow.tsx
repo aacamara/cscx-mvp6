@@ -245,9 +245,15 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
       return;
     }
 
-    // Real mode: call the backend API
+    // Real mode: call the backend API with timeout to prevent infinite spinner
     try {
-      const result = await parseContractFull(input);
+      const timeoutMs = 60000; // 60-second timeout
+      const result = await Promise.race([
+        parseContractFull(input),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('Analysis timed out. Please try again or use a smaller document.')), timeoutMs)
+        ),
+      ]);
       setContractData(result.contractData);
       setEditedData(result.contractData);
       setOnboardingPlan(result.plan);
@@ -305,17 +311,22 @@ export const OnboardingFlow: React.FC<OnboardingFlowProps> = ({
         setWorkspaceResult(mockResult);
         setCurrentStep('demo_complete');
       } else {
-        // Real mode - call actual API
-        const result = await createOnboardingWorkspace(
-          userId, // Uses authenticated user or DEMO_USER_ID
-          dataToUse.company_name,
-          dataToUse,
-          contractInput?.type === 'file' ? {
-            fileName: contractInput.fileName || 'Contract.pdf',
-            mimeType: contractInput.mimeType || 'application/pdf',
-            content: contractInput.content,
-          } : undefined
-        );
+        // Real mode - call actual API with timeout
+        const result = await Promise.race([
+          createOnboardingWorkspace(
+            userId, // Uses authenticated user or DEMO_USER_ID
+            dataToUse.company_name,
+            dataToUse,
+            contractInput?.type === 'file' ? {
+              fileName: contractInput.fileName || 'Contract.pdf',
+              mimeType: contractInput.mimeType || 'application/pdf',
+              content: contractInput.content,
+            } : undefined
+          ),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Workspace creation timed out. Please try again.')), 90000)
+          ),
+        ]);
 
         // Update progress as we go
         setWorkspaceProgress(prev => ({ ...prev, folders: true }));

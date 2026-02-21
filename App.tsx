@@ -444,7 +444,8 @@ const AppContent: React.FC = () => {
               {/* Demo mode indicator */}
               {demoMode && !isAuthenticated && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-yellow-900/30 border border-yellow-600/50 rounded-lg">
-                  <span className="text-xs text-yellow-500">Demo Mode</span>
+                  <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse" />
+                  <span className="text-xs text-yellow-500">Demo Mode — some features simulated</span>
                 </div>
               )}
             </div>
