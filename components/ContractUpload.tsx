@@ -169,7 +169,7 @@ export const ContractUpload: React.FC<Props> = ({ onUpload }) => {
                 ref={fileInputRef}
                 onChange={handleFileChange}
                 className="hidden"
-                accept=".pdf,.txt,image/png,image/jpeg,image/webp"
+                accept=".pdf,.docx,.doc,.txt,image/png,image/jpeg,image/webp"
             />
             <div className="w-20 h-20 mx-auto bg-cscx-gray-800 rounded-full flex items-center justify-center mb-6 border border-cscx-gray-700 group-hover:border-cscx-accent group-hover:bg-cscx-accent/10 transition-colors">
                 <UploadIcon className="w-10 h-10 text-cscx-accent" />

@@ -15,9 +15,32 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { config } from '../config/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 import { customerTimelineService, TimelineFilters } from '../services/customerTimeline.js';
 
 const router = Router();
+
+// Initialize Supabase client for org validation
+let supabase: SupabaseClient | null = null;
+if (config.supabaseUrl && config.supabaseServiceKey) {
+  supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
+}
+
+/**
+ * Validate that a customer belongs to the user's organization.
+ * CRITICAL: Prevents cross-org data access.
+ */
+async function validateCustomerOrg(customerId: string, req: Request): Promise<boolean> {
+  if (!supabase) return true; // Dev/demo mode - no validation
+
+  let query = supabase.from('customers').select('id').eq('id', customerId).single();
+  query = applyOrgFilter(query, req);
+
+  const { data, error } = await query;
+  return !error && !!data;
+}
 
 /**
  * GET /api/intelligence/timeline/:customerId
@@ -56,6 +79,18 @@ router.get('/:customerId', async (req: Request, res: Response) => {
         error: {
           code: 'MISSING_CUSTOMER_ID',
           message: 'Customer ID is required'
+        }
+      });
+    }
+
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'CUSTOMER_NOT_FOUND',
+          message: `Could not find customer with ID '${customerId}'`
         }
       });
     }
@@ -144,6 +179,18 @@ router.get('/:customerId/events', async (req: Request, res: Response) => {
         error: {
           code: 'MISSING_CUSTOMER_ID',
           message: 'Customer ID is required'
+        }
+      });
+    }
+
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: {
+          code: 'CUSTOMER_NOT_FOUND',
+          message: `Could not find customer with ID '${customerId}'`
         }
       });
     }
@@ -237,6 +284,15 @@ router.post('/:customerId/events', async (req: Request, res: Response) => {
       });
     }
 
+    // CRITICAL: Validate customer belongs to user's organization before creating event
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found or access denied' }
+      });
+    }
+
     if (!eventType || !eventCategory || !title || !occurredAt || !sourceType) {
       return res.status(400).json({
         success: false,
@@ -300,6 +356,15 @@ router.get('/:customerId/stats', async (req: Request, res: Response) => {
     const { customerId } = req.params;
     const { startDate, endDate } = req.query;
 
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
     const filters: TimelineFilters = {};
     if (startDate) filters.startDate = startDate as string;
     if (endDate) filters.endDate = endDate as string;
@@ -340,6 +405,15 @@ router.get('/:customerId/milestones', async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params;
 
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
     const journey = await customerTimelineService.getCustomerJourney(customerId, {});
 
     if (!journey) {
@@ -374,6 +448,15 @@ router.get('/:customerId/milestones', async (req: Request, res: Response) => {
 router.get('/:customerId/health-history', async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params;
+
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
 
     const journey = await customerTimelineService.getCustomerJourney(customerId, {});
 
@@ -410,6 +493,15 @@ router.get('/:customerId/stakeholder-engagement', async (req: Request, res: Resp
   try {
     const { customerId } = req.params;
 
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
+
     const journey = await customerTimelineService.getCustomerJourney(customerId, {});
 
     if (!journey) {
@@ -444,6 +536,15 @@ router.get('/:customerId/stakeholder-engagement', async (req: Request, res: Resp
 router.get('/:customerId/heatmap', async (req: Request, res: Response) => {
   try {
     const { customerId } = req.params;
+
+    // CRITICAL: Validate customer belongs to user's organization
+    const isAuthorized = await validateCustomerOrg(customerId, req);
+    if (!isAuthorized) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'CUSTOMER_NOT_FOUND', message: 'Customer not found' }
+      });
+    }
 
     const journey = await customerTimelineService.getCustomerJourney(customerId, {});
 

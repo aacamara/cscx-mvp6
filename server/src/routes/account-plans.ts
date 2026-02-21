@@ -20,6 +20,7 @@ import {
   PlanStatus,
 } from '../services/ai/account-plan-generator.js';
 import { config } from '../config/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -78,6 +79,7 @@ router.post('/customers/:id/account-plan/generate', async (req: Request, res: Re
       fiscalYear,
       includeSections,
       referenceSimilarAccounts,
+      organizationId: (req as any).organizationId || null,
     });
 
     if (!plan) {
@@ -115,6 +117,7 @@ router.post('/customers/:id/account-plan/generate', async (req: Request, res: Re
  *
  * Query Parameters:
  * - fiscal_year (optional): Specific fiscal year (default: current FY)
+ *
  */
 router.get('/customers/:id/account-plan', async (req: Request, res: Response) => {
   try {
@@ -123,7 +126,7 @@ router.get('/customers/:id/account-plan', async (req: Request, res: Response) =>
 
     console.log(`[AccountPlans] Fetching plan for customer ${customerId}, ${fiscalYear}`);
 
-    const plan = await accountPlanGenerator.getPlan(customerId, fiscalYear);
+    const plan = await accountPlanGenerator.getPlan(customerId, fiscalYear, (req as any).organizationId || null);
 
     if (!plan) {
       return res.status(404).json({
@@ -157,6 +160,7 @@ router.get('/customers/:id/account-plan', async (req: Request, res: Response) =>
  * Update an existing account plan.
  *
  * Request Body: Partial AccountPlan object with fields to update
+ *
  */
 router.put('/account-plans/:id', async (req: Request, res: Response) => {
   try {
@@ -181,7 +185,7 @@ router.put('/account-plans/:id', async (req: Request, res: Response) => {
     delete updates.approved_by;
     delete updates.approved_at;
 
-    const success = await accountPlanGenerator.updatePlan(planId, updates);
+    const success = await accountPlanGenerator.updatePlan(planId, updates, (req as any).organizationId || null);
 
     if (!success) {
       return res.status(500).json({
@@ -218,6 +222,7 @@ router.put('/account-plans/:id', async (req: Request, res: Response) => {
  * Request Body:
  * - action: "approve" | "request_changes" | "reject"
  * - feedback (optional): string - feedback for the plan author
+ *
  */
 router.post('/account-plans/:id/approve', async (req: Request, res: Response) => {
   try {
@@ -255,7 +260,8 @@ router.post('/account-plans/:id/approve', async (req: Request, res: Response) =>
     const success = await accountPlanGenerator.updatePlanStatus(
       planId,
       newStatus,
-      action === 'approve' ? userId : undefined
+      action === 'approve' ? userId : undefined,
+      (req as any).organizationId || null
     );
 
     if (!success) {
@@ -303,7 +309,7 @@ router.post('/account-plans/:id/submit', async (req: Request, res: Response) => 
 
     console.log(`[AccountPlans] Submitting plan ${planId} for review`);
 
-    const success = await accountPlanGenerator.updatePlanStatus(planId, 'pending_review');
+    const success = await accountPlanGenerator.updatePlanStatus(planId, 'pending_review', undefined, (req as any).organizationId || null);
 
     if (!success) {
       return res.status(500).json({
@@ -343,7 +349,7 @@ router.post('/account-plans/:id/activate', async (req: Request, res: Response) =
 
     console.log(`[AccountPlans] Activating plan ${planId}`);
 
-    const success = await accountPlanGenerator.updatePlanStatus(planId, 'active');
+    const success = await accountPlanGenerator.updatePlanStatus(planId, 'active', undefined, (req as any).organizationId || null);
 
     if (!success) {
       return res.status(500).json({

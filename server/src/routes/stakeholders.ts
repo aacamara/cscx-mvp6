@@ -9,6 +9,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { config } from '../config/index.js';
 import { championDepartureService } from '../services/championDeparture.js';
 import { triggerEngine } from '../triggers/engine.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey
@@ -51,23 +52,25 @@ router.post('/bulk', async (req: Request, res: Response) => {
       // Check for existing stakeholder by email or name
       let existingId: string | null = null;
       if (stakeholder.email) {
-        const { data: existing } = await supabase
+        let emailQuery = supabase
           .from('stakeholders')
           .select('id')
           .eq('customer_id', customerId)
-          .eq('email', stakeholder.email)
-          .maybeSingle();
+          .eq('email', stakeholder.email);
+        emailQuery = applyOrgFilter(emailQuery, req);
+        const { data: existing } = await emailQuery.maybeSingle();
         existingId = existing?.id || null;
       }
 
       // If no email match, try by name
       if (!existingId && stakeholder.name) {
-        const { data: existing } = await supabase
+        let nameQuery = supabase
           .from('stakeholders')
           .select('id')
           .eq('customer_id', customerId)
-          .eq('name', stakeholder.name)
-          .maybeSingle();
+          .eq('name', stakeholder.name);
+        nameQuery = applyOrgFilter(nameQuery, req);
+        const { data: existing } = await nameQuery.maybeSingle();
         existingId = existing?.id || null;
       }
 
@@ -88,10 +91,12 @@ router.post('/bulk', async (req: Request, res: Response) => {
 
       if (existingId) {
         // Update existing stakeholder
-        const { error } = await supabase
+        let updateQuery = supabase
           .from('stakeholders')
           .update(stakeholderData)
           .eq('id', existingId);
+        updateQuery = applyOrgFilter(updateQuery, req);
+        const { error } = await updateQuery;
 
         if (error) {
           console.error('[Stakeholders] Failed to update stakeholder:', error);
@@ -104,13 +109,13 @@ router.post('/bulk', async (req: Request, res: Response) => {
         // Create new stakeholder
         const { data, error } = await supabase
           .from('stakeholders')
-          .insert({
+          .insert(withOrgId({
             id: uuidv4(),
             ...stakeholderData,
             engagement_score: 50,
             interaction_count: 0,
             created_at: new Date().toISOString(),
-          })
+          }, req))
           .select('id')
           .single();
 
@@ -130,17 +135,21 @@ router.post('/bulk', async (req: Request, res: Response) => {
       // Keep only the first primary, unset others
       const firstPrimary = stakeholders.find(s => s.is_primary || s.isPrimary);
       if (firstPrimary) {
-        await supabase
+        let unsetQuery = supabase
           .from('stakeholders')
           .update({ is_primary: false })
           .eq('customer_id', customerId)
           .neq('name', firstPrimary.name);
+        unsetQuery = applyOrgFilter(unsetQuery, req);
+        await unsetQuery;
 
-        await supabase
+        let setPrimaryQuery = supabase
           .from('stakeholders')
           .update({ is_primary: true })
           .eq('customer_id', customerId)
           .eq('name', firstPrimary.name);
+        setPrimaryQuery = applyOrgFilter(setPrimaryQuery, req);
+        await setPrimaryQuery;
       }
     }
 
@@ -181,6 +190,8 @@ router.get('/', async (req: Request, res: Response) => {
     if (status) query = query.eq('status', status);
     if (isChampion === 'true') query = query.eq('is_champion', true);
     if (isExecSponsor === 'true') query = query.eq('is_exec_sponsor', true);
+
+    query = applyOrgFilter(query, req);
 
     const { data, error, count } = await query;
 
@@ -246,7 +257,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const { data, error } = await supabase
       .from('stakeholders')
-      .insert({
+      .insert(withOrgId({
         id: uuidv4(),
         customer_id: customerId,
         name,
@@ -261,7 +272,7 @@ router.post('/', async (req: Request, res: Response) => {
         engagement_score: 50,
         interaction_count: 0,
         notes,
-      })
+      }, req))
       .select()
       .single();
 
@@ -304,10 +315,13 @@ router.delete('/:stakeholderId', async (req: Request, res: Response) => {
       return res.status(503).json({ error: 'Database not available' });
     }
 
-    const { error } = await supabase
+    let deleteQuery = supabase
       .from('stakeholders')
       .delete()
       .eq('id', stakeholderId);
+    deleteQuery = applyOrgFilter(deleteQuery, req);
+
+    const { error } = await deleteQuery;
 
     if (error) throw error;
 
@@ -596,6 +610,8 @@ router.get('/risk-signals', async (req: Request, res: Response) => {
     if (severity) query = query.eq('severity', severity);
     if (resolved !== undefined) query = query.eq('resolved', resolved === 'true');
 
+    query = applyOrgFilter(query, req);
+
     const { data, error } = await query;
 
     if (error) throw error;
@@ -619,11 +635,13 @@ router.get('/risk-signals/:signalId', async (req: Request, res: Response) => {
       return res.status(503).json({ error: 'Database not available' });
     }
 
-    const { data, error } = await supabase
+    let signalQuery = supabase
       .from('risk_signals')
       .select('*, customers(id, name)')
-      .eq('id', signalId)
-      .single();
+      .eq('id', signalId);
+    signalQuery = applyOrgFilter(signalQuery, req);
+
+    const { data, error } = await signalQuery.single();
 
     if (error || !data) {
       return res.status(404).json({ error: 'Risk signal not found' });
@@ -650,7 +668,7 @@ router.post('/risk-signals/:signalId/resolve', async (req: Request, res: Respons
       return res.status(503).json({ error: 'Database not available' });
     }
 
-    const { data, error } = await supabase
+    let resolveQuery = supabase
       .from('risk_signals')
       .update({
         resolved: true,
@@ -659,7 +677,10 @@ router.post('/risk-signals/:signalId/resolve', async (req: Request, res: Respons
         resolution_notes: resolutionNotes,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', signalId)
+      .eq('id', signalId);
+    resolveQuery = applyOrgFilter(resolveQuery, req);
+
+    const { data, error } = await resolveQuery
       .select()
       .single();
 
@@ -697,6 +718,8 @@ router.get('/departure-tasks', async (req: Request, res: Response) => {
     if (customerId) query = query.eq('customer_id', customerId);
     if (status) query = query.eq('status', status);
     if (priority) query = query.eq('priority', priority);
+
+    query = applyOrgFilter(query, req);
 
     const { data, error } = await query;
 
@@ -736,10 +759,13 @@ router.patch('/departure-tasks/:taskId', async (req: Request, res: Response) => 
     }
     if (assignedTo) updates.assigned_to = assignedTo;
 
-    const { data, error } = await supabase
+    let updateTaskQuery = supabase
       .from('champion_departure_tasks')
       .update(updates)
-      .eq('id', taskId)
+      .eq('id', taskId);
+    updateTaskQuery = applyOrgFilter(updateTaskQuery, req);
+
+    const { data, error } = await updateTaskQuery
       .select()
       .single();
 

@@ -174,8 +174,9 @@ export async function generate(params: {
   userId: string;
   customerId: string | null;
   isTemplate?: boolean;
+  organizationId?: string | null;
 }): Promise<GeneratedArtifact & { isTemplate?: boolean; templateFolderId?: string }> {
-  const { plan, context, userId, customerId } = params;
+  const { plan, context, userId, customerId, organizationId } = params;
   const isTemplate = params.isTemplate || !customerId;
   const startTime = Date.now();
 
@@ -214,7 +215,7 @@ export async function generate(params: {
         isTemplate: false,
       };
 
-      await saveArtifact(artifact, userId, customerId);
+      await saveArtifact(artifact, userId, customerId, organizationId);
       return artifact;
     } catch (error) {
       console.error('[artifactGenerator] Google Workspace generation failed, falling back to markdown:', error);
@@ -255,7 +256,7 @@ export async function generate(params: {
         templateFolderId: templateResult.folderId,
       };
 
-      await saveArtifact(artifact, userId, null);
+      await saveArtifact(artifact, userId, null, organizationId);
       return artifact;
     } catch (error) {
       console.error('[artifactGenerator] Template generation failed, falling back to markdown:', error);
@@ -285,7 +286,7 @@ export async function generate(params: {
     },
   };
 
-  await saveArtifact(artifact, userId, customerId);
+  await saveArtifact(artifact, userId, customerId, organizationId);
   return artifact;
 }
 
@@ -854,7 +855,8 @@ function buildCustomerInstruction(customerName: string, isTemplate: boolean): st
 async function saveArtifact(
   artifact: GeneratedArtifact,
   userId: string,
-  customerId: string | null
+  customerId: string | null,
+  organizationId?: string | null
 ): Promise<void> {
   if (!supabase) {
     console.warn('[artifactGenerator] Database not configured, skipping save');
@@ -872,6 +874,7 @@ async function saveArtifact(
       preview_markdown: artifact.preview,
       sources_used: artifact.metadata.sourcesUsed,
       generation_duration_ms: artifact.metadata.generationDurationMs,
+      ...(organizationId ? { organization_id: organizationId } : {}),
     };
 
     if (artifact.storage.driveFileId) {
@@ -892,7 +895,7 @@ async function saveArtifact(
 /**
  * Get an artifact by ID
  */
-export async function getArtifact(artifactId: string): Promise<{
+export async function getArtifact(artifactId: string, organizationId?: string | null): Promise<{
   artifact: GeneratedArtifactRow | null;
   success: boolean;
   error?: string;
@@ -902,11 +905,12 @@ export async function getArtifact(artifactId: string): Promise<{
   }
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('generated_artifacts')
       .select('*')
-      .eq('id', artifactId)
-      .single();
+      .eq('id', artifactId);
+    if (organizationId) query = query.eq('organization_id', organizationId);
+    const { data, error } = await query.single();
 
     if (error) {
       return { artifact: null, success: false, error: error.message };

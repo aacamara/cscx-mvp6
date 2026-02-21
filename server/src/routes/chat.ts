@@ -7,6 +7,7 @@
 import { Router, Request, Response } from 'express';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -58,19 +59,21 @@ router.post('/messages', async (req: Request, res: Response) => {
     }
 
     // Use upsert with client_id for deduplication (prevents duplicate messages on retry)
+    const record = withOrgId({
+      customer_id: message.customer_id || null,
+      user_id: message.user_id,
+      role: message.role,
+      content: message.content,
+      agent_type: message.agent_type || null,
+      tool_calls: message.tool_calls || [],
+      session_id: message.session_id,
+      status: message.status || 'sent',
+      client_id: message.client_id || null,
+    }, req);
+
     const { data, error } = await supabase
       .from('chat_messages')
-      .upsert({
-        customer_id: message.customer_id || null,
-        user_id: message.user_id,
-        role: message.role,
-        content: message.content,
-        agent_type: message.agent_type || null,
-        tool_calls: message.tool_calls || [],
-        session_id: message.session_id,
-        status: message.status || 'sent',
-        client_id: message.client_id || null,
-      }, {
+      .upsert(record, {
         onConflict: 'client_id',
         ignoreDuplicates: false
       })
@@ -114,21 +117,21 @@ router.post('/messages/batch', async (req: Request, res: Response) => {
       });
     }
 
+    const records = messages.map((m) => withOrgId({
+      customer_id: m.customer_id || null,
+      user_id: m.user_id,
+      role: m.role,
+      content: m.content,
+      agent_type: m.agent_type || null,
+      tool_calls: m.tool_calls || [],
+      session_id: m.session_id,
+      status: m.status || 'sent',
+      client_id: m.client_id || null,
+    }, req));
+
     const { data, error } = await supabase
       .from('chat_messages')
-      .insert(
-        messages.map((m) => ({
-          customer_id: m.customer_id || null,
-          user_id: m.user_id,
-          role: m.role,
-          content: m.content,
-          agent_type: m.agent_type || null,
-          tool_calls: m.tool_calls || [],
-          session_id: m.session_id,
-          status: m.status || 'sent',
-          client_id: m.client_id || null,
-        }))
-      )
+      .insert(records)
       .select();
 
     if (error) {
@@ -173,6 +176,8 @@ router.get('/customer/:customerId', async (req: Request, res: Response) => {
       .order('created_at', { ascending: true })
       .range(parseInt(offset as string), parseInt(offset as string) + parseInt(limit as string) - 1);
 
+    query = applyOrgFilter(query, req);
+
     if (session_id) {
       query = query.eq('session_id', session_id);
     }
@@ -213,12 +218,16 @@ router.get('/session/:sessionId', async (req: Request, res: Response) => {
       });
     }
 
-    const { data, error, count } = await supabase
+    let query = supabase
       .from('chat_messages')
       .select('*', { count: 'exact' })
       .eq('session_id', sessionId)
       .order('created_at', { ascending: true })
       .limit(parseInt(limit as string));
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error, count } = await query;
 
     if (error) {
       console.error('Failed to fetch session messages:', error);
@@ -251,7 +260,7 @@ router.get('/user/:userId/sessions', async (req: Request, res: Response) => {
     }
 
     // Get distinct sessions with their latest message and customer info
-    const { data, error } = await supabase
+    let query = supabase
       .from('chat_messages')
       .select(`
         session_id,
@@ -261,6 +270,10 @@ router.get('/user/:userId/sessions', async (req: Request, res: Response) => {
       `)
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
+
+    query = applyOrgFilter(query, req);
+
+    const { data, error } = await query;
 
     if (error) {
       console.error('Failed to fetch user sessions:', error);
@@ -351,6 +364,8 @@ router.get('/history', async (req: Request, res: Response) => {
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
+    query = applyOrgFilter(query, req);
+
     // Filter by customer if provided
     if (customerId && typeof customerId === 'string') {
       query = query.eq('customer_id', customerId);
@@ -410,11 +425,15 @@ router.delete('/session/:sessionId', async (req: Request, res: Response) => {
       return res.json({ success: true, deleted: 0, persisted: false });
     }
 
-    const { error, count } = await supabase
+    let query = supabase
       .from('chat_messages')
       .delete({ count: 'exact' })
       .eq('session_id', sessionId)
       .eq('user_id', userId);
+
+    query = applyOrgFilter(query, req);
+
+    const { error, count } = await query;
 
     if (error) {
       console.error('Failed to delete session:', error);

@@ -4,6 +4,7 @@ import { ContractParser } from '../services/contractParser.js';
 import { ClaudeService } from '../services/claude.js';
 import { SupabaseService } from '../services/supabase.js';
 import { optionalAuthMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const contractParser = new ContractParser();
@@ -88,11 +89,12 @@ async function saveEntitlements(
     quantity?: string | number;
     start_date?: string;
     end_date?: string;
-  }>
+  }>,
+  req: Request
 ): Promise<void> {
   for (const entitlement of entitlements) {
     try {
-      await dbService.saveEntitlement({
+      await dbService.saveEntitlement(withOrgId({
         contract_id: contractId,
         customer_id: customerId,
         name: entitlement.type || 'Entitlement',
@@ -102,7 +104,7 @@ async function saveEntitlements(
           : entitlement.quantity || null,
         start_date: entitlement.start_date ? normalizeDate(entitlement.start_date) : null,
         end_date: entitlement.end_date ? normalizeDate(entitlement.end_date) : null
-      });
+      }, req));
     } catch (err) {
       console.error('[Contracts] Failed to save entitlement:', err);
     }
@@ -181,7 +183,7 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
 
     // Save to database
     console.log('[Contracts] Saving contract with dates:', { startDate, endDate, totalValue });
-    const contract = await db.saveContract({
+    const contract = await db.saveContract(withOrgId({
       file_name: file.originalname,
       file_type: file.mimetype,
       file_size: file.size,
@@ -196,12 +198,12 @@ router.post('/upload', optionalAuthMiddleware, upload.single('file'), async (req
       start_date: startDate,
       end_date: endDate,
       total_value: totalValue
-    });
+    }, req));
 
     // Save entitlements (line items) if present
     if (result.extraction.entitlements && result.extraction.entitlements.length > 0) {
       console.log(`[Contracts] Saving ${result.extraction.entitlements.length} entitlements`);
-      await saveEntitlements(db, contract.id, null, result.extraction.entitlements);
+      await saveEntitlements(db, contract.id, null, result.extraction.entitlements, req);
     }
 
     res.json({
@@ -247,7 +249,7 @@ router.post('/parse', optionalAuthMiddleware, async (req: Request, res: Response
       });
 
       // Save to database
-      const contract = await db.saveContract({
+      const contract = await db.saveContract(withOrgId({
         file_name: fileName || 'Google Doc Contract',
         file_type: 'gdoc',
         google_doc_url,
@@ -261,12 +263,12 @@ router.post('/parse', optionalAuthMiddleware, async (req: Request, res: Response
         start_date: extractStartDate(result.extraction),
         end_date: extractEndDate(result.extraction),
         total_value: result.extraction.arr || 0
-      });
+      }, req));
 
       // Save entitlements
       if (result.extraction.entitlements?.length > 0) {
         console.log(`[Contracts] Saving ${result.extraction.entitlements.length} entitlements from Google Doc`);
-        await saveEntitlements(db, contract.id, null, result.extraction.entitlements);
+        await saveEntitlements(db, contract.id, null, result.extraction.entitlements, req);
       }
 
       return res.json({
@@ -302,7 +304,7 @@ router.post('/parse', optionalAuthMiddleware, async (req: Request, res: Response
 
     // Save to database (confidence stored in parsed_data)
     console.log('[Contracts] Saving parsed contract with dates:', { startDate, endDate, totalValue });
-    const contract = await db.saveContract({
+    const contract = await db.saveContract(withOrgId({
       file_name: fileName,
       raw_text: type === 'text' ? content.substring(0, 50000) : null,
       company_name: result.extraction.company_name,
@@ -313,12 +315,12 @@ router.post('/parse', optionalAuthMiddleware, async (req: Request, res: Response
       start_date: startDate,
       end_date: endDate,
       total_value: totalValue
-    });
+    }, req));
 
     // Save entitlements (line items) if present
     if (result.extraction.entitlements && result.extraction.entitlements.length > 0) {
       console.log(`[Contracts] Saving ${result.extraction.entitlements.length} entitlements`);
-      await saveEntitlements(db, contract.id, null, result.extraction.entitlements);
+      await saveEntitlements(db, contract.id, null, result.extraction.entitlements, req);
     }
 
     res.json({
@@ -346,8 +348,8 @@ router.post('/:id/reparse', async (req: Request, res: Response) => {
     const { id } = req.params;
     const { corrections } = req.body;
 
-    // Get original contract
-    const contract = await db.getContract(id);
+    // Get original contract (org-filtered)
+    const contract = await db.getContract(id, (req as any).organizationId || null);
     if (!contract) {
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: 'Contract not found' }
@@ -394,7 +396,7 @@ router.post('/', async (req: Request, res: Response) => {
     const totalValue = arr || 0;
 
     console.log('[Contracts] Creating contract with dates:', { startDate, endDate, totalValue });
-    const contract = await db.saveContract({
+    const contract = await db.saveContract(withOrgId({
       customer_id,
       file_name: file_name || 'Unknown',
       file_type: file_type || 'unknown',
@@ -407,12 +409,12 @@ router.post('/', async (req: Request, res: Response) => {
       start_date: startDate,
       end_date: endDate,
       total_value: totalValue
-    });
+    }, req));
 
     // Save entitlements if present
     if (parsed_data?.entitlements && parsed_data.entitlements.length > 0) {
       console.log(`[Contracts] Saving ${parsed_data.entitlements.length} entitlements`);
-      await saveEntitlements(db, contract.id, customer_id, parsed_data.entitlements);
+      await saveEntitlements(db, contract.id, customer_id, parsed_data.entitlements, req);
     }
 
     res.status(201).json(contract);
@@ -427,11 +429,11 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/contracts/:id - Get contract by ID
+// GET /api/contracts/:id - Get contract by ID (org-filtered)
 router.get('/:id', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const contract = await db.getContract(id);
+    const contract = await db.getContract(id, (req as any).organizationId || null);
 
     if (!contract) {
       return res.status(404).json({
@@ -448,7 +450,7 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/contracts - List contracts
+// GET /api/contracts - List contracts (org-filtered)
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { customerId, status, search, limit = '20', offset = '0' } = req.query;
@@ -458,7 +460,8 @@ router.get('/', async (req: Request, res: Response) => {
       status: status as string,
       search: search as string,
       limit: parseInt(limit as string),
-      offset: parseInt(offset as string)
+      offset: parseInt(offset as string),
+      organizationId: (req as any).organizationId || null
     });
 
     // Transform contracts for frontend

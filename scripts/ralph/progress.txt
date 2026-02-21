@@ -271,3 +271,48 @@ Started: 2026-02-15
 - **Part of:** multi-tenant merge commit 4260cb8
 
 ---
+
+## 2026-02-21 - PRD-023: Customer Self-Service Production Readiness (ALL COMPLETE)
+
+### Route-Level Org Filtering (Batch 2-4)
+- **chat.ts**: 7 endpoints protected (messages CRUD, sessions, history)
+- **workspace.ts**: 1 endpoint protected (stakeholder contacts)
+- **timeline.ts**: 8 endpoints protected (events, stats, milestones, health, heatmap)
+- **stakeholders.ts**: 14 locations protected (stakeholders, risk_signals, departure_tasks)
+- **contracts.ts**: INSERT operations protected with withOrgId
+- **cadg.ts**: 26 agent_activity inserts wrapped with withOrgId
+
+### Service Layer Org Filtering
+- **SupabaseService** (supabase.ts): getContract(), listContracts(), saveContract() — all accept organizationId
+- **accountPlanGenerator** (account-plan-generator.ts): gatherPlanningContext (5 queries), savePlan, getPlan, updatePlanStatus, updatePlan — all org-filtered
+- **CADG contextAggregator** (contextAggregator.ts): aggregateContext, gatherPlatformData, gatherExternalSources, fetchPreviousArtifacts — all org-filtered
+- **CADG artifactGenerator** (artifactGenerator.ts): generate, saveArtifact, getArtifact — all org-filtered
+
+### Schema Fixes
+- Fixed table name mismatch: 27x `agent_activities` → `agent_activity_log` (cadg.ts + contextAggregator.ts)
+- Created migration 100: organization_id on execution_plans, generated_artifacts, agent_activity_log
+
+### PRD-023 Tasks Completed
+- **US-001 (PASS)**: Google OAuth config verified production-ready
+- **US-002 (PASS + FIX)**: Fixed SignupPage.tsx org ID extraction bug (data.organization?.id)
+- **US-004 (PASS + FIX)**: Added .docx/.doc to ContractUpload.tsx accept list; contract reads now org-filtered
+- **US-006 (DONE)**: CSM-scoped customer filtering — CSMs see only assigned customers via csm_id
+- **US-008 (DONE)**: Full CADG service layer org filtering + table name fix + migration
+- **US-010 (DONE)**: Playwright smoke test at scripts/verify-core-flows.ts — 7 flows + 3 bonus checks
+
+### Files Changed (21 files)
+- server/src/routes/cadg.ts, chat.ts, workspace.ts, timeline.ts, stakeholders.ts, contracts.ts, account-plans.ts, agents.ts, customers.ts
+- server/src/services/supabase.ts, ai/account-plan-generator.ts
+- server/src/services/cadg/contextAggregator.ts, artifactGenerator.ts
+- components/Auth/SignupPage.tsx, ContractUpload.tsx
+- database/migrations/100_add_org_id_cadg_tables.sql
+- scripts/verify-core-flows.ts
+- scripts/ralph/prd-023-self-service.json
+
+### Learnings:
+- CADG code referenced `agent_activities` but the actual DB table is `agent_activity_log` (migration 008) — inserts were silently failing
+- Migration 074 used wrong table names (cadg_execution_plans vs execution_plans) — always verify actual table names in migrations
+- SignupPage was reading `data.organizationId` but the API returns `data.organization.id` — response shape must match client expectations
+- ContractUpload.tsx accept attribute must include all file types the server supports
+
+---

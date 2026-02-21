@@ -134,7 +134,7 @@ export function SignupPage({ onOrgJoined }: SignupPageProps) {
         return;
       }
 
-      const orgId = data.organizationId || data.id;
+      const orgId = data.organization?.id || data.organizationId || data.id;
       if (!orgId) {
         setError('Organization created but no ID was returned. Please refresh and try again.');
         return;
@@ -204,7 +204,7 @@ export function SignupPage({ onOrgJoined }: SignupPageProps) {
         return;
       }
 
-      const orgId = data.organizationId || data.id;
+      const orgId = data.organization?.id || data.organizationId || data.id;
       if (!orgId) {
         setError('Joined organization but no ID was returned. Please refresh and try again.');
         return;

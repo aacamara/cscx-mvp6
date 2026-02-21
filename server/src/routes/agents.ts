@@ -13,6 +13,7 @@ import { skillExecutor, getAvailableSkills, SKILLS, SkillContext } from '../agen
 import { config } from '../config/index.js';
 import { cadgService } from '../services/cadg/index.js';
 import { ClaudeService } from '../services/claude.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 const claudeService = new ClaudeService();
 
 const router = Router();

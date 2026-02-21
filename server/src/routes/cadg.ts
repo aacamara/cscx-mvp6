@@ -19,6 +19,7 @@ import { artifactGenerator } from '../services/cadg/artifactGenerator.js';
 import { capabilityMatcher } from '../services/cadg/capabilityMatcher.js';
 import { PlanModification } from '../services/cadg/types.js';
 import { driveService } from '../services/google/drive.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -70,6 +71,7 @@ router.post('/plan', async (req: Request, res: Response) => {
       customerId: customerId || null,
       userQuery: query,
       userId,
+      organizationId: (req as any).organizationId || null,
     });
 
     // Step 4: Create execution plan
@@ -189,6 +191,7 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       customerId: planRow.customer_id,
       userQuery: planRow.user_query,
       userId,
+      organizationId: (req as any).organizationId || null,
     });
 
     // ====================================================================
@@ -685,6 +688,7 @@ router.post('/plan/:planId/approve', async (req: Request, res: Response) => {
       userId,
       customerId: planRow.customer_id,
       isTemplate: isTemplateMode,
+      organizationId: (req as any).organizationId || null,
     });
 
     // Update plan to completed
@@ -769,7 +773,7 @@ router.get('/artifact/:artifactId', async (req: Request, res: Response) => {
   try {
     const { artifactId } = req.params;
 
-    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId);
+    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId, (req as any).organizationId || null);
 
     if (!success || !artifact) {
       return res.status(404).json({
@@ -818,7 +822,7 @@ router.get('/artifact/:artifactId/download', async (req: Request, res: Response)
     }
 
     // Get the artifact
-    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId);
+    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId, (req as any).organizationId || null);
 
     if (!success || !artifact) {
       return res.status(404).json({
@@ -894,7 +898,7 @@ router.get('/artifact/:artifactId/export-sources', async (req: Request, res: Res
     }
 
     // Get the artifact
-    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId);
+    const { artifact, success, error } = await artifactGenerator.getArtifact(artifactId, (req as any).organizationId || null);
 
     if (!success || !artifact) {
       return res.status(404).json({
@@ -1087,6 +1091,7 @@ router.post('/email/suggest', async (req: Request, res: Response) => {
           customerId,
           userQuery: 'get customer context for email',
           userId,
+          organizationId: (req as any).organizationId || null,
         });
 
         if (context.platformData.customer360) {
@@ -1187,19 +1192,21 @@ router.post('/email/send', async (req: Request, res: Response) => {
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'email_sent',
-            description: `Email sent: ${subject}`,
-            metadata: {
-              recipients: to,
-              cc: cc || [],
-              subject,
-              gmailMessageId: messageId,
-              sentVia: 'cadg_email_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'email_sent',
+              description: `Email sent: ${subject}`,
+              metadata: {
+                recipients: to,
+                cc: cc || [],
+                subject,
+                gmailMessageId: messageId,
+                sentVia: 'cadg_email_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log email activity:', err);
@@ -1252,6 +1259,7 @@ router.post('/document/suggest', async (req: Request, res: Response) => {
           customerId,
           userQuery: 'get customer context for document',
           userId,
+          organizationId: (req as any).organizationId || null,
         });
 
         if (context.platformData.customer360) {
@@ -1347,18 +1355,20 @@ router.post('/document/save', async (req: Request, res: Response) => {
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'document_created',
-            description: `Document created: ${title}`,
-            metadata: {
-              documentId: result.id,
-              documentUrl: result.webViewLink,
-              sectionCount: sections.length,
-              createdVia: 'cadg_document_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'document_created',
+              description: `Document created: ${title}`,
+              metadata: {
+                documentId: result.id,
+                documentUrl: result.webViewLink,
+                sectionCount: sections.length,
+                createdVia: 'cadg_document_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log document activity:', err);
@@ -1412,6 +1422,7 @@ router.post('/meeting-prep/suggest', async (req: Request, res: Response) => {
           customerId,
           userQuery: 'get customer context for meeting prep',
           userId,
+          organizationId: (req as any).organizationId || null,
         });
 
         if (context.platformData.customer360) {
@@ -1544,20 +1555,22 @@ ${(risks || []).map((r: { risk: string }) => `- ${r.risk}`).join('\n') || 'No ri
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'meeting_prep_created',
-            description: `Meeting prep created: ${title}`,
-            metadata: {
-              documentId: result.id,
-              documentUrl: result.webViewLink,
-              attendeesCount: (attendees || []).length,
-              agendaCount: (agenda || []).length,
-              talkingPointsCount: (talkingPoints || []).length,
-              createdVia: 'cadg_meeting_prep_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'meeting_prep_created',
+              description: `Meeting prep created: ${title}`,
+              metadata: {
+                documentId: result.id,
+                documentUrl: result.webViewLink,
+                attendeesCount: (attendees || []).length,
+                agendaCount: (agenda || []).length,
+                talkingPointsCount: (talkingPoints || []).length,
+                createdVia: 'cadg_meeting_prep_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log meeting prep activity:', err);
@@ -1686,22 +1699,24 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'kickoff_plan_created',
-            description: `Kickoff plan created: ${title}`,
-            metadata: {
-              documentId: result.id,
-              documentUrl: result.webViewLink,
-              attendeesCount: (attendees || []).length,
-              agendaCount: (agenda || []).length,
-              goalsCount: (goals || []).length,
-              nextStepsCount: (nextSteps || []).length,
-              meetingDate,
-              createdVia: 'cadg_kickoff_plan_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'kickoff_plan_created',
+              description: `Kickoff plan created: ${title}`,
+              metadata: {
+                documentId: result.id,
+                documentUrl: result.webViewLink,
+                attendeesCount: (attendees || []).length,
+                agendaCount: (agenda || []).length,
+                goalsCount: (goals || []).length,
+                nextStepsCount: (nextSteps || []).length,
+                meetingDate,
+                createdVia: 'cadg_kickoff_plan_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log kickoff plan activity:', err);
@@ -1859,23 +1874,25 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'milestone_plan_created',
-            description: `Milestone plan created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              sheetId: sheetResult?.id,
-              sheetUrl: sheetResult?.webViewLink,
-              phasesCount: (phases || []).length,
-              totalMilestones: (phases || []).reduce((sum: number, p: { milestones?: Array<unknown> }) =>
-                sum + (p.milestones?.length || 0), 0),
-              startDate,
-              createdVia: 'cadg_milestone_plan_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'milestone_plan_created',
+              description: `Milestone plan created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                sheetId: sheetResult?.id,
+                sheetUrl: sheetResult?.webViewLink,
+                phasesCount: (phases || []).length,
+                totalMilestones: (phases || []).reduce((sum: number, p: { milestones?: Array<unknown> }) =>
+                  sum + (p.milestones?.length || 0), 0),
+                startDate,
+                createdVia: 'cadg_milestone_plan_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log milestone plan activity:', err);
@@ -2028,21 +2045,23 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'stakeholder_map_created',
-            description: `Stakeholder map created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              slidesId: slidesResult?.id,
-              slidesUrl: slidesResult?.webViewLink,
-              stakeholderCount: (stakeholders || []).length,
-              relationshipCount: (relationships || []).length,
-              createdVia: 'cadg_stakeholder_map_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'stakeholder_map_created',
+              description: `Stakeholder map created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                slidesId: slidesResult?.id,
+                slidesUrl: slidesResult?.webViewLink,
+                stakeholderCount: (stakeholders || []).length,
+                relationshipCount: (relationships || []).length,
+                createdVia: 'cadg_stakeholder_map_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log stakeholder map activity:', err);
@@ -2213,21 +2232,23 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'training_schedule_created',
-            description: `Training schedule created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              sheetId: sheetResult?.id,
-              sheetUrl: sheetResult?.webViewLink,
-              sessionsCount: (sessions || []).length,
-              startDate,
-              createdVia: 'cadg_training_schedule_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'training_schedule_created',
+              description: `Training schedule created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                sheetId: sheetResult?.id,
+                sheetUrl: sheetResult?.webViewLink,
+                sessionsCount: (sessions || []).length,
+                startDate,
+                createdVia: 'cadg_training_schedule_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log training schedule activity:', err);
@@ -2473,24 +2494,26 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'usage_analysis_created',
-            description: `Usage analysis created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              sheetId: sheetResult?.id,
-              sheetUrl: sheetResult?.webViewLink,
-              metricsCount: includedMetrics.length,
-              featuresCount: includedFeatures.length,
-              segmentsCount: includedSegments.length,
-              recommendationsCount: (recommendations || []).length,
-              timeRange,
-              createdVia: 'cadg_usage_analysis_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'usage_analysis_created',
+              description: `Usage analysis created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                sheetId: sheetResult?.id,
+                sheetUrl: sheetResult?.webViewLink,
+                metricsCount: includedMetrics.length,
+                featuresCount: includedFeatures.length,
+                segmentsCount: includedSegments.length,
+                recommendationsCount: (recommendations || []).length,
+                timeRange,
+                createdVia: 'cadg_usage_analysis_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log usage analysis activity:', err);
@@ -2673,23 +2696,25 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'feature_campaign_created',
-            description: `Feature campaign created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              featuresCount: includedFeatures.length,
-              segmentsCount: includedSegments.length,
-              phasesCount: (timeline?.phases || []).length,
-              messagingCount: (messaging || []).length,
-              metricsCount: (successMetrics || []).length,
-              timeline,
-              createdVia: 'cadg_feature_campaign_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'feature_campaign_created',
+              description: `Feature campaign created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                featuresCount: includedFeatures.length,
+                segmentsCount: includedSegments.length,
+                phasesCount: (timeline?.phases || []).length,
+                messagingCount: (messaging || []).length,
+                metricsCount: (successMetrics || []).length,
+                timeline,
+                createdVia: 'cadg_feature_campaign_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log feature campaign activity:', err);
@@ -2850,23 +2875,25 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'champion_development_created',
-            description: `Champion development program created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              candidatesCount: selectedCandidates.length,
-              activitiesCount: enabledActivities.length,
-              rewardsCount: enabledRewards.length,
-              milestonesCount: (timeline?.milestones || []).length,
-              metricsCount: (successMetrics || []).length,
-              timeline,
-              createdVia: 'cadg_champion_development_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'champion_development_created',
+              description: `Champion development program created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                candidatesCount: selectedCandidates.length,
+                activitiesCount: enabledActivities.length,
+                rewardsCount: enabledRewards.length,
+                milestonesCount: (timeline?.milestones || []).length,
+                metricsCount: (successMetrics || []).length,
+                timeline,
+                createdVia: 'cadg_champion_development_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log champion development activity:', err);
@@ -3064,25 +3091,27 @@ ${notes || 'No additional notes.'}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'training_program_created',
-            description: `Training program created: ${title}`,
-            metadata: {
-              documentId: docResult.id,
-              documentUrl: docResult.webViewLink,
-              sheetsId: sheetsResult?.id,
-              sheetsUrl: sheetsResult?.webViewLink,
-              modulesCount: enabledModules.length,
-              audienceCount: includedAudience.length,
-              criteriaCount: enabledCriteria.length,
-              metricsCount: (successMetrics || []).length,
-              totalHours,
-              timeline,
-              createdVia: 'cadg_training_program_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'training_program_created',
+              description: `Training program created: ${title}`,
+              metadata: {
+                documentId: docResult.id,
+                documentUrl: docResult.webViewLink,
+                sheetsId: sheetsResult?.id,
+                sheetsUrl: sheetsResult?.webViewLink,
+                modulesCount: enabledModules.length,
+                audienceCount: includedAudience.length,
+                criteriaCount: enabledCriteria.length,
+                metricsCount: (successMetrics || []).length,
+                totalHours,
+                timeline,
+                createdVia: 'cadg_training_program_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log training program activity:', err);
@@ -3237,25 +3266,27 @@ router.post('/renewal-forecast/save', async (req: Request, res: Response) => {
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'renewal_forecast_created',
-            description: `Renewal forecast created: ${title} - ${finalProbability}% probability`,
-            metadata: {
-              sheetsId: sheetsResult?.id,
-              sheetsUrl: sheetsResult?.webViewLink,
-              renewalDate,
-              finalProbability,
-              targetProbability,
-              arr,
-              contractTerm,
-              riskFactorsCount: enabledRisks.length,
-              positiveSignalsCount: enabledSignals.length,
-              actionsCount: (recommendedActions || []).length,
-              createdVia: 'cadg_renewal_forecast_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'renewal_forecast_created',
+              description: `Renewal forecast created: ${title} - ${finalProbability}% probability`,
+              metadata: {
+                sheetsId: sheetsResult?.id,
+                sheetsUrl: sheetsResult?.webViewLink,
+                renewalDate,
+                finalProbability,
+                targetProbability,
+                arr,
+                contractTerm,
+                riskFactorsCount: enabledRisks.length,
+                positiveSignalsCount: enabledSignals.length,
+                actionsCount: (recommendedActions || []).length,
+                createdVia: 'cadg_renewal_forecast_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log renewal forecast activity:', err);
@@ -3457,22 +3488,24 @@ ${notes ? `\n## Notes\n${notes}` : ''}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'value_summary_created',
-            description: `Value summary created: ${title} - ${roi.roiPercentage || 0}% ROI`,
-            metadata: {
-              slidesId: slidesResult?.id,
-              slidesUrl: slidesResult?.webViewLink,
-              isDocument: slidesResult?.isDocument || false,
-              roiPercentage: roi.roiPercentage || 0,
-              metricsCount: includedMetrics.length,
-              storiesCount: includedStories.length,
-              testimonialsCount: includedTestimonials.length,
-              createdVia: 'cadg_value_summary_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'value_summary_created',
+              description: `Value summary created: ${title} - ${roi.roiPercentage || 0}% ROI`,
+              metadata: {
+                slidesId: slidesResult?.id,
+                slidesUrl: slidesResult?.webViewLink,
+                isDocument: slidesResult?.isDocument || false,
+                roiPercentage: roi.roiPercentage || 0,
+                metricsCount: includedMetrics.length,
+                storiesCount: includedStories.length,
+                testimonialsCount: includedTestimonials.length,
+                createdVia: 'cadg_value_summary_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log value summary activity:', err);
@@ -3655,23 +3688,25 @@ ${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'expansion_proposal_created',
-            description: `Expansion proposal created: ${title} - $${calculatedExpansion.toLocaleString()} expansion`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              currentArrValue,
-              proposedArrValue: currentArrValue + calculatedExpansion,
-              expansionAmount: calculatedExpansion,
-              productsCount: includedProducts.length,
-              roiPercentage: roi.roiPercentage || 0,
-              recommendedOption: recommendedOption?.name,
-              createdVia: 'cadg_expansion_proposal_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'expansion_proposal_created',
+              description: `Expansion proposal created: ${title} - $${calculatedExpansion.toLocaleString()} expansion`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                currentArrValue,
+                proposedArrValue: currentArrValue + calculatedExpansion,
+                expansionAmount: calculatedExpansion,
+                productsCount: includedProducts.length,
+                roiPercentage: roi.roiPercentage || 0,
+                recommendedOption: recommendedOption?.name,
+                createdVia: 'cadg_expansion_proposal_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log expansion proposal activity:', err);
@@ -3860,24 +3895,26 @@ ${internalNotes ? `\n---\n\n## Internal Notes\n\n${internalNotes}` : ''}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'negotiation_brief_created',
-            description: `Negotiation brief created: ${title} - $${(contractValue || 0).toLocaleString()} contract`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              contractValue,
-              contractTerm,
-              renewalDate,
-              termsCount: (currentTerms || []).length,
-              leveragePointsCount: enabledLeveragePoints.length,
-              counterStrategiesCount: (counterStrategies || []).length,
-              walkAwayPointsCount: (walkAwayPoints || []).length,
-              createdVia: 'cadg_negotiation_brief_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'negotiation_brief_created',
+              description: `Negotiation brief created: ${title} - $${(contractValue || 0).toLocaleString()} contract`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                contractValue,
+                contractTerm,
+                renewalDate,
+                termsCount: (currentTerms || []).length,
+                leveragePointsCount: enabledLeveragePoints.length,
+                counterStrategiesCount: (counterStrategies || []).length,
+                walkAwayPointsCount: (walkAwayPoints || []).length,
+                createdVia: 'cadg_negotiation_brief_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log negotiation brief activity:', err);
@@ -4107,26 +4144,28 @@ ${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'risk_assessment_created',
-            description: `Risk assessment created: ${title} - Risk Score: ${overallRiskScore}/100 (${riskLevel})`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              sheetsId: sheetsResult?.spreadsheetId,
-              sheetsUrl: sheetsResult?.spreadsheetUrl,
-              overallRiskScore,
-              riskLevel,
-              healthScore,
-              daysUntilRenewal,
-              arr,
-              riskFactorsCount: enabledRiskFactors.length,
-              actionsCount: (mitigationActions || []).length,
-              createdVia: 'cadg_risk_assessment_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'risk_assessment_created',
+              description: `Risk assessment created: ${title} - Risk Score: ${overallRiskScore}/100 (${riskLevel})`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                sheetsId: sheetsResult?.spreadsheetId,
+                sheetsUrl: sheetsResult?.spreadsheetUrl,
+                overallRiskScore,
+                riskLevel,
+                healthScore,
+                daysUntilRenewal,
+                arr,
+                riskFactorsCount: enabledRiskFactors.length,
+                actionsCount: (mitigationActions || []).length,
+                createdVia: 'cadg_risk_assessment_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log risk assessment activity:', err);
@@ -4389,27 +4428,29 @@ ${notes ? `\n---\n\n## Notes\n\n${notes}` : ''}
         const { config } = await import('../config/index.js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'save_play_created',
-            description: `Save play created: ${title} - Risk Level: ${riskLevel}, Timeline: ${timeline}`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              sheetsId: sheetsResult?.spreadsheetId,
-              sheetsUrl: sheetsResult?.spreadsheetUrl,
-              riskLevel,
-              healthScore,
-              daysUntilRenewal,
-              arr,
-              timeline,
-              rootCausesCount: enabledRootCauses.length,
-              actionsCount: (actionItems || []).length,
-              metricsCount: enabledMetrics.length,
-              createdVia: 'cadg_save_play_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'save_play_created',
+              description: `Save play created: ${title} - Risk Level: ${riskLevel}, Timeline: ${timeline}`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                sheetsId: sheetsResult?.spreadsheetId,
+                sheetsUrl: sheetsResult?.spreadsheetUrl,
+                riskLevel,
+                healthScore,
+                daysUntilRenewal,
+                arr,
+                timeline,
+                rootCausesCount: enabledRootCauses.length,
+                actionsCount: (actionItems || []).length,
+                metricsCount: enabledMetrics.length,
+                createdVia: 'cadg_save_play_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log save play activity:', err);
@@ -4583,27 +4624,29 @@ ${notes}
       try {
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'escalation_report_created',
-            description: `Escalation report created: ${title} - Level: ${escalationLevel}, ${(resolutionRequests || []).length} resolution requests`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              escalationLevel,
-              healthScore,
-              arr,
-              daysUntilRenewal,
-              primaryContact,
-              escalationOwner,
-              timelineCount: enabledTimeline.length,
-              impactCount: enabledImpacts.length,
-              requestCount: (resolutionRequests || []).length,
-              evidenceCount: enabledEvidence.length,
-              createdVia: 'cadg_escalation_report_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'escalation_report_created',
+              description: `Escalation report created: ${title} - Level: ${escalationLevel}, ${(resolutionRequests || []).length} resolution requests`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                escalationLevel,
+                healthScore,
+                arr,
+                daysUntilRenewal,
+                primaryContact,
+                escalationOwner,
+                timelineCount: enabledTimeline.length,
+                impactCount: enabledImpacts.length,
+                requestCount: (resolutionRequests || []).length,
+                evidenceCount: enabledEvidence.length,
+                createdVia: 'cadg_escalation_report_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log escalation report activity:', err);
@@ -4832,27 +4875,29 @@ ${notes}
         const { createClient } = await import('@supabase/supabase-js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'executive_briefing_created',
-            description: `Executive briefing created: ${title} - ${enabledHeadlines.length} headlines, ${enabledAsks.length} asks`,
-            metadata: {
-              slidesId: slidesResult?.id,
-              slidesUrl: slidesResult?.webViewLink,
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              slideCount,
-              healthScore,
-              arr,
-              daysUntilRenewal,
-              headlineCount: enabledHeadlines.length,
-              metricCount: enabledMetrics.length,
-              updateCount: enabledUpdates.length,
-              askCount: enabledAsks.length,
-              createdVia: 'cadg_executive_briefing_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'executive_briefing_created',
+              description: `Executive briefing created: ${title} - ${enabledHeadlines.length} headlines, ${enabledAsks.length} asks`,
+              metadata: {
+                slidesId: slidesResult?.id,
+                slidesUrl: slidesResult?.webViewLink,
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                slideCount,
+                healthScore,
+                arr,
+                daysUntilRenewal,
+                headlineCount: enabledHeadlines.length,
+                metricCount: enabledMetrics.length,
+                updateCount: enabledUpdates.length,
+                askCount: enabledAsks.length,
+                createdVia: 'cadg_executive_briefing_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log executive briefing activity:', err);
@@ -5167,27 +5212,29 @@ ${notes}
         const { createClient } = await import('@supabase/supabase-js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'account_plan_created',
-            description: `Strategic account plan created: ${title} - ${enabledObjectives.length} objectives, ${enabledActions.length} actions, ${enabledMilestones.length} milestones`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              sheetsId: sheetsResult?.id,
-              sheetsUrl: sheetsResult?.webViewLink,
-              planPeriod,
-              healthScore,
-              arr,
-              daysUntilRenewal,
-              objectiveCount: enabledObjectives.length,
-              actionCount: enabledActions.length,
-              milestoneCount: enabledMilestones.length,
-              resourceCount: enabledResources.length,
-              createdVia: 'cadg_account_plan_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'account_plan_created',
+              description: `Strategic account plan created: ${title} - ${enabledObjectives.length} objectives, ${enabledActions.length} actions, ${enabledMilestones.length} milestones`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                sheetsId: sheetsResult?.id,
+                sheetsUrl: sheetsResult?.webViewLink,
+                planPeriod,
+                healthScore,
+                arr,
+                daysUntilRenewal,
+                objectiveCount: enabledObjectives.length,
+                actionCount: enabledActions.length,
+                milestoneCount: enabledMilestones.length,
+                resourceCount: enabledResources.length,
+                createdVia: 'cadg_account_plan_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log account plan activity:', err);
@@ -5425,27 +5472,29 @@ ${notes}
         const { createClient } = await import('@supabase/supabase-js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'resolution_plan_created',
-            description: `Resolution plan created: ${title} - ${enabledIssues.length} issues, ${(actionItems || []).length} actions`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              sheetId: sheetsResult?.id,
-              sheetUrl: sheetsResult?.webViewLink,
-              overallStatus,
-              healthScore,
-              arr,
-              daysUntilRenewal,
-              issueCount: enabledIssues.length,
-              actionCount: (actionItems || []).length,
-              dependencyCount: enabledDependencies.length,
-              targetResolutionDate,
-              createdVia: 'cadg_resolution_plan_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'resolution_plan_created',
+              description: `Resolution plan created: ${title} - ${enabledIssues.length} issues, ${(actionItems || []).length} actions`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                sheetId: sheetsResult?.id,
+                sheetUrl: sheetsResult?.webViewLink,
+                overallStatus,
+                healthScore,
+                arr,
+                daysUntilRenewal,
+                issueCount: enabledIssues.length,
+                actionCount: (actionItems || []).length,
+                dependencyCount: enabledDependencies.length,
+                targetResolutionDate,
+                createdVia: 'cadg_resolution_plan_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log resolution plan activity:', err);
@@ -5711,28 +5760,30 @@ ${notes}
         const { createClient } = await import('@supabase/supabase-js');
         if (config.supabaseUrl && config.supabaseServiceKey) {
           const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-          await supabase.from('agent_activities').insert({
-            user_id: userId,
-            customer_id: customerId,
-            activity_type: 'transformation_roadmap_created',
-            description: `Transformation roadmap created: ${title} - ${enabledPhases.length} phases, ${enabledMilestones.length} milestones`,
-            metadata: {
-              docId: docsResult?.id,
-              docUrl: docsResult?.webViewLink,
-              slidesId: slidesResult?.id,
-              slidesUrl: slidesResult?.webViewLink,
-              timelineStart,
-              timelineEnd,
-              totalDuration,
-              healthScore,
-              arr,
-              phaseCount: enabledPhases.length,
-              milestoneCount: enabledMilestones.length,
-              criteriaCount: enabledCriteria.length,
-              riskCount: enabledRisks.length,
-              createdVia: 'cadg_transformation_roadmap_preview',
-            },
-          });
+          await supabase.from('agent_activity_log').insert(
+            withOrgId({
+              user_id: userId,
+              customer_id: customerId,
+              activity_type: 'transformation_roadmap_created',
+              description: `Transformation roadmap created: ${title} - ${enabledPhases.length} phases, ${enabledMilestones.length} milestones`,
+              metadata: {
+                docId: docsResult?.id,
+                docUrl: docsResult?.webViewLink,
+                slidesId: slidesResult?.id,
+                slidesUrl: slidesResult?.webViewLink,
+                timelineStart,
+                timelineEnd,
+                totalDuration,
+                healthScore,
+                arr,
+                phaseCount: enabledPhases.length,
+                milestoneCount: enabledMilestones.length,
+                criteriaCount: enabledCriteria.length,
+                riskCount: enabledRisks.length,
+                createdVia: 'cadg_transformation_roadmap_preview',
+              },
+            }, req)
+          );
         }
       } catch (err) {
         console.warn('[CADG] Could not log transformation roadmap activity:', err);
@@ -5936,25 +5987,27 @@ ${notes}
       const { createClient } = await import('@supabase/supabase-js');
       if (config.supabaseUrl && config.supabaseServiceKey) {
         const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-        await supabase.from('agent_activities').insert({
-          user_id: userId,
-          customer_id: null, // General Mode - no specific customer
-          activity_type: 'portfolio_dashboard_created',
-          description: `Portfolio dashboard created: ${title} - ${enabledCustomers.length} customers, $${(summary.totalArr || 0).toLocaleString()} ARR`,
-          metadata: {
-            sheetsId: sheetsResult?.id,
-            sheetsUrl: sheetsResult?.webViewLink,
-            docId: docsResult?.id,
-            docUrl: docsResult?.webViewLink,
-            totalCustomers: summary.totalCustomers,
-            totalArr: summary.totalArr,
-            healthyCount: summary.healthyCount,
-            atRiskCount: summary.atRiskCount,
-            criticalCount: summary.criticalCount,
-            avgHealthScore: summary.avgHealthScore,
-            createdVia: 'cadg_portfolio_dashboard_preview',
-          },
-        });
+        await supabase.from('agent_activity_log').insert(
+          withOrgId({
+            user_id: userId,
+            customer_id: null, // General Mode - no specific customer
+            activity_type: 'portfolio_dashboard_created',
+            description: `Portfolio dashboard created: ${title} - ${enabledCustomers.length} customers, $${(summary.totalArr || 0).toLocaleString()} ARR`,
+            metadata: {
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              totalCustomers: summary.totalCustomers,
+              totalArr: summary.totalArr,
+              healthyCount: summary.healthyCount,
+              atRiskCount: summary.atRiskCount,
+              criticalCount: summary.criticalCount,
+              avgHealthScore: summary.avgHealthScore,
+              createdVia: 'cadg_portfolio_dashboard_preview',
+            },
+          }, req)
+        );
       }
     } catch (err) {
       console.warn('[CADG] Could not log portfolio dashboard activity:', err);
@@ -6170,29 +6223,31 @@ ${notes}
       const { createClient } = await import('@supabase/supabase-js');
       if (config.supabaseUrl && config.supabaseServiceKey) {
         const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-        await supabase.from('agent_activities').insert({
-          user_id: userId,
-          customer_id: null, // General Mode - no specific customer
-          activity_type: 'team_metrics_created',
-          description: `Team metrics report created: ${title} - ${enabledCsms.length} CSMs, $${(summary?.totalArr || 0).toLocaleString()} ARR`,
-          metadata: {
-            sheetsId: sheetsResult?.id,
-            sheetsUrl: sheetsResult?.webViewLink,
-            docId: docsResult?.id,
-            docUrl: docsResult?.webViewLink,
-            slidesId: slidesResult?.id,
-            slidesUrl: slidesResult?.webViewLink,
-            totalCsms: summary?.totalCsms,
-            totalCustomers: summary?.totalCustomers,
-            totalArr: summary?.totalArr,
-            avgHealthScore: summary?.avgHealthScore,
-            avgNps: summary?.avgNps,
-            renewalRate: summary?.renewalRate,
-            expansionRate: summary?.expansionRate,
-            churnRate: summary?.churnRate,
-            createdVia: 'cadg_team_metrics_preview',
-          },
-        });
+        await supabase.from('agent_activity_log').insert(
+          withOrgId({
+            user_id: userId,
+            customer_id: null, // General Mode - no specific customer
+            activity_type: 'team_metrics_created',
+            description: `Team metrics report created: ${title} - ${enabledCsms.length} CSMs, $${(summary?.totalArr || 0).toLocaleString()} ARR`,
+            metadata: {
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              slidesId: slidesResult?.id,
+              slidesUrl: slidesResult?.webViewLink,
+              totalCsms: summary?.totalCsms,
+              totalCustomers: summary?.totalCustomers,
+              totalArr: summary?.totalArr,
+              avgHealthScore: summary?.avgHealthScore,
+              avgNps: summary?.avgNps,
+              renewalRate: summary?.renewalRate,
+              expansionRate: summary?.expansionRate,
+              churnRate: summary?.churnRate,
+              createdVia: 'cadg_team_metrics_preview',
+            },
+          }, req)
+        );
       }
     } catch (err) {
       console.warn('[CADG] Could not log team metrics activity:', err);
@@ -6421,29 +6476,31 @@ ${notes}
       const { createClient } = await import('@supabase/supabase-js');
       if (config.supabaseUrl && config.supabaseServiceKey) {
         const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-        await supabase.from('agent_activities').insert({
-          user_id: userId,
-          customer_id: null, // General Mode - no specific customer
-          activity_type: 'renewal_pipeline_created',
-          description: `Renewal pipeline created: ${title} - ${enabledRenewals.length} renewals, $${(summary?.totalArr || 0).toLocaleString()} ARR`,
-          metadata: {
-            sheetsId: sheetsResult?.id,
-            sheetsUrl: sheetsResult?.webViewLink,
-            docId: docsResult?.id,
-            docUrl: docsResult?.webViewLink,
-            totalRenewals: summary?.totalRenewals,
-            totalArr: summary?.totalArr,
-            avgProbability: summary?.avgProbability,
-            avgHealthScore: summary?.avgHealthScore,
-            lowRiskCount: summary?.lowRiskCount,
-            mediumRiskCount: summary?.mediumRiskCount,
-            highRiskCount: summary?.highRiskCount,
-            criticalRiskCount: summary?.criticalRiskCount,
-            renewingThisMonth: summary?.renewingThisMonth,
-            renewingThisQuarter: summary?.renewingThisQuarter,
-            createdVia: 'cadg_renewal_pipeline_preview',
-          },
-        });
+        await supabase.from('agent_activity_log').insert(
+          withOrgId({
+            user_id: userId,
+            customer_id: null, // General Mode - no specific customer
+            activity_type: 'renewal_pipeline_created',
+            description: `Renewal pipeline created: ${title} - ${enabledRenewals.length} renewals, $${(summary?.totalArr || 0).toLocaleString()} ARR`,
+            metadata: {
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              totalRenewals: summary?.totalRenewals,
+              totalArr: summary?.totalArr,
+              avgProbability: summary?.avgProbability,
+              avgHealthScore: summary?.avgHealthScore,
+              lowRiskCount: summary?.lowRiskCount,
+              mediumRiskCount: summary?.mediumRiskCount,
+              highRiskCount: summary?.highRiskCount,
+              criticalRiskCount: summary?.criticalRiskCount,
+              renewingThisMonth: summary?.renewingThisMonth,
+              renewingThisQuarter: summary?.renewingThisQuarter,
+              createdVia: 'cadg_renewal_pipeline_preview',
+            },
+          }, req)
+        );
       }
     } catch (err) {
       console.warn('[CADG] Could not log renewal pipeline activity:', err);
@@ -6672,30 +6729,32 @@ ${notes}
       const { createClient } = await import('@supabase/supabase-js');
       if (config.supabaseUrl && config.supabaseServiceKey) {
         const supabase = createClient(config.supabaseUrl, config.supabaseServiceKey);
-        await supabase.from('agent_activities').insert({
-          user_id: userId,
-          customer_id: null, // General Mode - no specific customer
-          activity_type: 'at_risk_overview_created',
-          description: `At-risk overview created: ${title} - ${enabledCustomers.length} customers, $${(summary?.totalArrAtRisk || 0).toLocaleString()} ARR at risk`,
-          metadata: {
-            sheetsId: sheetsResult?.id,
-            sheetsUrl: sheetsResult?.webViewLink,
-            docId: docsResult?.id,
-            docUrl: docsResult?.webViewLink,
-            totalAtRisk: summary?.totalAtRisk,
-            totalArrAtRisk: summary?.totalArrAtRisk,
-            avgRiskScore: summary?.avgRiskScore,
-            avgHealthScore: summary?.avgHealthScore,
-            mediumRiskCount: summary?.mediumRiskCount,
-            highRiskCount: summary?.highRiskCount,
-            criticalRiskCount: summary?.criticalRiskCount,
-            withSavePlayCount: summary?.withSavePlayCount,
-            withoutSavePlayCount: summary?.withoutSavePlayCount,
-            renewingWithin30Days: summary?.renewingWithin30Days,
-            renewingWithin90Days: summary?.renewingWithin90Days,
-            createdVia: 'cadg_at_risk_overview_preview',
-          },
-        });
+        await supabase.from('agent_activity_log').insert(
+          withOrgId({
+            user_id: userId,
+            customer_id: null, // General Mode - no specific customer
+            activity_type: 'at_risk_overview_created',
+            description: `At-risk overview created: ${title} - ${enabledCustomers.length} customers, $${(summary?.totalArrAtRisk || 0).toLocaleString()} ARR at risk`,
+            metadata: {
+              sheetsId: sheetsResult?.id,
+              sheetsUrl: sheetsResult?.webViewLink,
+              docId: docsResult?.id,
+              docUrl: docsResult?.webViewLink,
+              totalAtRisk: summary?.totalAtRisk,
+              totalArrAtRisk: summary?.totalArrAtRisk,
+              avgRiskScore: summary?.avgRiskScore,
+              avgHealthScore: summary?.avgHealthScore,
+              mediumRiskCount: summary?.mediumRiskCount,
+              highRiskCount: summary?.highRiskCount,
+              criticalRiskCount: summary?.criticalRiskCount,
+              withSavePlayCount: summary?.withSavePlayCount,
+              withoutSavePlayCount: summary?.withoutSavePlayCount,
+              renewingWithin30Days: summary?.renewingWithin30Days,
+              renewingWithin90Days: summary?.renewingWithin90Days,
+              createdVia: 'cadg_at_risk_overview_preview',
+            },
+          }, req)
+        );
       }
     } catch (err) {
       console.warn('[CADG] Could not log at-risk overview activity:', err);

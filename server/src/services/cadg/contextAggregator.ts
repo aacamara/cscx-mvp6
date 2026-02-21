@@ -87,8 +87,9 @@ export async function aggregateContext(params: {
   customerId: string | null;
   userQuery: string;
   userId: string;
+  organizationId?: string | null;
 }): Promise<AggregatedContext> {
-  const { taskType, customerId, userQuery, userId } = params;
+  const { taskType, customerId, userQuery, userId, organizationId } = params;
   const startTime = Date.now();
   const sourcesSearched: string[] = [];
   const relevanceScores: Record<string, number> = {};
@@ -100,8 +101,8 @@ export async function aggregateContext(params: {
     externalSources,
   ] = await Promise.all([
     gatherKnowledgeContext(taskType, userQuery, userId, customerId),
-    customerId ? gatherPlatformData(customerId, userId) : getEmptyPlatformData(),
-    customerId ? gatherExternalSources(customerId, userId, taskType) : getEmptyExternalSources(),
+    customerId ? gatherPlatformData(customerId, userId, organizationId) : getEmptyPlatformData(),
+    customerId ? gatherExternalSources(customerId, userId, taskType, organizationId) : getEmptyExternalSources(),
   ]);
 
   // Track sources searched
@@ -227,11 +228,30 @@ async function searchKnowledge(
  */
 async function gatherPlatformData(
   customerId: string,
-  userId: string
+  userId: string,
+  organizationId?: string | null
 ): Promise<AggregatedContext['platformData']> {
   if (!supabase) {
     return getEmptyPlatformData();
   }
+
+  // Build org-filtered queries
+  let customerQuery = supabase.from('customers').select('*').eq('id', customerId);
+  if (organizationId) customerQuery = customerQuery.eq('organization_id', organizationId);
+
+  let healthQuery = supabase.from('health_scores')
+    .select('*')
+    .eq('customer_id', customerId)
+    .order('recorded_at', { ascending: false })
+    .limit(90);
+  if (organizationId) healthQuery = healthQuery.eq('organization_id', organizationId);
+
+  let activityQuery = supabase.from('agent_activity_log')
+    .select('*')
+    .eq('customer_id', customerId)
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (organizationId) activityQuery = activityQuery.eq('organization_id', organizationId);
 
   // Fetch all platform data in parallel
   const [
@@ -239,17 +259,9 @@ async function gatherPlatformData(
     healthResult,
     activitiesResult,
   ] = await Promise.all([
-    supabase.from('customers').select('*').eq('id', customerId).single(),
-    supabase.from('health_scores')
-      .select('*')
-      .eq('customer_id', customerId)
-      .order('recorded_at', { ascending: false })
-      .limit(90),
-    supabase.from('agent_activities')
-      .select('*')
-      .eq('customer_id', customerId)
-      .order('created_at', { ascending: false })
-      .limit(50),
+    customerQuery.single(),
+    healthQuery,
+    activityQuery,
   ]);
 
   const customer = customerResult.data;
@@ -324,10 +336,11 @@ async function gatherPlatformData(
 async function gatherExternalSources(
   customerId: string,
   userId: string,
-  taskType: TaskType
+  taskType: TaskType,
+  organizationId?: string | null
 ): Promise<AggregatedContext['externalSources']> {
   // Fetch previous artifacts from database
-  const previousArtifacts = await fetchPreviousArtifacts(customerId, taskType);
+  const previousArtifacts = await fetchPreviousArtifacts(customerId, taskType, organizationId);
 
   // Note: In production, these would call Google APIs via the workspace service
   // For now, we return empty arrays as placeholders
@@ -348,18 +361,21 @@ async function gatherExternalSources(
  */
 async function fetchPreviousArtifacts(
   customerId: string,
-  taskType: TaskType
+  taskType: TaskType,
+  organizationId?: string | null
 ): Promise<PreviousArtifact[]> {
   if (!supabase) {
     return [];
   }
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('generated_artifacts')
       .select('*')
       .eq('customer_id', customerId)
-      .order('created_at', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (organizationId) query = query.eq('organization_id', organizationId);
+    const { data, error } = await query
       .limit(10);
 
     if (error || !data) {

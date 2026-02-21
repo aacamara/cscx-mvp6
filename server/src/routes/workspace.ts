@@ -4,6 +4,7 @@ import { gmailService } from '../services/google/gmail.js';
 import { calendarService } from '../services/google/calendar.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { applyOrgFilter } from '../middleware/orgFilter.js';
 
 const router = Router();
 
@@ -562,10 +563,14 @@ router.get('/contacts/customer/:customerId', async (req: Request, res: Response)
     }
 
     // Fetch stakeholders for this customer
-    const { data: stakeholders, error } = await supabase
+    let query = supabase
       .from('stakeholders')
       .select('*')
       .eq('customer_id', customerId);
+
+    query = applyOrgFilter(query, req);
+
+    const { data: stakeholders, error } = await query;
 
     if (error || !stakeholders || stakeholders.length === 0) {
       // Fallback to demo contacts

@@ -210,7 +210,7 @@ export class SupabaseService {
     const optionalFields = [
       'customer_id', 'file_type', 'file_size', 'file_url', 'google_doc_url',
       'raw_text', 'contract_period', 'contract_term', 'parsed_data', 'confidence',
-      'parsed_at'
+      'parsed_at', 'organization_id'
     ];
     for (const field of optionalFields) {
       if (contract[field] !== undefined) {
@@ -252,14 +252,19 @@ export class SupabaseService {
     return data;
   }
 
-  async getContract(id: string): Promise<Record<string, unknown> | null> {
+  async getContract(id: string, organizationId: string | null = null): Promise<Record<string, unknown> | null> {
     if (!this.client) return null;
 
-    const { data, error } = await this.ensureClient()
+    let query = this.ensureClient()
       .from('contracts')
       .select('*, entitlements(*)')
-      .eq('id', id)
-      .single();
+      .eq('id', id);
+
+    if (organizationId) {
+      query = query.eq('organization_id', organizationId);
+    }
+
+    const { data, error } = await query.single();
 
     if (error) return null;
     return data;
@@ -271,6 +276,7 @@ export class SupabaseService {
     search?: string;
     limit?: number;
     offset?: number;
+    organizationId?: string | null;
   }): Promise<{ contracts: Array<Record<string, unknown>>; total: number }> {
     if (!this.client) {
       return { contracts: [], total: 0 };
@@ -279,6 +285,10 @@ export class SupabaseService {
     let query = this.ensureClient()
       .from('contracts')
       .select('*, customers(name)', { count: 'exact' });
+
+    if (options?.organizationId) {
+      query = query.eq('organization_id', options.organizationId);
+    }
 
     if (options?.customerId) {
       query = query.eq('customer_id', options.customerId);

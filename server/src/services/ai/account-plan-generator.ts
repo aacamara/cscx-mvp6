@@ -158,6 +158,7 @@ export interface PlanGenerationParams {
   fiscalYear: string;
   includeSections?: string[];
   referenceSimilarAccounts?: boolean;
+  organizationId?: string | null;
 }
 
 export interface PlanningContext {
@@ -208,12 +209,12 @@ export class AccountPlanGenerator {
    * Generate a comprehensive AI-powered account plan
    */
   async generateAccountPlan(params: PlanGenerationParams): Promise<AccountPlan | null> {
-    const { customerId, fiscalYear, includeSections = ['all'], referenceSimilarAccounts = true } = params;
+    const { customerId, fiscalYear, includeSections = ['all'], referenceSimilarAccounts = true, organizationId = null } = params;
 
     console.log(`[AccountPlanGenerator] Generating plan for customer ${customerId}, FY${fiscalYear}`);
 
     // Gather all customer context
-    const context = await this.gatherPlanningContext(customerId);
+    const context = await this.gatherPlanningContext(customerId, organizationId);
     if (!context) {
       console.error('[AccountPlanGenerator] Failed to gather planning context');
       return null;
@@ -283,7 +284,7 @@ export class AccountPlanGenerator {
     };
 
     // Save to database
-    await this.savePlan(plan);
+    await this.savePlan(plan, organizationId);
 
     return plan;
   }
@@ -295,7 +296,7 @@ export class AccountPlanGenerator {
   /**
    * Gather all context needed for plan generation
    */
-  private async gatherPlanningContext(customerId: string): Promise<PlanningContext | null> {
+  private async gatherPlanningContext(customerId: string, organizationId: string | null = null): Promise<PlanningContext | null> {
     if (!supabase) {
       // Return mock data for development
       return this.getMockPlanningContext(customerId);
@@ -303,28 +304,33 @@ export class AccountPlanGenerator {
 
     try {
       // Get customer data
-      const { data: customer } = await supabase
+      let customerQuery = supabase
         .from('customers')
         .select('*')
-        .eq('id', customerId)
-        .single();
+        .eq('id', customerId);
+      if (organizationId) customerQuery = customerQuery.eq('organization_id', organizationId);
+      const { data: customer } = await customerQuery.single();
 
       if (!customer) return null;
 
       // Get contract data
-      const { data: contract } = await supabase
+      let contractQuery = supabase
         .from('contracts')
         .select('*')
-        .eq('customer_id', customerId)
+        .eq('customer_id', customerId);
+      if (organizationId) contractQuery = contractQuery.eq('organization_id', organizationId);
+      const { data: contract } = await contractQuery
         .order('created_at', { ascending: false })
         .limit(1)
         .single();
 
       // Get usage metrics
-      const { data: usageMetrics } = await supabase
+      let usageQuery = supabase
         .from('usage_metrics')
         .select('*')
-        .eq('customer_id', customerId)
+        .eq('customer_id', customerId);
+      if (organizationId) usageQuery = usageQuery.eq('organization_id', organizationId);
+      const { data: usageMetrics } = await usageQuery
         .order('metric_date', { ascending: false })
         .limit(30);
 
@@ -332,18 +338,22 @@ export class AccountPlanGenerator {
       const stakeholders = this.extractStakeholders(contract);
 
       // Get expansion opportunities
-      const { data: expansionOpps } = await supabase
+      let expansionQuery = supabase
         .from('expansion_opportunities')
         .select('*')
         .eq('customer_id', customerId)
         .in('stage', ['identified', 'qualified', 'proposed']);
+      if (organizationId) expansionQuery = expansionQuery.eq('organization_id', organizationId);
+      const { data: expansionOpps } = await expansionQuery;
 
       // Get risk signals
-      const { data: riskSignals } = await supabase
+      let riskQuery = supabase
         .from('risk_signals')
         .select('*')
         .eq('customer_id', customerId)
         .is('resolved_at', null);
+      if (organizationId) riskQuery = riskQuery.eq('organization_id', organizationId);
+      const { data: riskSignals } = await riskQuery;
 
       // Calculate days to renewal
       const renewalDate = customer.renewal_date ? new Date(customer.renewal_date) : null;
@@ -793,7 +803,7 @@ Return only valid JSON, no markdown.`;
   /**
    * Save plan to database
    */
-  private async savePlan(plan: AccountPlan): Promise<void> {
+  private async savePlan(plan: AccountPlan, organizationId: string | null = null): Promise<void> {
     if (!supabase) {
       console.log('[AccountPlanGenerator] Supabase not configured - plan not persisted');
       return;
@@ -819,6 +829,7 @@ Return only valid JSON, no markdown.`;
           ai_confidence: plan.ai_confidence,
           generation_context: plan.generation_context,
           created_at: plan.created_at,
+          ...(organizationId ? { organization_id: organizationId } : {}),
         }, {
           onConflict: 'customer_id,fiscal_year',
         });
@@ -834,16 +845,17 @@ Return only valid JSON, no markdown.`;
   /**
    * Get existing plan for a customer
    */
-  async getPlan(customerId: string, fiscalYear: string): Promise<AccountPlan | null> {
+  async getPlan(customerId: string, fiscalYear: string, organizationId: string | null = null): Promise<AccountPlan | null> {
     if (!supabase) return null;
 
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('account_plans')
         .select('*')
         .eq('customer_id', customerId)
-        .eq('fiscal_year', fiscalYear)
-        .single();
+        .eq('fiscal_year', fiscalYear);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      const { data, error } = await query.single();
 
       if (error || !data) return null;
 
@@ -861,7 +873,8 @@ Return only valid JSON, no markdown.`;
   async updatePlanStatus(
     planId: string,
     status: PlanStatus,
-    approvedBy?: string
+    approvedBy?: string,
+    organizationId: string | null = null
   ): Promise<boolean> {
     if (!supabase) return false;
 
@@ -872,10 +885,12 @@ Return only valid JSON, no markdown.`;
         updates.approved_at = new Date().toISOString();
       }
 
-      const { error } = await supabase
+      let query = supabase
         .from('account_plans')
         .update(updates)
         .eq('id', planId);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      const { error } = await query;
 
       return !error;
     } catch (error) {
@@ -887,7 +902,7 @@ Return only valid JSON, no markdown.`;
   /**
    * Update plan content
    */
-  async updatePlan(planId: string, updates: Partial<AccountPlan>): Promise<boolean> {
+  async updatePlan(planId: string, updates: Partial<AccountPlan>, organizationId: string | null = null): Promise<boolean> {
     if (!supabase) return false;
 
     try {
@@ -910,10 +925,12 @@ Return only valid JSON, no markdown.`;
         dbUpdates.notes = updates.executive_summary;
       }
 
-      const { error } = await supabase
+      let query = supabase
         .from('account_plans')
         .update(dbUpdates)
         .eq('id', planId);
+      if (organizationId) query = query.eq('organization_id', organizationId);
+      const { error } = await query;
 
       return !error;
     } catch (error) {

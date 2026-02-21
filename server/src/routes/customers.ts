@@ -668,6 +668,11 @@ router.get('/', async (req: Request, res: Response) => {
           query = query.eq('is_demo', true);
         }
 
+        // CSM-scoped filtering: CSMs only see customers assigned to them (PRD-023 US-006)
+        if (req.userRole === 'csm' && req.userId) {
+          query = query.eq('csm_id', req.userId);
+        }
+
         // Apply filters
         if (search) {
           query = query.or(`name.ilike.%${search}%,industry.ilike.%${search}%`);
@@ -724,6 +729,10 @@ router.get('/', async (req: Request, res: Response) => {
         // Get total count for pagination (with org filter)
         let countQuery = supabase.from('customers').select('*', { count: 'exact', head: true });
         countQuery = applyOrgFilter(countQuery, req);
+        // CSM-scoped count: must match the list query filter (PRD-023 US-006)
+        if (req.userRole === 'csm' && req.userId) {
+          countQuery = countQuery.eq('csm_id', req.userId);
+        }
         const { count: totalCount } = await countQuery;
 
         // Calculate totals

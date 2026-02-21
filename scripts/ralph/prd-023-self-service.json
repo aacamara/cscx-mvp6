@@ -1,0 +1,129 @@
+{
+  "prd": "PRD-023: Customer Self-Service Production Readiness",
+  "version": "1.0.0",
+  "created": "2026-02-21",
+  "tasks": [
+    {
+      "id": "US-001",
+      "title": "Verify Google OAuth production callback URL",
+      "description": "Check that GOOGLE_REDIRECT_URI in GCP Secret Manager matches what's registered in Google Cloud Console OAuth credentials. The redirect URI must be the production Cloud Run URL: https://cscx-api-lqehrvjf5a-uc.a.run.app/api/google/auth/callback (or similar). Also verify the OAuth consent screen is configured with the correct app name.",
+      "type": "verification",
+      "priority": "critical",
+      "passes": true,
+      "files": [
+        "cloudbuild.yaml",
+        "server/src/routes/auth.ts"
+      ],
+      "acceptance_criteria": [
+        "GOOGLE_REDIRECT_URI secret value matches Google Console redirect URI",
+        "cloudbuild.yaml includes GOOGLE_REDIRECT_URI in --set-secrets",
+        "FRONTEND_URL and CORS_ORIGIN set in cloudbuild.yaml env vars",
+        "Auth callback route handles code exchange correctly"
+      ]
+    },
+    {
+      "id": "US-002",
+      "title": "Verify org creation flow end-to-end",
+      "description": "After Google OAuth, if user has no organization, SignupPage must render. User fills org name, slug auto-generates, submits. Backend creates org + adds user as admin. Frontend reloads with org context. Verify this entire flow works.",
+      "type": "verification",
+      "priority": "critical",
+      "passes": true,
+      "notes": "Fixed SignupPage.tsx org ID extraction bug (data.organization?.id)",
+      "files": [
+        "components/Auth/SignupPage.tsx",
+        "server/src/routes/organizations.ts",
+        "App.tsx",
+        "context/AuthContext.tsx"
+      ],
+      "acceptance_criteria": [
+        "SignupPage renders when isAuthenticated && !organizationId",
+        "POST /api/organizations/create accepts {name, slug}",
+        "Backend creates org + org_members with role=admin",
+        "409 returned on duplicate slug",
+        "After creation, window.location.reload picks up org context"
+      ]
+    },
+    {
+      "id": "US-004",
+      "title": "Verify contract upload and parsing flow",
+      "description": "CSM navigates to +New Onboarding, uploads a contract (PDF/DOCX), Gemini parses it, extracts stakeholders/entitlements/pricing/tech requirements, generates onboarding plan. All data must be org-scoped.",
+      "type": "verification",
+      "priority": "high",
+      "passes": true,
+      "notes": "Fixed: added .docx/.doc to file picker accept list; contract read endpoints org-filtered via SupabaseService update",
+      "files": [
+        "components/UnifiedOnboarding.tsx",
+        "components/ContractUpload.tsx",
+        "services/geminiService.ts",
+        "server/src/routes/onboarding.ts",
+        "server/src/routes/contracts.ts",
+        "server/src/routes/stakeholders.ts"
+      ],
+      "acceptance_criteria": [
+        "ContractUpload component accepts PDF/DOCX files",
+        "geminiService.parseContractFull extracts structured data",
+        "Extracted stakeholders saved with organization_id",
+        "Extracted contract data saved with organization_id",
+        "Onboarding plan generated from parsed contract",
+        "All saved data is org-scoped via applyOrgFilter"
+      ]
+    },
+    {
+      "id": "US-006",
+      "title": "Add CSM-scoped customer filtering",
+      "description": "When a CSM (non-admin) logs in, they should only see customers assigned to them via csm_id. Admins see all org customers. The customer list endpoint needs role-based filtering.",
+      "type": "feature",
+      "priority": "high",
+      "passes": true,
+      "files": [
+        "server/src/routes/customers.ts",
+        "server/src/middleware/auth.ts"
+      ],
+      "acceptance_criteria": [
+        "GET /api/customers returns all org customers for admin role",
+        "GET /api/customers returns only csm_id-matched customers for csm role",
+        "Viewers can read but not edit customers",
+        "Customer detail still accessible if customer belongs to user's org"
+      ]
+    },
+    {
+      "id": "US-008",
+      "title": "Verify CADG artifact generation with org context",
+      "description": "Test that the CADG system generates account plans, QBRs, and playbook-driven artifacts using the correct customer data within the user's organization. Artifacts must not leak data from other orgs.",
+      "type": "verification",
+      "priority": "high",
+      "passes": true,
+      "files": [
+        "server/src/routes/cadg.ts",
+        "server/src/services/cadg/contextAggregator.ts",
+        "server/src/services/cadg/artifactGenerator.ts",
+        "server/src/services/cadg/taskClassifier.ts"
+      ],
+      "acceptance_criteria": [
+        "CADG context aggregator fetches only org-scoped customer data",
+        "Generated artifacts reference correct org's customers",
+        "cadg.ts has applyOrgFilter on all supabase queries",
+        "Artifact storage includes organization_id"
+      ]
+    },
+    {
+      "id": "US-010",
+      "title": "Create and run end-to-end smoke test",
+      "description": "Write a Playwright script that tests the full customer journey: Login -> Create Org -> Import CSV -> Open Customer -> Customer Detail -> Admin Panel -> Generate artifact. Take screenshots at each step.",
+      "type": "test",
+      "priority": "critical",
+      "passes": true,
+      "files": [
+        "scripts/verify-core-flows.ts"
+      ],
+      "acceptance_criteria": [
+        "Script navigates through all major views",
+        "No JavaScript console errors",
+        "All API calls return 200",
+        "Screenshots captured at each step",
+        "Customer list shows imported customers",
+        "Admin panel shows correct metrics"
+      ]
+    }
+  ]
+}
