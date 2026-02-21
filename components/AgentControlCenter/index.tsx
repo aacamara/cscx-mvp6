@@ -1045,7 +1045,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                   plan: data.plan,
                   capability: data.capability,
                   methodology: data.methodology,
-                  customerId: selectedCustomerId || customer?.id || null,
+                  customerId: customer?.id || null,
                 };
                 setPendingCadgPlan(cadgMetadata);
 
@@ -1187,7 +1187,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             },
             body: JSON.stringify({
               message,
-              customerId: selectedCustomerId || customer?.id,
+              customerId: customer?.id,
               customerContext: buildCustomerContext(),
               forceAgent: selectedAgent !== 'auto' ? selectedAgent : undefined,
               activeAgent,
@@ -1216,7 +1216,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               plan: data.plan,
               capability: data.capability,
               methodology: data.methodology,
-              customerId: selectedCustomerId || customer?.id || null,
+              customerId: customer?.id || null,
             };
             setPendingCadgPlan(cadgMetadata);
 
@@ -2154,6 +2154,13 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
     sendToAgent(content, undefined, messageId);
   };
 
+  // PRD-005: Upgrade a conversational response to a CADG document
+  const handleUpgradeToDocument = (responseText: string) => {
+    // Send a generative prompt based on the conversation context
+    const upgradePrompt = `Create a formal document based on this analysis:\n\n${responseText.substring(0, 500)}`;
+    sendToAgent(upgradePrompt);
+  };
+
   // Calculate plan progress for sidebar
   const getPlanProgress = () => {
     if (!plan?.phases) return { total: 0, completed: 0 };
@@ -2722,6 +2729,37 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                         status={msg.status}
                         onRetry={msg.id && msg.status === 'failed' ? () => handleRetryMessage(msg.id!, msg.message) : undefined}
                       />
+                      {/* PRD-005: "Make this a document" upgrade button for conversational responses */}
+                      {!msg.isUser && !msg.isCadgPlan && !msg.isThinking && !msg.isStreaming && msg.message && msg.message.length > 100 && (
+                        <button
+                          onClick={() => handleUpgradeToDocument(msg.message)}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '6px',
+                            background: 'transparent',
+                            border: '1px solid #333',
+                            borderRadius: '6px',
+                            padding: '4px 10px',
+                            marginTop: '6px',
+                            marginLeft: '44px',
+                            cursor: 'pointer',
+                            fontSize: '11px',
+                            color: '#888',
+                            transition: 'all 0.2s',
+                          }}
+                          onMouseEnter={(e) => {
+                            e.currentTarget.style.borderColor = '#e63946';
+                            e.currentTarget.style.color = '#e63946';
+                          }}
+                          onMouseLeave={(e) => {
+                            e.currentTarget.style.borderColor = '#333';
+                            e.currentTarget.style.color = '#888';
+                          }}
+                        >
+                          Make this a document
+                        </button>
+                      )}
                       {/* CADG Plan Card - Don't clear pendingCadgPlan so card can show completed state with links */}
                       {msg.isCadgPlan && pendingCadgPlan && (
                         <CADGPlanCard

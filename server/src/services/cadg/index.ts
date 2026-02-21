@@ -134,6 +134,11 @@ function isConversationalQuestion(query: string): boolean {
     /^where\s/,
     /^who\s/,
     /^tell\s+me\s+(about|what|how|why|when)/,
+    // PRD-005: Advice-seeking patterns that want conversational answers, not documents
+    /^help\s+me\s+(understand|figure|think|decide|prioritize)/,
+    /^(advise|suggest|recommend)\s+(me\s+)?(on|about|what|how)/,
+    /^i\s+(need|want)\s+(help|advice|guidance|input|suggestions)/,
+    /^any\s+(tips|advice|suggestions|thoughts|ideas)\s/,
   ];
 
   // If the query matches a question pattern, it's conversational UNLESS
