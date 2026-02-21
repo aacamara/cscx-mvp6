@@ -48,6 +48,13 @@ export const SupportTickets: React.FC<SupportTicketsProps> = ({ customerId, onCl
   const [submitting, setSubmitting] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState<string[]>([]);
 
+  // PRD-017: Customer search state for dropdown
+  const [customers, setCustomers] = useState<any[]>([]);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  const [loadingCustomers, setLoadingCustomers] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
+
   const fetchTickets = useCallback(async () => {
     try {
       const params = new URLSearchParams();
@@ -73,6 +80,39 @@ export const SupportTickets: React.FC<SupportTicketsProps> = ({ customerId, onCl
   useEffect(() => {
     fetchTickets();
   }, [fetchTickets]);
+
+  // PRD-017: Fetch customers when search changes
+  useEffect(() => {
+    if (!customerId && customerSearch.length > 0) {
+      const fetchCustomers = async () => {
+        setLoadingCustomers(true);
+        try {
+          const response = await fetch(`${API_BASE}/customers?search=${encodeURIComponent(customerSearch)}&limit=10`, {
+            headers: getAuthHeaders()
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setCustomers(data.customers || data || []);
+          }
+        } catch (err) {
+          console.error('Failed to fetch customers:', err);
+        } finally {
+          setLoadingCustomers(false);
+        }
+      };
+      fetchCustomers();
+    } else if (customerSearch.length === 0) {
+      setCustomers([]);
+    }
+  }, [customerSearch, customerId, getAuthHeaders]);
+
+  // PRD-017: Handle customer selection from dropdown
+  const handleCustomerSelect = (customer: any) => {
+    setSelectedCustomer(customer);
+    setNewTicket(prev => ({ ...prev, customerId: customer.id }));
+    setCustomerSearch(customer.name);
+    setShowCustomerDropdown(false);
+  };
 
   const handleSubmitTicket = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,6 +148,8 @@ export const SupportTickets: React.FC<SupportTicketsProps> = ({ customerId, onCl
         priority: 'medium',
         customerId: customerId || ''
       });
+      setCustomerSearch('');
+      setSelectedCustomer(null);
       setShowNewTicket(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create ticket');
@@ -275,15 +317,75 @@ export const SupportTickets: React.FC<SupportTicketsProps> = ({ customerId, onCl
                 </select>
               </div>
               {!customerId && (
-                <div>
-                  <label className="block text-sm text-cscx-gray-400 mb-1">Customer ID</label>
+                <div className="relative">
+                  <label className="block text-sm text-cscx-gray-400 mb-1">Customer</label>
                   <input
                     type="text"
-                    value={newTicket.customerId}
-                    onChange={(e) => setNewTicket(prev => ({ ...prev, customerId: e.target.value }))}
-                    placeholder="Customer ID"
+                    value={customerSearch}
+                    onChange={(e) => {
+                      setCustomerSearch(e.target.value);
+                      setShowCustomerDropdown(true);
+                    }}
+                    onFocus={() => setShowCustomerDropdown(true)}
+                    placeholder="Search customer by name..."
                     className="w-full px-4 py-2.5 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg text-white placeholder-cscx-gray-500 focus:outline-none focus:border-cscx-accent"
+                    required
                   />
+                  {showCustomerDropdown && customerSearch && (
+                    <div className="absolute z-10 w-full mt-1 bg-cscx-gray-800 border border-cscx-gray-700 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                      {loadingCustomers ? (
+                        <div className="p-4 text-center text-cscx-gray-400">Loading customers...</div>
+                      ) : customers.length > 0 ? (
+                        customers.map((customer) => (
+                          <button
+                            key={customer.id}
+                            type="button"
+                            onClick={() => handleCustomerSelect(customer)}
+                            className="w-full px-4 py-3 text-left hover:bg-cscx-gray-700 transition-colors border-b border-cscx-gray-700 last:border-b-0"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <div className="text-white font-medium">{customer.name}</div>
+                                <div className="text-xs text-cscx-gray-400 mt-0.5">
+                                  {customer.industry || 'No industry'}
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <div className="text-xs text-cscx-gray-400">
+                                  Health: {customer.health_score || 'N/A'}
+                                </div>
+                                <div className="text-xs text-cscx-gray-400">
+                                  ARR: ${((customer.arr || 0) / 1000).toFixed(0)}K
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="p-4 text-center text-cscx-gray-400">No customers found</div>
+                      )}
+                    </div>
+                  )}
+                  {selectedCustomer && (
+                    <div className="mt-2 p-2 bg-cscx-gray-700 rounded-lg flex items-center justify-between">
+                      <span className="text-sm text-cscx-gray-300">
+                        Selected: {selectedCustomer.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomer(null);
+                          setCustomerSearch('');
+                          setNewTicket(prev => ({ ...prev, customerId: '' }));
+                        }}
+                        className="text-cscx-gray-400 hover:text-white"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

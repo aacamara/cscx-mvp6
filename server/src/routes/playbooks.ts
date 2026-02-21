@@ -35,7 +35,29 @@ router.get('/', async (req: Request, res: Response) => {
     const { data, error } = await query.order('name');
     if (error) throw error;
 
-    res.json(data);
+    // PRD-016: Transform phases to steps for frontend compatibility
+    // Database stores steps inside phases JSONB, frontend expects flat steps array
+    const transformedData = data?.map(playbook => {
+      let steps: any[] = [];
+      if (playbook.phases && Array.isArray(playbook.phases)) {
+        steps = playbook.phases.flatMap((phase: any) => {
+          if (phase.tasks && Array.isArray(phase.tasks)) {
+            return phase.tasks.map((task: string) => ({
+              name: task,
+              phase: phase.name || `Phase ${phase.phase}`,
+              description: task
+            }));
+          }
+          return [];
+        });
+      }
+      return {
+        ...playbook,
+        steps
+      };
+    });
+
+    res.json(transformedData);
   } catch (error) {
     console.error('Playbooks error:', error);
     res.status(500).json({ error: (error as Error).message });
@@ -218,7 +240,26 @@ router.get('/code/:code', async (req: Request, res: Response) => {
     const { data, error } = await query.single();
 
     if (error) throw error;
-    res.json(data);
+
+    // PRD-016: Transform phases to steps for frontend compatibility
+    let steps: any[] = [];
+    if (data.phases && Array.isArray(data.phases)) {
+      steps = data.phases.flatMap((phase: any) => {
+        if (phase.tasks && Array.isArray(phase.tasks)) {
+          return phase.tasks.map((task: string) => ({
+            name: task,
+            phase: phase.name || `Phase ${phase.phase}`,
+            description: task
+          }));
+        }
+        return [];
+      });
+    }
+
+    res.json({
+      ...data,
+      steps
+    });
   } catch (error) {
     console.error('Playbook by code error:', error);
     res.status(500).json({ error: (error as Error).message });
@@ -274,7 +315,26 @@ router.get('/:id', async (req: Request, res: Response) => {
     const { data, error } = await query.single();
 
     if (error) throw error;
-    res.json(data);
+
+    // PRD-016: Transform phases to steps for frontend compatibility
+    let steps: any[] = [];
+    if (data.phases && Array.isArray(data.phases)) {
+      steps = data.phases.flatMap((phase: any) => {
+        if (phase.tasks && Array.isArray(phase.tasks)) {
+          return phase.tasks.map((task: string) => ({
+            name: task,
+            phase: phase.name || `Phase ${phase.phase}`,
+            description: task
+          }));
+        }
+        return [];
+      });
+    }
+
+    res.json({
+      ...data,
+      steps
+    });
   } catch (error) {
     console.error('Playbook lookup error:', error);
     res.status(500).json({ error: (error as Error).message });
