@@ -37,7 +37,7 @@ INSERT INTO org_members (id, organization_id, user_id, role, status, joined_at)
 VALUES (
   'd0000000-0000-0000-0000-0b1000000002',
   'd0000000-0000-0000-0000-0a9000000001',
-  'd0000000-0000-0000-0000-csm000000001',
+  'd0000000-0000-0000-0000-c00000000001',
   'csm',
   'active',
   NOW() - INTERVAL '25 days'
@@ -49,7 +49,7 @@ INSERT INTO org_members (id, organization_id, user_id, role, status, joined_at)
 VALUES (
   'd0000000-0000-0000-0000-0b1000000003',
   'd0000000-0000-0000-0000-0a9000000001',
-  'd0000000-0000-0000-0000-csm000000002',
+  'd0000000-0000-0000-0000-c00000000002',
   'csm',
   'active',
   NOW() - INTERVAL '20 days'
@@ -61,7 +61,7 @@ INSERT INTO org_members (id, organization_id, user_id, role, status, joined_at)
 VALUES (
   'd0000000-0000-0000-0000-0b1000000004',
   'd0000000-0000-0000-0000-0a9000000001',
-  'd0000000-0000-0000-0000-csm000000003',
+  'd0000000-0000-0000-0000-c00000000003',
   'csm',
   'active',
   NOW() - INTERVAL '15 days'
@@ -73,7 +73,7 @@ INSERT INTO org_members (id, organization_id, user_id, role, status, joined_at)
 VALUES (
   'd0000000-0000-0000-0000-0b1000000005',
   'd0000000-0000-0000-0000-0a9000000001',
-  'd0000000-0000-0000-0000-csm000000004',
+  'd0000000-0000-0000-0000-c00000000004',
   'viewer',
   'active',
   NOW() - INTERVAL '10 days'
@@ -92,27 +92,27 @@ END $$;
 
 -- Sarah Chen: first 11 customers
 UPDATE customers SET
-  csm_id = 'd0000000-0000-0000-0000-csm000000001',
+  csm_id = 'd0000000-0000-0000-0000-c00000000001',
   csm_name = 'Sarah Chen'
 WHERE id IN (
   SELECT id FROM customers WHERE is_demo = true ORDER BY name LIMIT 11
-) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-csm000000001');
+) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-c00000000001');
 
 -- Marcus Rodriguez: next 11
 UPDATE customers SET
-  csm_id = 'd0000000-0000-0000-0000-csm000000002',
+  csm_id = 'd0000000-0000-0000-0000-c00000000002',
   csm_name = 'Marcus Rodriguez'
 WHERE id IN (
   SELECT id FROM customers WHERE is_demo = true ORDER BY name OFFSET 11 LIMIT 11
-) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-csm000000002');
+) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-c00000000002');
 
 -- Priya Patel: remaining 11
 UPDATE customers SET
-  csm_id = 'd0000000-0000-0000-0000-csm000000003',
+  csm_id = 'd0000000-0000-0000-0000-c00000000003',
   csm_name = 'Priya Patel'
 WHERE id IN (
   SELECT id FROM customers WHERE is_demo = true ORDER BY name OFFSET 22 LIMIT 11
-) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-csm000000003');
+) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-c00000000003');
 
 -- ============================================
 -- 4. AGENT ACTIVITY LOG (last 7 days)
@@ -163,9 +163,9 @@ SELECT
   floor(random() * 5000 + 100)::int,
   (ARRAY[
     'df2dc7be-ece0-40b2-a9d7-0f6c45b75131',
-    'd0000000-0000-0000-0000-csm000000001',
-    'd0000000-0000-0000-0000-csm000000002',
-    'd0000000-0000-0000-0000-csm000000003'
+    'd0000000-0000-0000-0000-c00000000001',
+    'd0000000-0000-0000-0000-c00000000002',
+    'd0000000-0000-0000-0000-c00000000003'
   ])[floor(random() * 4 + 1)]
 FROM customers c
 WHERE c.is_demo = true

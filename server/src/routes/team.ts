@@ -76,10 +76,10 @@ router.get('/', async (req: Request, res: Response) => {
     // Demo user name map (for demo/dev mode when auth admin API isn't available)
     const DEMO_USER_NAMES: Record<string, { email: string; name: string }> = {
       'df2dc7be-ece0-40b2-a9d7-0f6c45b75131': { email: 'admin@acmecs.com', name: 'Aziz Camara' },
-      'd0000000-0000-0000-0000-csm000000001': { email: 'sarah.chen@acmecs.com', name: 'Sarah Chen' },
-      'd0000000-0000-0000-0000-csm000000002': { email: 'marcus.r@acmecs.com', name: 'Marcus Rodriguez' },
-      'd0000000-0000-0000-0000-csm000000003': { email: 'priya.p@acmecs.com', name: 'Priya Patel' },
-      'd0000000-0000-0000-0000-csm000000004': { email: 'jordan.t@acmecs.com', name: 'Jordan Taylor' },
+      'd0000000-0000-0000-0000-c00000000001': { email: 'sarah.chen@acmecs.com', name: 'Sarah Chen' },
+      'd0000000-0000-0000-0000-c00000000002': { email: 'marcus.r@acmecs.com', name: 'Marcus Rodriguez' },
+      'd0000000-0000-0000-0000-c00000000003': { email: 'priya.p@acmecs.com', name: 'Priya Patel' },
+      'd0000000-0000-0000-0000-c00000000004': { email: 'jordan.t@acmecs.com', name: 'Jordan Taylor' },
     };
 
     try {
