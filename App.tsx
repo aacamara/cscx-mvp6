@@ -660,7 +660,7 @@ const AppContent: React.FC = () => {
           {/* VIEW: ADMIN - Platform metrics + Org management */}
           {view === 'admin' && (
             <AdminPanel
-              organizationId={organizationId}
+              organizationId={organizationId || (demoMode ? 'd0000000-0000-0000-0000-0a9000000001' : null)}
               onClose={() => setView('observability')}
             />
           )}

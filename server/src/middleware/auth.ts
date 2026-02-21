@@ -134,11 +134,8 @@ export async function authMiddleware(
   // In development only: allow demo user for local testing without auth setup
   if (config.nodeEnv === 'development') {
     req.userId = 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131';
-    // In dev mode, accept org from header for testing
-    const orgIdHeader = req.headers['x-organization-id'] as string | undefined;
-    if (orgIdHeader) {
-      req.organizationId = orgIdHeader;
-    }
+    // Resolve org membership from DB (finds seeded org_members row)
+    await resolveOrgMembership(req);
     next();
     return;
   }

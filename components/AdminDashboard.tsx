@@ -236,8 +236,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <MetricCard
             label="Error Rate"
-            value={`${(metrics.metrics.errorRate * 100).toFixed(2)}%`}
-            color={metrics.metrics.errorRate > 0.05 ? 'red' : metrics.metrics.errorRate > 0.01 ? 'yellow' : 'green'}
+            value={`${metrics.metrics.errorRate.toFixed(2)}%`}
+            color={metrics.metrics.errorRate > 5 ? 'red' : metrics.metrics.errorRate > 1 ? 'yellow' : 'green'}
             icon="error"
           />
           <MetricCard
