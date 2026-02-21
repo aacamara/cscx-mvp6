@@ -120,7 +120,7 @@ WHERE id IN (
 -- ============================================
 
 -- Seed today's activity (varied action types)
-INSERT INTO agent_activity_log (customer_id, agent_type, action_type, status, started_at, completed_at, duration_ms, user_id)
+INSERT INTO agent_activity_log (customer_id, agent_type, action_type, status, started_at, completed_at, duration_ms)
 SELECT
   c.id,
   (ARRAY['renewal', 'risk', 'adoption', 'strategic', 'email'])[floor(random() * 5 + 1)],
@@ -128,15 +128,14 @@ SELECT
   CASE WHEN random() < 0.95 THEN 'completed' ELSE 'failed' END,
   NOW() - (random() * INTERVAL '8 hours'),
   NOW() - (random() * INTERVAL '7 hours'),
-  floor(random() * 3000 + 200)::int,
-  'df2dc7be-ece0-40b2-a9d7-0f6c45b75131'
+  floor(random() * 3000 + 200)::int
 FROM customers c
 WHERE c.is_demo = true
 ORDER BY random()
 LIMIT 25;
 
 -- Seed yesterday's activity
-INSERT INTO agent_activity_log (customer_id, agent_type, action_type, status, started_at, completed_at, duration_ms, user_id)
+INSERT INTO agent_activity_log (customer_id, agent_type, action_type, status, started_at, completed_at, duration_ms)
 SELECT
   c.id,
   (ARRAY['renewal', 'risk', 'adoption', 'strategic'])[floor(random() * 4 + 1)],
@@ -144,15 +143,14 @@ SELECT
   CASE WHEN random() < 0.93 THEN 'completed' ELSE 'failed' END,
   NOW() - INTERVAL '1 day' - (random() * INTERVAL '10 hours'),
   NOW() - INTERVAL '1 day' - (random() * INTERVAL '9 hours'),
-  floor(random() * 4000 + 150)::int,
-  'df2dc7be-ece0-40b2-a9d7-0f6c45b75131'
+  floor(random() * 4000 + 150)::int
 FROM customers c
 WHERE c.is_demo = true
 ORDER BY random()
 LIMIT 20;
 
 -- Seed 2-7 days ago (10-15 entries per day)
-INSERT INTO agent_activity_log (customer_id, agent_type, action_type, status, started_at, completed_at, duration_ms, user_id)
+INSERT INTO agent_activity_log (customer_id, agent_type, action_type, status, started_at, completed_at, duration_ms)
 SELECT
   c.id,
   (ARRAY['renewal', 'risk', 'adoption', 'strategic', 'email'])[floor(random() * 5 + 1)],
@@ -160,13 +158,7 @@ SELECT
   CASE WHEN random() < 0.92 THEN 'completed' ELSE 'failed' END,
   NOW() - (floor(random() * 5 + 2) * INTERVAL '1 day') - (random() * INTERVAL '10 hours'),
   NOW() - (floor(random() * 5 + 2) * INTERVAL '1 day') - (random() * INTERVAL '9 hours'),
-  floor(random() * 5000 + 100)::int,
-  (ARRAY[
-    'df2dc7be-ece0-40b2-a9d7-0f6c45b75131',
-    'd0000000-0000-0000-0000-c00000000001',
-    'd0000000-0000-0000-0000-c00000000002',
-    'd0000000-0000-0000-0000-c00000000003'
-  ])[floor(random() * 4 + 1)]
+  floor(random() * 5000 + 100)::int
 FROM customers c
 WHERE c.is_demo = true
 ORDER BY random()
