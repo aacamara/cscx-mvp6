@@ -494,6 +494,28 @@ router.post('/:orgId/invite', async (req: Request, res: Response) => {
     const code = generateInviteCode();
     const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
 
+    // Validate that organization exists before creating invite
+    const { data: orgExists, error: orgCheckError } = await supabase
+      .from('organizations')
+      .select('id')
+      .eq('id', orgId)
+      .maybeSingle();
+
+    if (orgCheckError) {
+      console.error('Organization check error:', orgCheckError);
+      return res.status(500).json({
+        error: 'Failed to validate organization',
+        details: orgCheckError.message
+      });
+    }
+
+    if (!orgExists) {
+      return res.status(404).json({
+        error: 'Not Found',
+        message: 'Organization not found'
+      });
+    }
+
     const { error: insertError } = await supabase
       .from('invite_codes')
       .insert({
@@ -509,10 +531,14 @@ router.post('/:orgId/invite', async (req: Request, res: Response) => {
 
     if (insertError) {
       console.error('Invite code insert error:', insertError);
-      return res.status(500).json({ error: 'Failed to generate invite code' });
+      return res.status(500).json({
+        error: 'Failed to generate invite code',
+        details: insertError.message
+      });
     }
 
     return res.status(201).json({
+      success: true,
       code,
       expiresAt
     });
