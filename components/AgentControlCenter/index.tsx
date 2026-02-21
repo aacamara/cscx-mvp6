@@ -1045,7 +1045,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
                   plan: data.plan,
                   capability: data.capability,
                   methodology: data.methodology,
-                  customerId: customer?.id || null,
+                  customerId: selectedCustomerId || customer?.id || null,
                 };
                 setPendingCadgPlan(cadgMetadata);
 
@@ -1187,7 +1187,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             },
             body: JSON.stringify({
               message,
-              customerId: customer?.id,
+              customerId: selectedCustomerId || customer?.id,
               customerContext: buildCustomerContext(),
               forceAgent: selectedAgent !== 'auto' ? selectedAgent : undefined,
               activeAgent,
@@ -1216,7 +1216,7 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
               plan: data.plan,
               capability: data.capability,
               methodology: data.methodology,
-              customerId: customer?.id || null,
+              customerId: selectedCustomerId || customer?.id || null,
             };
             setPendingCadgPlan(cadgMetadata);
 
@@ -2978,6 +2978,16 @@ export const AgentControlCenter: React.FC<AgentControlCenterProps> = ({
             )}
           </div>
           <p className="input-hint">
+            {/* PRD-018: Processing timer indicator */}
+            {isProcessing && processingElapsedSeconds > 0 && (
+              <>
+                <span style={{ color: processingElapsedSeconds >= 15 ? '#ef4444' : '#f59e0b' }}>
+                  {processingElapsedSeconds >= 15 ? '⚠️' : '⏱️'} Processing... {processingElapsedSeconds}s
+                  {processingElapsedSeconds >= 15 && ' (taking longer than expected)'}
+                </span>
+                {' · '}
+              </>
+            )}
             {agenticModeEnabled ? '⚡ Agentic Mode' : 'LangChain RAG'} · {
               predictedIntent && selectedAgent === 'auto' ? (
                 <span style={{ color: CS_AGENTS[predictedIntent.agent].color }}>
