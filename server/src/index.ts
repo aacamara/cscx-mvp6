@@ -119,6 +119,7 @@ import { quickActionsRoutes } from './routes/quick-actions.js'; // PRD-265: Quic
 import cadgRoutes from './routes/cadg.js'; // CADG: Context-Aware Agentic Document Generation
 import organizationRoutes from './routes/organizations.js'; // PRD-007: Multi-tenant organizations
 import teamRoutes from './routes/team.js'; // PRD-007: Team/member management
+import { adminRoutes } from './routes/admin.js'; // PRD-021: Admin panel routes
 import { config } from './config/index.js';
 import { schedulerService } from './services/scheduler.js';
 import { agentMemoryService } from './services/agentMemory.js';
@@ -395,6 +396,7 @@ app.use('/api/peer-review', peerReviewRoutes); // PRD-253: Peer Review Workflow
 app.use('/api/cadg', cadgRoutes); // CADG: Context-Aware Agentic Document Generation
 app.use('/api/organizations', organizationRoutes); // PRD-007: Multi-tenant organizations
 app.use('/api/team', teamRoutes); // PRD-007: Team/member management
+app.use('/api/admin', adminRoutes); // PRD-021: Admin panel routes
 app.use('/api/email', emailRoutes); // Email Integration & Summarization
 app.use('/api/support', supportRoutes); // PRD-087: Support Ticket Operations
 app.use('/api/nps', npsRoutes); // PRD-091: NPS Recovery Workflow

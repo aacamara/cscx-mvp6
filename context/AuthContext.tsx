@@ -67,6 +67,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [googleTokens, setGoogleTokens] = useState<GoogleTokens | null>(null);
   const [orgMembership, setOrgMembership] = useState<OrgMembership | null>(null);
   const [hasCheckedOrg, setHasCheckedOrg] = useState(false);
+  const [serverIsAdmin, setServerIsAdmin] = useState(false);
 
   // Check for Google tokens in session
   const extractGoogleTokens = useCallback((session: Session | null): GoogleTokens | null => {
@@ -91,6 +92,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!response.ok) return;
 
       const data = await response.json();
+      // Use server-derived isAdmin (PRD-013)
+      if (data.isAdmin) {
+        setServerIsAdmin(true);
+      }
       // Use first workspace as org context (multi-org support can come later)
       const firstWorkspace = data.workspaces?.[0];
       if (firstWorkspace) {
@@ -253,9 +258,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Get the current user ID (authenticated user or demo user)
   const userId = user?.id || DEMO_USER_ID;
 
-  // Role detection based on email
+  // Role detection: server-derived from org_members OR email fallback (PRD-013)
   const userEmail = user?.email?.toLowerCase() || '';
-  const isAdmin = ADMIN_EMAILS.includes(userEmail);
+  const isAdmin = serverIsAdmin || ADMIN_EMAILS.includes(userEmail);
   const isDesignPartner = !!user && !isAdmin;
 
   // Get auth headers for API requests
