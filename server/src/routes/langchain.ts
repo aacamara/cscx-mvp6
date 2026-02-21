@@ -526,9 +526,8 @@ router.post('/chat/stream', async (req: Request, res: Response) => {
         console.log(`[CADG-Stream] Classification: isGenerative=${cadgClassification.isGenerative}, confidence=${cadgClassification.classification.confidence}, taskType=${cadgClassification.classification.taskType}`);
 
         if (cadgClassification.isGenerative && cadgClassification.classification.confidence >= 0.7) {
-          console.log(`[CADG-Stream] Creating execution plan for: ${cadgClassification.classification.taskType}`);
-
           const validCustomerId = customerId && customerId !== 'unknown' ? customerId : null;
+          console.log(`[CADG-Stream] Creating execution plan for: ${cadgClassification.classification.taskType} (customerId: ${validCustomerId || 'NONE — will attempt name resolution'})`);
 
           const planResult = await cadgService.createPlan({
             userQuery: message,
