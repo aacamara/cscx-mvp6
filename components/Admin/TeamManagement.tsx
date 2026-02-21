@@ -590,7 +590,13 @@ function CustomerAssignmentPanel({
 export const TeamManagement: React.FC<TeamManagementProps> = ({
   organizationId,
 }) => {
-  const { isAdmin, getAuthHeaders } = useAuth();
+  const { isAdmin, getAuthHeaders: baseHeaders } = useAuth();
+
+  // Include org ID in all API calls so backend scopes to correct org
+  const getAuthHeaders = useCallback(() => ({
+    ...baseHeaders(),
+    'x-organization-id': organizationId,
+  }), [baseHeaders, organizationId]);
 
   // Core state
   const [members, setMembers] = useState<TeamMember[]>([]);

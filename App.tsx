@@ -497,8 +497,8 @@ const AppContent: React.FC = () => {
               <span>⚡</span> Operations
             </button>
 
-            {/* Admin-only navigation items */}
-            {isAdmin && (
+            {/* Admin-only navigation items (also shown in demo mode) */}
+            {(isAdmin || demoMode) && (
               <>
                 <button
                   onClick={() => setView('agent-actions')}

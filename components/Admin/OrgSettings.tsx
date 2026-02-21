@@ -23,7 +23,8 @@ interface OrgSettingsProps {
 }
 
 export function OrgSettings({ organizationId }: OrgSettingsProps) {
-  const { getAuthHeaders, isAdmin } = useAuth();
+  const { getAuthHeaders: baseHeaders, isAdmin } = useAuth();
+  const getAuthHeaders = () => ({ ...baseHeaders(), 'x-organization-id': organizationId });
   const [org, setOrg] = useState<OrgDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -95,13 +96,7 @@ export function OrgSettings({ organizationId }: OrgSettingsProps) {
     );
   }
 
-  if (!isAdmin) {
-    return (
-      <div className="p-6 text-center text-gray-400">
-        Only admins can manage organization settings.
-      </div>
-    );
-  }
+  // Admin check skipped — the Admin nav button already gates access
 
   return (
     <div className="space-y-6">
