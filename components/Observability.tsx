@@ -918,9 +918,7 @@ export const Observability: React.FC<ObservabilityProps> = ({
           onSelectCustomer={(customerId) => {
             // Find customer by ID and call parent handler
             const customer = customers.find(c => c.id === customerId);
-            if (customer) {
-              onSelectCustomer?.(customer);
-            }
+            onSelectCustomer?.(customer || { id: customerId, name: '', arr: 0, health_score: 0, status: 'active' } as Customer);
           }}
         />
       )}
