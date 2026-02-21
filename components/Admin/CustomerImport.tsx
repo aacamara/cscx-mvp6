@@ -201,7 +201,12 @@ function autoDetectMapping(headers: string[]): ColumnMapping {
 }
 
 function generateTemplateCSV(): string {
-  return TEMPLATE_HEADERS.join(',') + '\n';
+  const header = TEMPLATE_HEADERS.join(',');
+  const sampleRows = [
+    'Acme Corp,SaaS,120000,82,active,Jane Smith,jane@acme.com',
+    'TechFlow Inc,Fintech,85000,64,onboarding,Bob Lee,bob@techflow.io',
+  ];
+  return [header, ...sampleRows].join('\n') + '\n';
 }
 
 function downloadCSV(content: string, filename: string): void {
