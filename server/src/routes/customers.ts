@@ -1432,6 +1432,85 @@ router.post('/from-contract', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/customers/import
+ * Import customers from JSON array (used by CustomerImport.tsx)
+ * Accepts: { organizationId?, customers: [{ name, arr, industry?, health_score?, ... }] }
+ */
+router.post('/import', async (req: Request, res: Response) => {
+  try {
+    const { customers: records } = req.body;
+
+    if (!Array.isArray(records) || records.length === 0) {
+      return res.status(400).json({
+        error: { code: 'VALIDATION_ERROR', message: 'customers array is required and must not be empty' }
+      });
+    }
+
+    const results: { imported: number; failed: number; errors: { row: number; message: string }[] } = {
+      imported: 0,
+      failed: 0,
+      errors: []
+    };
+
+    for (let i = 0; i < records.length; i++) {
+      const record = records[i];
+      const name = record.name?.toString().trim();
+      if (!name) {
+        results.errors.push({ row: i + 1, message: 'Name is required' });
+        results.failed++;
+        continue;
+      }
+
+      const arr = parseInt(record.arr) || 0;
+      let healthScore = parseInt(record.health_score) || 70;
+      if (healthScore < 0 || healthScore > 100) healthScore = 70;
+
+      const customerData = withOrgId({
+        name,
+        industry: record.industry?.toString().trim() || null,
+        arr,
+        health_score: healthScore,
+        status: record.status || record.stage || 'active',
+        is_demo: false,
+        csm_name: record.csm_name?.toString().trim() || null,
+        tier: record.tier?.toString().trim() || null,
+      }, req);
+
+      if (supabase) {
+        const { error } = await supabase.from('customers').insert(customerData);
+        if (error) {
+          results.errors.push({ row: i + 1, message: error.message });
+          results.failed++;
+        } else {
+          results.imported++;
+        }
+      } else {
+        const customer: Customer = {
+          id: uuidv4(),
+          name,
+          industry: record.industry?.toString().trim(),
+          arr,
+          health_score: healthScore,
+          status: (record.status || 'active') as Customer['status'],
+          tags: ['Imported'],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        };
+        customers.set(customer.id, customer);
+        results.imported++;
+      }
+    }
+
+    res.json(results);
+  } catch (error) {
+    console.error('Import customers error:', error);
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to import customers' }
+    });
+  }
+});
+
+/**
  * POST /api/customers/import-csv
  * Import customers from CSV file upload
  * Design Partner Self-Service: CSV bulk import
