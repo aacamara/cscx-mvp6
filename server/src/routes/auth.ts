@@ -583,14 +583,26 @@ router.get('/session', async (req: Request, res: Response) => {
       req.headers['user-agent'] || undefined
     ).catch(() => {}); // non-blocking
 
-    // Get user's workspaces
-    const { data: memberships } = await supabase
-      .from('workspace_members')
-      .select(`
-        role,
-        workspaces(id, name, slug)
-      `)
-      .eq('user_id', user.id);
+    // Get user's organization memberships (PRD-008: fix workspace_members → org_members)
+    const { data: orgMemberships } = await supabase
+      .from('org_members')
+      .select('organization_id, role')
+      .eq('user_id', user.id)
+      .eq('status', 'active');
+
+    // Fetch org details for each membership
+    const orgIds = orgMemberships?.map(m => m.organization_id).filter(Boolean) || [];
+    let orgs: any[] = [];
+    if (orgIds.length > 0) {
+      const { data: orgData } = await supabase
+        .from('organizations')
+        .select('id, name, slug')
+        .in('id', orgIds);
+      orgs = orgData || [];
+    }
+
+    // Derive isAdmin from org membership role (PRD-013)
+    const isAdmin = orgMemberships?.some(m => m.role === 'admin') || false;
 
     res.json({
       user: {
@@ -599,12 +611,13 @@ router.get('/session', async (req: Request, res: Response) => {
         name: user.user_metadata?.name || user.email?.split('@')[0],
         avatarUrl: user.user_metadata?.avatar_url
       },
-      workspaces: memberships?.map(m => ({
-        id: (m.workspaces as any)?.id,
-        name: (m.workspaces as any)?.name,
-        slug: (m.workspaces as any)?.slug,
-        role: m.role
-      })) || []
+      isAdmin,
+      workspaces: orgs.map(org => ({
+        id: org.id,
+        name: org.name,
+        slug: org.slug,
+        role: orgMemberships?.find(m => m.organization_id === org.id)?.role || 'csm'
+      }))
     });
   } catch (error) {
     console.error('Session error:', error);
