@@ -19,9 +19,23 @@ export type StreamCallback = (chunk: string) => void;
 export class GeminiService {
   private client: GoogleGenerativeAI;
   private model: string = 'gemini-2.0-flash';
+  private timeout: number = 60000; // 60 second timeout
 
   constructor() {
     this.client = new GoogleGenerativeAI(config.geminiApiKey);
+  }
+
+  /**
+   * Wrap a promise with a timeout
+   */
+  private async withTimeout<T>(promise: Promise<T>, timeoutMs: number = this.timeout): Promise<T> {
+    const timeoutPromise = new Promise<T>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Gemini API request timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    return Promise.race([promise, timeoutPromise]);
   }
 
   async generate(prompt: string, systemPrompt?: string): Promise<string> {
@@ -31,12 +45,15 @@ export class GeminiService {
         systemInstruction: systemPrompt
       });
 
-      const result = await model.generateContent(prompt);
+      const result = await this.withTimeout(model.generateContent(prompt));
       const response = result.response;
 
       return response.text();
     } catch (error) {
       console.error('Gemini API Error:', error);
+      if (error instanceof Error && error.message.includes('timed out')) {
+        throw new Error('Gemini API request timed out. Please try again.');
+      }
       throw new Error('Failed to generate response from Gemini');
     }
   }
@@ -142,10 +159,13 @@ Return ONLY the JSON object, no markdown or explanation.`;
       ];
 
       console.log('🔮 Calling Gemini generateContent...');
-      const result = await model.generateContent({
-        contents: [{ role: 'user', parts }],
-        systemInstruction: systemPrompt
-      } as any);
+      const result = await this.withTimeout(
+        model.generateContent({
+          contents: [{ role: 'user', parts }],
+          systemInstruction: systemPrompt
+        } as any),
+        90000 // 90 second timeout for document parsing
+      );
 
       console.log('🔮 Gemini response received, extracting text...');
       console.log('🔮 Response type:', typeof result.response);
@@ -188,6 +208,11 @@ Return ONLY the JSON object, no markdown or explanation.`;
       console.error('❌ Error name:', (error as Error)?.name);
       console.error('❌ Error message:', (error as Error)?.message);
       console.error('❌ Error stack:', (error as Error)?.stack);
+
+      if (error instanceof Error && error.message.includes('timed out')) {
+        throw new Error('Document parsing timed out. Please try with a smaller file or try again later.');
+      }
+
       throw new Error(`Failed to parse document with Gemini: ${(error as Error)?.message}`);
     }
   }
