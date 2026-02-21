@@ -180,12 +180,9 @@ CREATE TABLE IF NOT EXISTS approval_requests (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-INSERT INTO approval_requests (agent_type, action_type, customer_id, description, status, requested_by)
-SELECT
-  agent_type, action_type, customer_id, description, 'pending', 'df2dc7be-ece0-40b2-a9d7-0f6c45b75131'
-FROM (VALUES
-  ('renewal', 'send_renewal_proposal', 'd0000000-0000-0000-0000-000000000003', 'Auto-generated renewal proposal for TechFlow Inc — 15% uplift recommended'),
-  ('risk', 'escalate_to_manager', 'd0000000-0000-0000-0000-000000000005', 'Critical risk alert: DataStream Pro usage dropped 40% — executive escalation drafted'),
-  ('strategic', 'send_qbr_invite', 'd0000000-0000-0000-0000-000000000001', 'QBR scheduled with Acme Corp — agenda and deck auto-generated')
-) AS v(agent_type, action_type, customer_id, description)
-WHERE NOT EXISTS (SELECT 1 FROM approval_requests WHERE status = 'pending' LIMIT 1);
+INSERT INTO approval_requests (agent_type, action_type, customer_id, description, status)
+VALUES
+  ('renewal', 'send_renewal_proposal', 'd0000000-0000-0000-0000-000000000003'::uuid, 'Auto-generated renewal proposal for TechFlow Inc — 15% uplift recommended', 'pending'),
+  ('risk', 'escalate_to_manager', 'd0000000-0000-0000-0000-000000000005'::uuid, 'Critical risk alert: DataStream Pro usage dropped 40% — executive escalation drafted', 'pending'),
+  ('strategic', 'send_qbr_invite', 'd0000000-0000-0000-0000-000000000001'::uuid, 'QBR scheduled with Acme Corp — agenda and deck auto-generated', 'pending')
+ON CONFLICT DO NOTHING;
