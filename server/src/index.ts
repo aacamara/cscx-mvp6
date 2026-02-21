@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import dotenv from 'dotenv';
 import path from 'path';
 
+import { authMiddleware } from './middleware/auth.js';
 import { authRoutes } from './routes/auth.js'; // PRD-1: Gated Login + Onboarding
 import agentAuthRoutes from './routes/agent-auth.js';
 import { agentRoutes } from './routes/agents.js';
@@ -242,6 +243,24 @@ const limiter = rateLimit({
   message: { error: { code: 'RATE_LIMITED', message: 'Too many requests' } }
 });
 app.use('/api/', limiter);
+
+// Global auth middleware — protects ALL /api/* routes except allowlisted paths.
+// Routes that handle their own auth (login, webhooks) or are public are excluded.
+const AUTH_PUBLIC_PATHS = [
+  '/api/auth',           // Login, signup, invite validation
+  '/api/webhooks',       // Inbound webhooks (Zapier, support, etc.)
+  '/api/v1/usage',       // Usage ingestion (API-key authenticated separately)
+  '/api/flags',          // Feature flags (public read)
+];
+
+app.use('/api', (req, res, next) => {
+  // Skip auth for public paths
+  if (AUTH_PUBLIC_PATHS.some(p => req.path.startsWith(p.replace('/api', '')))) {
+    return next();
+  }
+  // Apply auth middleware to everything else
+  authMiddleware(req, res, next);
+});
 
 // Health check endpoints
 // Liveness probe - lightweight, always returns ok if process is running
