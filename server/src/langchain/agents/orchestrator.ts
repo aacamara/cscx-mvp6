@@ -129,7 +129,21 @@ Respond with JSON: {"specialist": "<id>", "confidence": <0-1>, "reasoning": "<wh
     console.error('LLM routing error:', error);
   }
 
-  return { specialist: 'strategic', confidence: 0.5, reasoning: 'Default fallback' };
+  // PRD-001: Keyword-based fallback instead of always defaulting to 'strategic'
+  const lower = message.toLowerCase();
+  const routingKeywords: Record<string, string[]> = {
+    onboarding: ['kickoff', 'onboarding', 'welcome', 'new customer', '30-60-90', 'setup', 'implementation', 'go-live'],
+    adoption: ['usage', 'adoption', 'feature', 'training', 'engagement', 'champion', 'enablement', 'rollout'],
+    risk: ['churn', 'risk', 'health score', 'escalation', 'save play', 'at-risk', 'declining', 'cancel', 'detractor'],
+    renewal: ['renewal', 'contract', 'expansion', 'upsell', 'qbr', 'pricing', 'commercial', 'negotiate'],
+  };
+  for (const [specialist, keywords] of Object.entries(routingKeywords)) {
+    if (keywords.some(kw => lower.includes(kw))) {
+      return { specialist: specialist as any, confidence: 0.6, reasoning: `Keyword fallback: matched ${specialist} keywords` };
+    }
+  }
+
+  return { specialist: 'strategic', confidence: 0.5, reasoning: 'Default fallback — no keyword match' };
 }
 
 export class AgentOrchestrator {

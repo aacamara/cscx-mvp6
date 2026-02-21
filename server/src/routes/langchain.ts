@@ -179,9 +179,10 @@ ${meetingDetails.description ? `- **Agenda:** ${meetingDetails.description}` : '
     }
   }
 
-  // Detect email drafting requests
-  if ((msgLower.includes('draft') || msgLower.includes('write') || msgLower.includes('send') || msgLower.includes('compose')) &&
-      msgLower.includes('email')) {
+  // Detect email drafting requests (PRD-022: strict — only explicit composition intent)
+  const isAnalysisQuery = /\b(show|list|find|search|analyze|review|check|get|recent|latest|summarize)\b/i.test(message);
+  const isExplicitEmailAction = /\b(draft|write|send|compose)\b/i.test(message) && msgLower.includes('email');
+  if (isExplicitEmailAction && !isAnalysisQuery) {
 
     try {
       // Use LLM to generate email draft
