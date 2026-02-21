@@ -171,7 +171,7 @@ const AdminPanel: React.FC<{
       </div>
 
       {/* Tab Content */}
-      {tab === 'metrics' && <AdminDashboard />}
+      {tab === 'metrics' && <AdminDashboard organizationId={organizationId} />}
       {tab === 'team' && organizationId && (
         <React.Suspense fallback={<div className="text-gray-400 py-8 text-center">Loading...</div>}>
           <TeamManagement organizationId={organizationId} />

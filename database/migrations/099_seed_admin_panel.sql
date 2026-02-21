@@ -88,6 +88,11 @@ DO $$ BEGIN
   -- Add csm_id column if missing
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS csm_id UUID;
   ALTER TABLE customers ADD COLUMN IF NOT EXISTS csm_name TEXT;
+  -- Add organization_id column if missing (required for org-filtered queries)
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'customers' AND column_name = 'organization_id') THEN
+    ALTER TABLE customers ADD COLUMN organization_id UUID REFERENCES organizations(id);
+    CREATE INDEX idx_customers_org ON customers(organization_id);
+  END IF;
 END $$;
 
 -- Sarah Chen: first 11 customers
@@ -113,6 +118,12 @@ UPDATE customers SET
 WHERE id IN (
   SELECT id FROM customers WHERE is_demo = true ORDER BY name OFFSET 22 LIMIT 11
 ) AND (csm_id IS NULL OR csm_id = 'd0000000-0000-0000-0000-c00000000003');
+
+-- Assign all demo customers to the demo organization
+UPDATE customers SET
+  organization_id = 'd0000000-0000-0000-0000-0a9000000001'
+WHERE is_demo = true
+  AND (organization_id IS NULL OR organization_id = 'd0000000-0000-0000-0000-0a9000000001');
 
 -- ============================================
 -- 4. AGENT ACTIVITY LOG (last 7 days)

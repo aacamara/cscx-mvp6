@@ -39,11 +39,16 @@ interface AdminMetrics {
 }
 
 interface AdminDashboardProps {
+  organizationId?: string | null;
   onClose?: () => void;
 }
 
-export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onClose }) => {
-  const { getAuthHeaders } = useAuth();
+export const AdminDashboard: React.FC<AdminDashboardProps> = ({ organizationId, onClose }) => {
+  const { getAuthHeaders: baseHeaders } = useAuth();
+  const getAuthHeaders = useCallback(() => ({
+    ...baseHeaders(),
+    ...(organizationId ? { 'x-organization-id': organizationId } : {}),
+  }), [baseHeaders, organizationId]);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
