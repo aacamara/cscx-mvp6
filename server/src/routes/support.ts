@@ -564,61 +564,46 @@ router.post('/tickets', async (req: Request, res: Response) => {
     // Generate AI troubleshooting suggestions based on the description
     const troubleshootingSuggestions = generateTroubleshootingSuggestions(subject, description, category);
 
-    let ticket;
+    if (!supabase) {
+      return res.status(503).json({
+        error: {
+          code: 'DATABASE_UNAVAILABLE',
+          message: 'Database not configured'
+        }
+      });
+    }
 
-    if (supabase) {
-      // Store in database
-      const { data, error } = await supabase
-        .from('support_tickets')
-        .insert(withOrgId({
-          external_id: ticketId,
-          customer_id: customerId,
-          subject,
-          description,
-          priority,
-          category: category || 'general',
-          status: 'open',
-          reporter_email: reporterEmail,
-          reporter_name: reporterName,
-          ai_suggestions: troubleshootingSuggestions,
-          created_at: new Date().toISOString()
-        }, req))
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Create ticket error:', error);
-        // If table doesn't exist, return mock response
-        ticket = {
-          id: ticketId,
-          customerId,
-          subject,
-          description,
-          priority,
-          category: category || 'general',
-          status: 'open',
-          reporterEmail,
-          reporterName,
-          createdAt: new Date().toISOString()
-        };
-      } else {
-        ticket = data;
-      }
-    } else {
-      // Mock ticket for when database isn't configured
-      ticket = {
-        id: ticketId,
-        customerId,
+    // Store in database
+    const { data, error } = await supabase
+      .from('support_tickets')
+      .insert(withOrgId({
+        external_id: ticketId,
+        customer_id: customerId,
         subject,
         description,
         priority,
         category: category || 'general',
         status: 'open',
-        reporterEmail,
-        reporterName,
-        createdAt: new Date().toISOString()
-      };
+        reporter_email: reporterEmail,
+        reporter_name: reporterName,
+        ai_suggestions: troubleshootingSuggestions,
+        created_at: new Date().toISOString()
+      }, req))
+      .select()
+      .single();
+
+    if (error) {
+      console.error('[Support] Failed to create ticket:', error);
+      return res.status(500).json({
+        error: {
+          code: 'DATABASE_ERROR',
+          message: 'Failed to save support ticket to database',
+          details: error.message
+        }
+      });
     }
+
+    const ticket = data;
 
     res.status(201).json({
       ticketId: ticketId,
