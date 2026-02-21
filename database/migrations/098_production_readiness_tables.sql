@@ -2,6 +2,7 @@
 -- Production Readiness: Ensure all org/auth tables exist
 -- Safe to run multiple times (all IF NOT EXISTS)
 -- Combines: 20260202 gated login + 20260215 multi-tenant
+-- DEFENSIVE: handles pre-existing tables with missing columns
 -- ============================================
 
 -- Enable UUID extensions
@@ -54,78 +55,110 @@ CREATE TABLE IF NOT EXISTS public.workspaces (
 CREATE INDEX IF NOT EXISTS idx_workspaces_slug ON public.workspaces(slug);
 
 -- ============================================
--- USER PROFILES
+-- USER PROFILES (defensive: add missing columns)
 -- ============================================
-CREATE TABLE IF NOT EXISTS public.user_profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  auth_user_id UUID UNIQUE NOT NULL,
-  email VARCHAR(255) NOT NULL,
-  name VARCHAR(255),
-  avatar_url TEXT,
-  default_workspace_id UUID REFERENCES public.workspaces(id),
-  onboarding_completed BOOLEAN DEFAULT false,
-  onboarding_checklist JSONB DEFAULT '{
-    "google_connected": false,
-    "customers_imported": false,
-    "first_success_plan": false
-  }',
-  first_login_at TIMESTAMPTZ,
-  last_login_at TIMESTAMPTZ,
-  preferences JSONB DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+DO $$ BEGIN
+  -- Create table with minimal columns if it doesn't exist at all
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_profiles') THEN
+    CREATE TABLE public.user_profiles (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      auth_user_id UUID UNIQUE NOT NULL,
+      email VARCHAR(255) NOT NULL,
+      name VARCHAR(255),
+      avatar_url TEXT,
+      default_workspace_id UUID REFERENCES public.workspaces(id),
+      onboarding_completed BOOLEAN DEFAULT false,
+      onboarding_checklist JSONB DEFAULT '{"google_connected": false, "customers_imported": false, "first_success_plan": false}',
+      first_login_at TIMESTAMPTZ,
+      last_login_at TIMESTAMPTZ,
+      preferences JSONB DEFAULT '{}',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  ELSE
+    -- Table exists — add any missing columns
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS auth_user_id UUID;
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS default_workspace_id UUID;
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT false;
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS onboarding_checklist JSONB DEFAULT '{"google_connected": false, "customers_imported": false, "first_success_plan": false}';
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS first_login_at TIMESTAMPTZ;
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS preferences JSONB DEFAULT '{}';
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+    ALTER TABLE public.user_profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW();
+  END IF;
+END $$;
+
+-- Indexes (only if columns exist)
 CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON public.user_profiles(email);
-CREATE INDEX IF NOT EXISTS idx_user_profiles_auth_user ON public.user_profiles(auth_user_id);
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'user_profiles' AND column_name = 'auth_user_id') THEN
+    CREATE INDEX IF NOT EXISTS idx_user_profiles_auth_user ON public.user_profiles(auth_user_id);
+  END IF;
+END $$;
 
 -- ============================================
--- WORKSPACE MEMBERS
+-- WORKSPACE MEMBERS (defensive)
 -- ============================================
-CREATE TABLE IF NOT EXISTS public.workspace_members (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES public.user_profiles(id) ON DELETE CASCADE,
-  role VARCHAR(50) DEFAULT 'member',
-  invited_by_invite_id UUID,
-  joined_at TIMESTAMPTZ DEFAULT NOW(),
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(workspace_id, user_id)
-);
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'workspace_members') THEN
+    CREATE TABLE public.workspace_members (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      workspace_id UUID NOT NULL REFERENCES public.workspaces(id) ON DELETE CASCADE,
+      user_id UUID NOT NULL,
+      role VARCHAR(50) DEFAULT 'member',
+      invited_by_invite_id UUID,
+      joined_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE(workspace_id, user_id)
+    );
+  ELSE
+    ALTER TABLE public.workspace_members ADD COLUMN IF NOT EXISTS role VARCHAR(50) DEFAULT 'member';
+    ALTER TABLE public.workspace_members ADD COLUMN IF NOT EXISTS invited_by_invite_id UUID;
+    ALTER TABLE public.workspace_members ADD COLUMN IF NOT EXISTS joined_at TIMESTAMPTZ DEFAULT NOW();
+  END IF;
+END $$;
 CREATE INDEX IF NOT EXISTS idx_workspace_members_workspace ON public.workspace_members(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON public.workspace_members(user_id);
 
 -- ============================================
--- INVITE CODES
+-- INVITE CODES (defensive)
 -- ============================================
-CREATE TABLE IF NOT EXISTS public.invite_codes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  code_hash TEXT NOT NULL UNIQUE,
-  workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
-  max_uses INTEGER DEFAULT 1,
-  uses_remaining INTEGER DEFAULT 1,
-  expires_at TIMESTAMPTZ,
-  created_by UUID REFERENCES public.user_profiles(id),
-  revoked_at TIMESTAMPTZ,
-  is_active BOOLEAN DEFAULT true,
-  metadata JSONB DEFAULT '{}',
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-CREATE INDEX IF NOT EXISTS idx_invite_codes_workspace ON public.invite_codes(workspace_id);
-CREATE INDEX IF NOT EXISTS idx_invite_codes_active ON public.invite_codes(is_active) WHERE is_active = true;
-
--- Add organization_id + role to invite_codes if missing (multi-tenant upgrade)
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invite_codes')
-  AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invite_codes' AND column_name = 'organization_id') THEN
-    ALTER TABLE invite_codes ADD COLUMN organization_id UUID REFERENCES organizations(id);
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invite_codes')
-  AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'invite_codes' AND column_name = 'role') THEN
-    ALTER TABLE invite_codes ADD COLUMN role TEXT DEFAULT 'csm';
+  IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'invite_codes') THEN
+    CREATE TABLE public.invite_codes (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      code_hash TEXT NOT NULL UNIQUE,
+      workspace_id UUID REFERENCES public.workspaces(id) ON DELETE CASCADE,
+      max_uses INTEGER DEFAULT 1,
+      uses_remaining INTEGER DEFAULT 1,
+      expires_at TIMESTAMPTZ,
+      created_by UUID,
+      revoked_at TIMESTAMPTZ,
+      is_active BOOLEAN DEFAULT true,
+      metadata JSONB DEFAULT '{}',
+      organization_id UUID,
+      role TEXT DEFAULT 'csm',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  ELSE
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS organization_id UUID;
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'csm';
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS max_uses INTEGER DEFAULT 1;
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS uses_remaining INTEGER DEFAULT 1;
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+    ALTER TABLE public.invite_codes ADD COLUMN IF NOT EXISTS metadata JSONB DEFAULT '{}';
   END IF;
 END $$;
+CREATE INDEX IF NOT EXISTS idx_invite_codes_workspace ON public.invite_codes(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_invite_codes_active ON public.invite_codes(is_active) WHERE is_active = true;
 
 -- ============================================
 -- INVITE CODE ATTEMPTS (audit log)
@@ -136,7 +169,7 @@ CREATE TABLE IF NOT EXISTS public.invite_code_attempts (
   ip_address INET,
   user_agent TEXT,
   success BOOLEAN DEFAULT false,
-  user_id UUID REFERENCES public.user_profiles(id),
+  user_id UUID,
   error_code VARCHAR(50),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -148,9 +181,9 @@ CREATE INDEX IF NOT EXISTS idx_invite_attempts_created ON public.invite_code_att
 -- ============================================
 CREATE TABLE IF NOT EXISTS public.customer_imports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workspace_id UUID REFERENCES public.workspaces(id),
-  user_id UUID REFERENCES public.user_profiles(id),
-  source_type VARCHAR(50) NOT NULL,
+  workspace_id UUID,
+  user_id UUID,
+  source_type VARCHAR(50) NOT NULL DEFAULT 'csv',
   source_ref TEXT,
   source_name TEXT,
   status VARCHAR(50) DEFAULT 'pending',
@@ -174,7 +207,6 @@ CREATE INDEX IF NOT EXISTS idx_customer_imports_status ON public.customer_import
 -- RLS + SERVICE ROLE POLICIES
 -- ============================================
 DO $$ BEGIN
-  -- Only enable RLS if tables exist and policies don't already exist
   ALTER TABLE public.workspaces ENABLE ROW LEVEL SECURITY;
   ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
   ALTER TABLE public.workspace_members ENABLE ROW LEVEL SECURITY;
