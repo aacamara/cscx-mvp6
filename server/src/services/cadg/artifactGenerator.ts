@@ -107,7 +107,7 @@ export function getTemplateData(): TemplateData {
 
   return {
     company: {
-      name: 'ACME Corporation',
+      name: '[CUSTOMER NAME]',
       arr: 450000,
       healthScore: 78,
       industry: 'Technology',
@@ -129,21 +129,21 @@ export function getTemplateData(): TemplateData {
       {
         name: 'Sarah Chen',
         title: 'VP of Operations',
-        email: 'sarah.chen@acme-example.com',
+        email: 'stakeholder1@example.com',
         role: 'champion',
         engagementLevel: 'high',
       },
       {
         name: 'James Rodriguez',
         title: 'Director of IT',
-        email: 'james.r@acme-example.com',
+        email: 'stakeholder2@example.com',
         role: 'sponsor',
         engagementLevel: 'medium',
       },
       {
         name: 'Maria Thompson',
         title: 'Product Manager',
-        email: 'maria.t@acme-example.com',
+        email: 'stakeholder3@example.com',
         role: 'user',
         engagementLevel: 'high',
       },
@@ -489,7 +489,7 @@ ${templateData.riskSignals.map(r => `- [${r.severity.toUpperCase()}] ${r.descrip
 
 ### Next Steps:
 1. Open the template document
-2. Replace "ACME Corporation" with your customer name
+2. Replace "[CUSTOMER NAME]" with your customer name
 3. Update metrics with real data
 4. Customize recommendations`;
 
@@ -836,6 +836,19 @@ function extractSourcesUsed(context: AggregatedContext): string[] {
 }
 
 /**
+ * PRD-003: Build customer context instruction for LLM prompts.
+ * When real customer data is available, explicitly instruct the LLM to use it
+ * and NEVER substitute placeholder names like "ACME Corporation".
+ * When in template mode, clearly label the output as a template.
+ */
+function buildCustomerInstruction(customerName: string, isTemplate: boolean): string {
+  if (isTemplate) {
+    return '\n⚠️ TEMPLATE MODE: No customer selected. Use "[CUSTOMER NAME]" as a placeholder throughout. Label this document as a TEMPLATE. Do NOT use "ACME Corporation" — use bracketed placeholders like [CUSTOMER NAME], [COMPANY], etc.';
+  }
+  return `\n🔒 IMPORTANT: This document is for "${customerName}". You MUST use "${customerName}" as the customer/company name throughout. Do NOT substitute any other name, placeholder, or "ACME Corporation". Every reference to the customer must say "${customerName}".`;
+}
+
+/**
  * Save artifact to database
  */
 async function saveArtifact(
@@ -953,7 +966,7 @@ async function generateEmailPreview(params: {
 Customer: ${customerName}
 Health Score: ${healthScore}
 Renewal Date: ${renewalDate}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 User Request: ${plan.planId ? 'Generate email based on plan' : 'Draft customer email'}
 
@@ -1068,7 +1081,7 @@ Customer: ${customerName}
 Health Score: ${healthScore}
 Renewal Date: ${renewalDate}
 ${arr ? `ARR: $${arr.toLocaleString()}` : ''}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Document Type: ${documentType}
 
@@ -1220,7 +1233,7 @@ async function generateMeetingPrepPreview(params: {
 Customer: ${customerName}
 Health Score: ${healthScore}
 Renewal Date: ${renewalDate}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Recent Interactions:
 ${recentInteractions.map((i: any) => `- ${i.type}: ${i.summary || i.description || 'Interaction'}`).join('\n') || 'No recent interactions'}
@@ -1381,7 +1394,7 @@ async function generateMilestonePlanPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a milestone plan with 3 phases (30 days, 60 days, 90 days). For each phase include:
 1. 3-4 key goals (actionable objectives)
@@ -1645,7 +1658,7 @@ async function generateKickoffPlanPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a kickoff plan with:
 1. A descriptive meeting title (e.g., "Welcome Kickoff: [Customer] + [Company] Partnership Launch")
@@ -1708,9 +1721,9 @@ Format your response as JSON:
     // Build attendees from stakeholders or defaults
     const attendees = isTemplate
       ? [
-          { id: 'att-1', name: 'Sarah Chen', email: 'sarah@acme-example.com', role: 'Executive Sponsor' },
-          { id: 'att-2', name: 'James Rodriguez', email: 'james@acme-example.com', role: 'Project Lead' },
-          { id: 'att-3', name: 'Maria Thompson', email: 'maria@acme-example.com', role: 'Key User' },
+          { id: 'att-1', name: 'Sarah Chen', email: 'sponsor@example.com', role: 'Executive Sponsor' },
+          { id: 'att-2', name: 'James Rodriguez', email: 'lead@example.com', role: 'Project Lead' },
+          { id: 'att-3', name: 'Maria Thompson', email: 'user@example.com', role: 'Key User' },
         ]
       : stakeholders.slice(0, 3).map((s, idx) => ({
           id: `att-${idx + 1}`,
@@ -1905,7 +1918,7 @@ async function generateTrainingSchedulePreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a training schedule with 4-6 training sessions. For each session include:
 1. Session name and brief description
@@ -2139,7 +2152,7 @@ async function generateStakeholderMapPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 ${interactions.length > 0 ? `Recent Interactions:
 ${interactions.slice(0, 5).map((i: any) => `- ${i.type}: ${i.summary || i.description || 'Interaction'}`).join('\n')}` : ''}
@@ -2227,7 +2240,7 @@ Format your response as JSON:
       {
         name: 'Sarah Chen',
         title: 'VP of Operations',
-        email: 'sarah.chen@acme-example.com',
+        email: 'stakeholder1@example.com',
         role: 'Champion' as const,
         influenceLevel: 5,
         engagementLevel: 'High' as const,
@@ -2236,7 +2249,7 @@ Format your response as JSON:
       {
         name: 'James Rodriguez',
         title: 'Director of IT',
-        email: 'james.r@acme-example.com',
+        email: 'stakeholder2@example.com',
         role: 'Sponsor' as const,
         influenceLevel: 4,
         engagementLevel: 'Medium' as const,
@@ -2245,7 +2258,7 @@ Format your response as JSON:
       {
         name: 'Maria Thompson',
         title: 'Product Manager',
-        email: 'maria.t@acme-example.com',
+        email: 'stakeholder3@example.com',
         role: 'User' as const,
         influenceLevel: 3,
         engagementLevel: 'High' as const,
@@ -2254,7 +2267,7 @@ Format your response as JSON:
       {
         name: 'David Kim',
         title: 'CFO',
-        email: 'david.kim@acme-example.com',
+        email: 'stakeholder4@example.com',
         role: 'Evaluator' as const,
         influenceLevel: 5,
         engagementLevel: 'Low' as const,
@@ -2384,7 +2397,7 @@ async function generateUsageAnalysisPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 ${engagement ? `Current Engagement Data:
 - Feature Adoption: ${engagement.featureAdoption}%
@@ -2735,7 +2748,7 @@ async function generateFeatureCampaignPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 ${engagement ? `Current Engagement Data:
 - Feature Adoption: ${engagement.featureAdoption}%
@@ -3180,7 +3193,7 @@ async function generateChampionDevelopmentPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 ${engagement ? `Current Engagement Data:
 - Feature Adoption: ${engagement.featureAdoption}%
@@ -3694,7 +3707,7 @@ async function generateTrainingProgramPreview(params: {
 
 Customer: ${customerName}
 Health Score: ${healthScore}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 ${engagement ? `Current Engagement Data:
 - Feature Adoption: ${engagement.featureAdoption}%
@@ -4247,7 +4260,7 @@ Customer: ${customerName}
 Health Score: ${healthScore}
 ARR: $${arr.toLocaleString()}
 Renewal Date: ${renewalDate}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 ${engagement ? `Engagement Metrics:
 - Feature Adoption: ${engagement.featureAdoption}%
@@ -4600,7 +4613,7 @@ Industry: ${industry}
 Health Score: ${healthScore}
 ARR: $${arr.toLocaleString()}
 Feature Adoption: ${featureAdoption}%
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a value summary with:
 1. 5-7 value metrics across efficiency, cost savings, revenue, productivity, and satisfaction
@@ -4978,7 +4991,7 @@ Current ARR: $${arr.toLocaleString()}
 Feature Adoption: ${featureAdoption}%
 Active Users: ${activeUsers}
 Contract Renewal: ${contractEnd}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate an expansion proposal with:
 1. 3-5 expansion products/upgrades (modules, tier upgrades, seats, storage, support, professional services)
@@ -5321,7 +5334,7 @@ Feature Adoption: ${featureAdoption}%
 Login Frequency: ${loginFrequency}x/week
 Renewal Date: ${renewalDate}
 Churn Risk: ${hasChurnRisk ? 'Elevated' : 'Normal'}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a negotiation brief with:
 1. 4-6 contract terms being negotiated (price, duration, scope, SLA, payment terms, auto-renewal)
@@ -5664,7 +5677,7 @@ DAU/MAU Ratio: ${(dauMau * 100).toFixed(1)}%
 NPS Score: ${npsScore}
 Risk Level: ${riskLevel.toUpperCase()}
 Known Risk Signals: ${hasHighRisk ? 'High risk - immediate action required' : 'Elevated concerns'}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a save play with:
 1. A situation summary (2-3 sentences describing the urgent situation)
@@ -6008,7 +6021,7 @@ Login Frequency: ${loginFrequency}x/week
 Escalation Level: ${escalationLevel.toUpperCase()}
 Primary Contact: ${primaryContact}
 Known Risk Signals: ${hasHighRisk ? 'High risk - immediate action required' : 'Elevated concerns'}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate an escalation report with:
 1. A clear issue summary (2-3 sentences describing the critical issue requiring escalation)
@@ -6371,7 +6384,7 @@ Login Frequency: ${loginFrequency}x/week
 DAU/MAU Ratio: ${(dauMau * 100).toFixed(1)}%
 NPS Score: ${npsScore}
 Known Risk Signals: ${hasHighRisk ? 'High risk detected' : 'Moderate concerns'}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a risk assessment with:
 1. 6-8 risk factors categorized by type (health, engagement, support, nps, usage, relationship, financial, competitive) with severity levels and evidence
@@ -6686,7 +6699,7 @@ Login Frequency: ${loginFrequency}x/week
 Open Support Tickets: ${openTicketCount}
 Overall Status: ${overallStatus.toUpperCase().replace('_', ' ')}
 Target Resolution: ${targetResolutionDate}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a resolution plan with:
 1. A summary describing the situation and resolution approach (2-3 sentences)
@@ -7044,7 +7057,7 @@ DAU/MAU Ratio: ${(dauMau * 100).toFixed(0)}%
 NPS Score: ${npsScore}
 High Risk Signals: ${hasHighRisk ? 'Yes' : 'No'}
 Recent Activities: ${activities.length} in last 30 days
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate an executive briefing with:
 1. Executive summary (2-3 sentences capturing the overall account status)
@@ -7453,7 +7466,7 @@ NPS Score: ${npsScore}
 High Risk Signals: ${hasHighRisk ? 'Yes' : 'No'}
 Recent Activities: ${activities.length} in last 30 days
 Plan Period: ${planPeriod}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a strategic account plan with:
 1. Account overview (2-3 sentences summarizing the account and strategic direction)
@@ -7884,7 +7897,7 @@ Current ARR: $${arr.toLocaleString()}
 Feature Adoption: ${featureAdoption}%
 High Risk Signals: ${hasHighRisk ? 'Yes' : 'No'}
 Timeline: ${timelineStart} to ${timelineEnd}
-${isTemplate ? '\n(This is a template - use placeholder company "ACME Corporation" with sample data)' : ''}
+${buildCustomerInstruction(customerName, isTemplate)}
 
 Generate a transformation roadmap with:
 1. Vision statement (2-3 sentences describing the transformation goal)

@@ -50,6 +50,8 @@ import { planService } from './planService.js';
 import { artifactGenerator } from './artifactGenerator.js';
 import { capabilityMatcher } from './capabilityMatcher.js';
 import { dataHelpers } from './dataHelpers.js';
+import { createClient } from '@supabase/supabase-js';
+import { config } from '../../config/index.js';
 import {
   TaskType,
   ExecutionPlan,
@@ -58,6 +60,53 @@ import {
   TaskClassificationResult,
   CapabilityMatchResult,
 } from './types.js';
+
+// PRD-003: Supabase client for customer name resolution
+const supabase = config.supabaseUrl && config.supabaseServiceKey
+  ? createClient(config.supabaseUrl, config.supabaseServiceKey)
+  : null;
+
+/**
+ * PRD-003: Try to resolve a customer ID from a name mentioned in the user query.
+ * Extracts customer names after prepositions like "for [Name]" and fuzzy-matches
+ * against the customers table.
+ */
+async function resolveCustomerFromQuery(userQuery: string): Promise<string | null> {
+  if (!supabase) return null;
+
+  // Extract potential customer name from common patterns: "for X", "about X", "on X"
+  const namePatterns = [
+    /\bfor\s+([A-Z][A-Za-z0-9\s&.'-]+?)(?:\s*(?:\.|$|,|\?|!|–|—))/,
+    /\babout\s+([A-Z][A-Za-z0-9\s&.'-]+?)(?:\s*(?:\.|$|,|\?|!|–|—))/,
+    /\bon\s+([A-Z][A-Za-z0-9\s&.'-]+?)(?:\s*(?:\.|$|,|\?|!|–|—))/,
+  ];
+
+  for (const pattern of namePatterns) {
+    const match = userQuery.match(pattern);
+    if (match?.[1]) {
+      const candidateName = match[1].trim();
+      // Skip generic words that aren't customer names
+      if (['the customer', 'a customer', 'this customer', 'my customer', 'our customer', 'me', 'us'].includes(candidateName.toLowerCase())) continue;
+
+      try {
+        const { data } = await supabase
+          .from('customers')
+          .select('id')
+          .ilike('name', `%${candidateName}%`)
+          .limit(1);
+
+        if (data?.[0]?.id) {
+          console.log(`[CADG] PRD-003: Resolved customer "${candidateName}" → ${data[0].id}`);
+          return data[0].id;
+        }
+      } catch (error) {
+        console.warn('[CADG] Customer name resolution failed:', error);
+      }
+    }
+  }
+
+  return null;
+}
 
 /**
  * Detect if a query is a conversational question that should bypass CADG.
@@ -185,7 +234,16 @@ export const cadgService = {
     error?: string;
   }> {
     try {
-      const { userQuery, customerId, userId, taskType: providedTaskType } = params;
+      const { userQuery, userId, taskType: providedTaskType } = params;
+      let { customerId } = params;
+
+      // PRD-003: If no customer selected, try to resolve from query text
+      if (!customerId) {
+        const resolvedId = await resolveCustomerFromQuery(userQuery);
+        if (resolvedId) {
+          customerId = resolvedId;
+        }
+      }
 
       // Classify if task type not provided
       const taskType = providedTaskType ||
