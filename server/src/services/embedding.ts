@@ -1,8 +1,12 @@
 /**
  * Embedding Service
- * Generates vector embeddings using Gemini's text-embedding-005 model
+ * Generates vector embeddings using Gemini embedding models
  *
  * Output dimension: 768 (compatible with pgvector schema)
+ *
+ * Configurable via EMBEDDING_MODEL env var:
+ * - text-embedding-004 (default, stable on v1beta)
+ * - text-embedding-005 (requires v1 API)
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
@@ -54,7 +58,7 @@ export interface KnowledgeDocument {
 export class EmbeddingService {
   private client: GoogleGenerativeAI | null = null;
   private supabase: ReturnType<typeof createClient> | null = null;
-  private model: string = 'text-embedding-005';
+  private model: string = process.env.EMBEDDING_MODEL || 'text-embedding-004';
   private maxTokensPerChunk: number = 2000; // Safe limit for embedding model
   private chunkOverlap: number = 200; // Token overlap between chunks
 
