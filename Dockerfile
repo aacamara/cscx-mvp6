@@ -35,7 +35,8 @@ RUN npm ci
 # Copy source files
 COPY server/ .
 
-# Build TypeScript
+# Build TypeScript (increase heap for large codebase)
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN npm run build
 
 # ================================
