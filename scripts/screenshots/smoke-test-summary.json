@@ -1,0 +1,118 @@
+{
+  "capturedAt": "2026-02-22T00:27:16.638Z",
+  "frontendUrl": "http://localhost:5173",
+  "backendUrl": "http://localhost:3001",
+  "total": 10,
+  "passed": 9,
+  "failed": 1,
+  "steps": [
+    {
+      "name": "Login page renders",
+      "passed": true,
+      "screenshotFile": "01-login-page.png",
+      "durationMs": 2833,
+      "detail": "Login page rendered with sign-in controls"
+    },
+    {
+      "name": "Post-auth org setup",
+      "passed": true,
+      "screenshotFile": "02-org-setup.png",
+      "durationMs": 4445,
+      "detail": "Dashboard loaded after demo mode entry"
+    },
+    {
+      "name": "Customer list loads",
+      "passed": true,
+      "screenshotFile": "03-customer-list.png",
+      "durationMs": 6302,
+      "detail": "Customer list/health portfolio content detected on dashboard"
+    },
+    {
+      "name": "Customer detail 360 view",
+      "passed": true,
+      "screenshotFile": "04-customer-detail.png",
+      "durationMs": 11356,
+      "detail": "No customer row/card found to click into"
+    },
+    {
+      "name": "Admin panel accessible",
+      "passed": true,
+      "screenshotFile": "05-admin-panel.png",
+      "durationMs": 6583,
+      "detail": "Admin panel loaded with management tabs"
+    },
+    {
+      "name": "Onboarding flow accessible",
+      "passed": true,
+      "screenshotFile": "06-onboarding.png",
+      "durationMs": 11634,
+      "detail": "Onboarding or Agent Center view loaded successfully"
+    },
+    {
+      "name": "Agent Center opens",
+      "passed": true,
+      "screenshotFile": "07-agent-center.png",
+      "durationMs": 6412,
+      "detail": "Agent Center loaded with chat/agent interface"
+    },
+    {
+      "name": "Backend health endpoint",
+      "passed": false,
+      "screenshotFile": "",
+      "durationMs": 89,
+      "detail": "GET /api/health returned HTTP 404"
+    },
+    {
+      "name": "No critical console errors",
+      "passed": true,
+      "screenshotFile": "",
+      "durationMs": 0,
+      "detail": "No critical console errors (7 total, all non-critical)"
+    },
+    {
+      "name": "No API 5xx errors",
+      "passed": true,
+      "screenshotFile": "",
+      "durationMs": 0,
+      "detail": "No 5xx API errors recorded (0 total 4xx/5xx)"
+    }
+  ],
+  "consoleErrors": [
+    {
+      "step": "01-login-page",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "step": "02-org-setup",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "step": "03-customer-list",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "step": "04-customer-detail",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "step": "05-admin-panel",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "step": "06-onboarding",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    },
+    {
+      "step": "07-agent-center",
+      "text": "[WebSocket] Error: Event",
+      "url": "http://localhost:5173/"
+    }
+  ],
+  "apiFailures": []
+}

@@ -24,10 +24,14 @@
 import { test, expect, Page } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
+import { fileURLToPath } from "url";
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:5173";
 const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:3001";
@@ -486,7 +490,7 @@ test.describe("CSCX Core Flows Smoke Test (PRD-023 US-010)", () => {
     let detail = "";
 
     try {
-      const response = await request.get(`${BACKEND_URL}/api/health`);
+      const response = await request.get(`${BACKEND_URL}/health/basic`);
       const status = response.status();
       passed = status === 200;
       detail = `GET /api/health returned HTTP ${status}`;
