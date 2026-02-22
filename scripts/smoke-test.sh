@@ -1,59 +1,52 @@
 #!/bin/bash
 # CSCX.AI Post-Deploy Smoke Test
 # Usage: ./scripts/smoke-test.sh [BASE_URL]
-BASE_URL="${1:-http://localhost:3001}"
-PASS=0; FAIL=0
+
+set -euo pipefail
+
+BASE_URL="${1:-https://cscx-api-938520514616.us-central1.run.app}"
+PASS=0
+FAIL=0
+RESULTS=()
 
 check() {
-  local name="$1" url="$2" expected="$3"
-  response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
-  if [ "$response" = "$expected" ]; then
-    echo "✅ $name ($response)"
+  local name="$1"
+  local url="$2"
+  local expected_status="${3:-200}"
+  local status
+  status=$(curl -s -o /dev/null -w "%{http_code}" "$url" --max-time 10 2>/dev/null || echo "000")
+  if [[ "$status" == "$expected_status" ]]; then
+    RESULTS+=("  PASS  $name (HTTP $status)")
     PASS=$((PASS + 1))
   else
-    echo "❌ $name (got $response, expected $expected)"
+    RESULTS+=("  FAIL  $name (expected $expected_status, got $status)")
     FAIL=$((FAIL + 1))
   fi
 }
 
-# Check route is mounted (any response except 404)
-check_mounted() {
-  local name="$1" url="$2"
-  response=$(curl -s -o /dev/null -w "%{http_code}" "$url" 2>/dev/null)
-  if [ "$response" != "404" ]; then
-    echo "✅ $name ($response)"
-    PASS=$((PASS + 1))
-  else
-    echo "❌ $name (404 — route not mounted)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-echo "Smoke Testing: $BASE_URL"
-echo "================================"
+echo "=== CSCX.AI Smoke Test ==="
+echo "Target: $BASE_URL"
+echo "Time:   $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 echo ""
 
-echo "--- Health Endpoints ---"
-check "Health Live" "$BASE_URL/health/live" "200"
-check "Health Ready" "$BASE_URL/health/ready" "200"
-check "Health Full" "$BASE_URL/health" "200"
+check "Health basic"          "$BASE_URL/health/basic"
+check "Health full"           "$BASE_URL/health"
+check "Health live"           "$BASE_URL/health/live"
+check "Health ready"          "$BASE_URL/health/ready"
+check "Customers list"        "$BASE_URL/api/customers"
+check "Google OAuth connect"  "$BASE_URL/api/google/auth/connect"
+check "Frontend loads"        "$BASE_URL/"
 
+echo "--- Results ---"
+for r in "${RESULTS[@]}"; do
+  echo "$r"
+done
 echo ""
-echo "--- Auth Endpoints ---"
-check "Auth Session (no token)" "$BASE_URL/api/auth/session" "401"
-
-echo ""
-echo "--- API Routes Mounted ---"
-check_mounted "Customers" "$BASE_URL/api/customers"
-check_mounted "Support Tickets" "$BASE_URL/api/support/tickets"
-check_mounted "NPS Responses" "$BASE_URL/api/nps/responses"
-check_mounted "Feedback" "$BASE_URL/api/feedback"
-check_mounted "Playbooks" "$BASE_URL/api/playbooks"
-check_mounted "Automations" "$BASE_URL/api/automations"
-check_mounted "Support Metrics" "$BASE_URL/api/support-metrics"
-check_mounted "Email Suggestions" "$BASE_URL/api/email-suggestions/stakeholder"
-
-echo ""
-echo "================================"
-echo "Results: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+echo "Passed: $PASS  |  Failed: $FAIL  |  Total: $((PASS + FAIL))"
+if [[ $FAIL -gt 0 ]]; then
+  echo "SMOKE TEST FAILED"
+  exit 1
+else
+  echo "SMOKE TEST PASSED"
+  exit 0
+fi

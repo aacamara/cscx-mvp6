@@ -88,6 +88,12 @@ import feedbackRoutes from './routes/feedback.js'; // PRD-128: Feedback Routing
 import supportMetricsRoutes from './routes/support-metrics.js'; // PRD-087: Support Metrics
 import { supportSatisfactionRoutes } from './routes/support-satisfaction.js'; // PRD-087: CSAT
 import emailSuggestionsRoutes from './routes/email-suggestions.js'; // PRD-215: Email Suggestions
+import { kbRoutes } from './routes/kb.js'; // PRD-002: Knowledge Base
+import { actionsRoutes } from './routes/actions.js'; // HITL: Pending Actions Workflow
+import { searchRoutes } from './routes/search.js'; // Universal Search
+import uploadRoutes from './routes/upload.js'; // File Upload
+import timelineRoutes from './routes/timeline.js'; // Activity Timeline
+import { alertsRoutes } from './routes/alerts.js'; // PRD-221: Alert Filtering
 import journeyOptimizationRoutes from './routes/journey-optimization.js'; // PRD-237: Customer Journey Optimization
 import teamPerformanceRoutes from './routes/team-performance.js'; // PRD-178: Team Performance Dashboard
 import locationRemindersRoutes from './routes/location-reminders.js'; // PRD-268: Location-Based Reminders
@@ -423,6 +429,12 @@ app.use('/api/feedback', feedbackRoutes); // PRD-128: Feedback Routing
 app.use('/api/support-metrics', supportMetricsRoutes); // PRD-087: Support Metrics
 app.use('/api/support-satisfaction', supportSatisfactionRoutes); // PRD-087: CSAT
 app.use('/api/email-suggestions', emailSuggestionsRoutes); // PRD-215: Email Suggestions
+app.use('/api/kb', kbRoutes); // PRD-002: Knowledge Base
+app.use('/api/actions', actionsRoutes); // HITL: Pending Actions Workflow
+app.use('/api/search', searchRoutes); // Universal Search
+app.use('/api/upload', uploadRoutes); // File Upload
+app.use('/api/timeline', timelineRoutes); // Activity Timeline
+app.use('/api/alerts', alertsRoutes); // PRD-221: Alert Filtering
 
 // Error handler
 app.use(errorHandler);

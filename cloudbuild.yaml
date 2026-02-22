@@ -49,6 +49,23 @@ steps:
       - '--set-env-vars'
       - 'NODE_ENV=production,FRONTEND_URL=https://app.cscx.ai,CORS_ORIGIN=https://app.cscx.ai'
 
+  # Step 4: Post-deploy smoke test
+  - name: 'gcr.io/cloud-builders/curl'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Waiting 15s for service to stabilize..."
+        sleep 15
+        URL="https://cscx-api-938520514616.${_REGION}.run.app"
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health/basic" --max-time 10)
+        if [ "$STATUS" = "200" ]; then
+          echo "Smoke test PASSED (health/basic: $STATUS)"
+        else
+          echo "Smoke test FAILED (health/basic: $STATUS)"
+          exit 1
+        fi
+
 # Substitutions (can be overridden)
 substitutions:
   _REGION: us-central1
