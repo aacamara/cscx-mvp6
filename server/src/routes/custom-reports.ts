@@ -7,6 +7,8 @@
 
 import { Router, Request, Response } from 'express';
 import { customReportBuilderService } from '../services/reports/customReportBuilder.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

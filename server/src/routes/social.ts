@@ -24,6 +24,7 @@ import {
 } from '../../../types/socialMention.js';
 import crypto from 'crypto';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

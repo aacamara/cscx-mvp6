@@ -16,6 +16,7 @@ import {
   updateMitigationStatus,
   createMitigationAction
 } from '../services/riskAssessment.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

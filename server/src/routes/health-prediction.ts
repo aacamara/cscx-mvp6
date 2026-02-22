@@ -10,6 +10,8 @@ import {
   HealthPrediction,
   PortfolioHealthForecast,
 } from '../services/ai/health-prediction.js';
+import { optionalAuthMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

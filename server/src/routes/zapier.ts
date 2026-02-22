@@ -11,6 +11,8 @@
 
 import { Router, Request, Response } from 'express';
 import { zapierService, WebhookEventType, InboundActionType } from '../services/integrations/zapier.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

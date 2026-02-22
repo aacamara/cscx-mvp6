@@ -10,6 +10,7 @@ import { config } from '../config/index.js';
 import { championDepartureService } from '../services/championDeparture.js';
 import { triggerEngine } from '../triggers/engine.js';
 import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

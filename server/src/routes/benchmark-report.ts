@@ -8,6 +8,8 @@
 
 import { Router, Request, Response } from 'express';
 import benchmarkReportService from '../services/benchmarkReport.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

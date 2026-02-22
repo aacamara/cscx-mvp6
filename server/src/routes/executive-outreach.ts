@@ -15,6 +15,8 @@ import {
   type ExecutiveOutreachRequest,
 } from '../services/executive/index.js';
 import { pendingActionsService } from '../services/pendingActions.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

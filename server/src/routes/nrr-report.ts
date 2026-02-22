@@ -8,6 +8,8 @@
 
 import { Router, Request, Response } from 'express';
 import { nrrReportService } from '../services/nrrReport.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

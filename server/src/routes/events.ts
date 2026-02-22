@@ -16,6 +16,8 @@ import { attendanceParser } from '../services/events/attendanceParser.js';
 import { engagementScorer } from '../services/events/engagementScorer.js';
 import { eventRecommender } from '../services/events/eventRecommender.js';
 import { recalculateHealthScore } from '../services/usage/health-score.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

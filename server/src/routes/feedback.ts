@@ -32,6 +32,7 @@ import type {
   FeedbackSentiment,
 } from '../services/feedback/index.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

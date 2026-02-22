@@ -13,6 +13,7 @@ import { googleOAuth } from '../services/google/oauth.js';
 import { generateQBRInviteEmail, type QBRInviteData } from '../templates/emails/qbr-invite.js';
 import { generateQBRFollowupEmail, type QBRFollowupData } from '../templates/emails/qbr-followup.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

@@ -16,6 +16,8 @@ import { accountBriefingService } from '../services/accountBriefing.js';
 import { productAdoptionService } from '../services/productAdoption.js';
 import { renewalForecastService } from '../services/renewalForecast.js';
 import { anomalyDetectionService, AnomalyType, AnomalySeverity } from '../services/analytics/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

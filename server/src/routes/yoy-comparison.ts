@@ -12,6 +12,8 @@
 
 import { Router, Request, Response } from 'express';
 import { yoyComparisonService, MetricType } from '../services/reports/yoyComparison.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

@@ -23,6 +23,7 @@ import {
 import { triggerEngine } from '../triggers/engine.js';
 import type { CustomerEvent } from '../triggers/index.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

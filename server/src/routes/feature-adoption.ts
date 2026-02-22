@@ -12,6 +12,8 @@ import {
   sendAdoptionStallSlackAlert,
 } from '../services/adoption/index.js';
 import type { DetectionConfig, InterventionType, TrainingResource } from '../services/adoption/types.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

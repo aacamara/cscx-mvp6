@@ -10,6 +10,8 @@
 
 import express, { Request, Response, Router } from 'express';
 import { createClient } from '@supabase/supabase-js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router: Router = express.Router();
 

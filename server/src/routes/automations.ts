@@ -10,6 +10,7 @@ import { automationService, nlAutomationParser } from '../services/automations/i
 import { skillsService } from '../services/skills/index.js';
 import type { MCPContext } from '../mcp/index.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);

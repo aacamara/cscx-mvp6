@@ -18,6 +18,8 @@
 import { Router, Request, Response } from 'express';
 import { meetingPrepService } from '../services/meetingPrepService.js';
 import { calendarService } from '../services/google/calendar.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

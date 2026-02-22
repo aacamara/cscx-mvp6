@@ -9,6 +9,7 @@ import { config } from '../config/index.js';
 import { triggerEngine } from '../triggers/engine.js';
 import type { CustomerEvent } from '../triggers/index.js';
 import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);

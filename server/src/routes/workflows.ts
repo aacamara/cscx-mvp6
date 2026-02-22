@@ -16,6 +16,8 @@ import {
 import { executeAction, type ActionContext } from '../services/agentWorkflows/actionExecutor.js';
 import type { WorkflowContext, WorkflowId } from '../services/agentWorkflows/types.js';
 import type { CSAgentType } from '../services/google/agentActions.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 // Type definitions for external API responses
 interface AnalysisResult {

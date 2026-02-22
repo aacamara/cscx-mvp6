@@ -10,6 +10,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { productUpdateAnnouncementService } from '../services/announcements/productUpdate.js';
 import { gmailService } from '../services/google/gmail.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

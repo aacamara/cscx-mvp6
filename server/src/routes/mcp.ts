@@ -7,6 +7,8 @@ import { Router, Request, Response } from 'express';
 import { mcpRegistry } from '../mcp/registry.js';
 import { allTools, getToolStats } from '../mcp/tools/index.js';
 import { MCPContext, MCPToolCategory, MCPProvider } from '../mcp/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

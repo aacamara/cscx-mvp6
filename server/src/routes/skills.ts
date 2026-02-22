@@ -8,6 +8,8 @@ import { skillRegistry } from '../agents/skills/registry.js';
 import { skillExecutor } from '../agents/skills/executor.js';
 import { skillCache } from '../services/skillCache.js';
 import { SkillCategory, SkillContext } from '../agents/skills/types.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

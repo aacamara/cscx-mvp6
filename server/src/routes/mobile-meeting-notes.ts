@@ -9,6 +9,8 @@
 import { Router, Request, Response } from 'express';
 import { mobileMeetingNotesService } from '../services/mobile/meetingNotes.js';
 import type { MeetingTemplateType } from '../services/mobile/meetingNotes.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

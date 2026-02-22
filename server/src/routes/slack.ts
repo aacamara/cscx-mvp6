@@ -6,6 +6,8 @@
 import { Router, Request, Response } from 'express';
 import { slackOAuth } from '../services/slack/oauth.js';
 import { slackService } from '../services/slack/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

@@ -16,6 +16,7 @@ import {
 import { sendSlackAlert } from '../services/notifications/slack.js';
 import { sendNotification } from '../services/notifications/index.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

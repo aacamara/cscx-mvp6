@@ -18,6 +18,7 @@ import { activityLogger } from '../services/activityLogger.js';
 import { mcpRegistry } from '../mcp/registry.js';
 import type { MCPContext } from '../mcp/index.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

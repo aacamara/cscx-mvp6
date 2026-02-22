@@ -6,6 +6,8 @@
 import { Router, Request, Response } from 'express';
 import { coverageBackupService } from '../services/collaboration/index.js';
 import { AddCoverageNoteRequest } from '../services/collaboration/types.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

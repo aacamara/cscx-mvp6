@@ -17,6 +17,7 @@ import {
   type UsageEvent,
 } from '../services/usage/index.js';
 import { recalculateHealthScore, getHealthScoreHistory } from '../services/usage/health-score.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

@@ -22,6 +22,7 @@ import {
   PatternAnalysisResult,
   DetectedPattern
 } from '../services/ai/pattern-recognition.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

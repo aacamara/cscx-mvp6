@@ -1,5 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { SupabaseService } from '../services/supabase.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const db = new SupabaseService();

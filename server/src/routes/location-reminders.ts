@@ -15,6 +15,8 @@ import {
   EndVisitInput,
   LogGeofenceEventInput,
 } from '../services/mobile/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

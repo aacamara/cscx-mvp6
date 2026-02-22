@@ -22,6 +22,7 @@ import {
   SUGGESTED_OCCASIONS,
   type ThankYouOccasion,
 } from '../templates/emails/index.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

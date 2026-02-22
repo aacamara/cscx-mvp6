@@ -14,6 +14,7 @@ import {
 } from '../services/executiveChange.js';
 import { triggerEngine } from '../triggers/engine.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

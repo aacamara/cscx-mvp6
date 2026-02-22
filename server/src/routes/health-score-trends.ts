@@ -12,6 +12,8 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { optionalAuthMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 import healthScoreTrendService, {
   HealthScoreTrendAnalysis,
   CustomerHealthTrend

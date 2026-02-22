@@ -8,6 +8,8 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { meetingIntelligenceService } from '../services/meeting-intelligence/index.js';
 import { parseTranscript } from '../services/meeting-intelligence/processors.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);

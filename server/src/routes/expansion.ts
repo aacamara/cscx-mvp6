@@ -22,6 +22,8 @@ import { expansionOpportunityService } from '../services/expansion/opportunity-s
 import { expansionSlackAlerts } from '../services/expansion/slack-alerts.js';
 import { expansionWorkflowService } from '../services/expansion/workflow.js';
 import { ExpansionStage } from '../services/expansion/types.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

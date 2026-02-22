@@ -11,6 +11,7 @@ import { config } from '../config/index.js';
 import { playbookExecutor } from '../playbooks/executor.js';
 import type { Playbook } from '../playbooks/index.js';
 import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = createClient(config.supabaseUrl!, config.supabaseServiceKey!);

@@ -11,6 +11,8 @@ import {
   competitorDetector,
   battleCardService,
 } from '../services/competitor/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

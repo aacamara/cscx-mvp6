@@ -11,6 +11,8 @@
 
 import { Router, Request, Response } from 'express';
 import { analyzeUsagePatterns, getBenchmarkComparison } from '../services/usage/patternAnalysis.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

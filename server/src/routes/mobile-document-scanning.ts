@@ -5,6 +5,8 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 import documentScanningService, {
   DocumentType,
   ScanRequest,

@@ -4,6 +4,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import { authMiddleware } from '../middleware/auth.js';
 import metricsService, {
   calculateDashboardMetrics,
   calculateCustomerMetrics,

@@ -12,6 +12,7 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import Anthropic from '@anthropic-ai/sdk';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

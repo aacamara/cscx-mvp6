@@ -8,6 +8,7 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { randomUUID } from 'crypto';
 import { applyOrgFilterInclusive, withOrgId } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

@@ -14,6 +14,7 @@ import { config } from '../config/index.js';
 import { cadgService } from '../services/cadg/index.js';
 import { ClaudeService } from '../services/claude.js';
 import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 const claudeService = new ClaudeService();
 
 const router = Router();

@@ -19,6 +19,7 @@ import {
   getSeverityFromDays,
 } from '../services/billing/index.js';
 import { collectionsCoordinator } from '../services/billing/collections-coordinator.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

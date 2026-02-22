@@ -9,6 +9,8 @@ import { zoomService } from '../services/zoom/index.js';
 import { zoomOAuthService } from '../services/zoom/oauth.js';
 import { meetingIntelligenceService } from '../services/meeting-intelligence/index.js';
 import { parseVTT } from '../services/meeting-intelligence/processors.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

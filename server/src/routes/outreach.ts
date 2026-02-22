@@ -8,6 +8,8 @@ import { outreachService, outreachOAuth } from '../services/outreach/index.js';
 import { OutreachTriggerType } from '../services/outreach/types.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

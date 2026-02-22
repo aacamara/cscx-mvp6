@@ -22,6 +22,8 @@ import {
   getPortfolioPropensityStats,
   getCustomerPropensity,
 } from '../services/ai/expansionPropensity.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

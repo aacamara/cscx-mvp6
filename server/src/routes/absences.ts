@@ -11,6 +11,8 @@ import {
   CreateCoverageAssignmentRequest,
   AddCoverageNoteRequest,
 } from '../services/collaboration/types.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

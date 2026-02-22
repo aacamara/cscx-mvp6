@@ -25,6 +25,8 @@ import { ChatGoogleGenerativeAI } from '@langchain/google-genai';
 import { config } from '../config/index.js';
 import { cadgService } from '../services/cadg/index.js';
 import { SupabaseService } from '../services/supabase.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 const db = new SupabaseService();

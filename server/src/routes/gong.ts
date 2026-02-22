@@ -13,6 +13,8 @@
 import { Router, Request, Response } from 'express';
 import { gongOAuth } from '../services/gong/oauth.js';
 import { gongService } from '../services/gong/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

@@ -20,6 +20,7 @@ import { capabilityMatcher } from '../services/cadg/capabilityMatcher.js';
 import { PlanModification } from '../services/cadg/types.js';
 import { driveService } from '../services/google/drive.js';
 import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

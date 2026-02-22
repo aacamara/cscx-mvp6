@@ -9,6 +9,8 @@ import {
   generateHealthInsights,
   getPortfolioHealthSummary,
 } from '../services/ai/health-insights.js';
+import { optionalAuthMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

@@ -11,6 +11,7 @@ import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import crypto from 'crypto';
 import { auditLog } from '../services/auditLog.js';
+import { optionalAuthMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

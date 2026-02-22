@@ -10,6 +10,7 @@ import { emailService } from '../services/email/index.js';
 import { createClient } from '@supabase/supabase-js';
 import { config } from '../config/index.js';
 import { applyOrgFilter } from '../middleware/orgFilter.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 

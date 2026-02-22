@@ -6,6 +6,8 @@
 import { Router, Request, Response } from 'express';
 import { sheetAnalyzer, AnalysisType } from '../services/ai/sheet-analyzer.js';
 import { config } from '../config/index.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 

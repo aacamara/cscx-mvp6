@@ -21,6 +21,7 @@ import {
   RENEWAL_CHECKLISTS
 } from '../services/renewalChecklist.js';
 import { sendSlackAlert } from '../services/notifications/slack.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 const supabase = config.supabaseUrl && config.supabaseServiceKey

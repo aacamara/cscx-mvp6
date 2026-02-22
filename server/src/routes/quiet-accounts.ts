@@ -26,6 +26,8 @@ import {
   CustomerSegment,
   DEFAULT_QUIET_THRESHOLDS,
 } from '../../../types/quietAccount.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { applyOrgFilter, withOrgId } from '../middleware/orgFilter.js';
 
 const router = Router();
 
