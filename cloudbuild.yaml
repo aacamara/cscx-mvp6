@@ -57,12 +57,12 @@ steps:
       - |
         echo "Waiting 15s for service to stabilize..."
         sleep 15
-        URL="https://cscx-api-938520514616.${_REGION}.run.app"
-        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL/health/basic" --max-time 10)
-        if [ "$STATUS" = "200" ]; then
-          echo "Smoke test PASSED (health/basic: $STATUS)"
+        SMOKE_TARGET="https://cscx-api-938520514616.${_REGION}.run.app"
+        STATUS=$$(curl -s -o /dev/null -w "%{http_code}" "$$SMOKE_TARGET/health/basic" --max-time 10)
+        if [ "$$STATUS" = "200" ]; then
+          echo "Smoke test PASSED (health/basic: $$STATUS)"
         else
-          echo "Smoke test FAILED (health/basic: $STATUS)"
+          echo "Smoke test FAILED (health/basic: $$STATUS)"
           exit 1
         fi
 
