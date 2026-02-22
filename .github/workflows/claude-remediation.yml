@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Evaluate trigger
         id: check
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const event = context.eventName;
@@ -115,7 +115,7 @@ jobs:
 
       - name: Gather review context
         id: context
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prNumber = parseInt('${{ needs.should-remediate.outputs.pr_number }}');
@@ -243,7 +243,7 @@ jobs:
 
       - name: Post remediation status
         if: always()
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const prNumber = parseInt('${{ needs.should-remediate.outputs.pr_number }}');
